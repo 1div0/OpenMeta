@@ -68,7 +68,10 @@ with ``GPSTimeStamp`` when both are present, and GPS altitude candidates report
 whether ``GPSAltitudeRef`` marked the height as below sea level. Treat this as
 an inspection and policy input rather than an automatic metadata rewrite
 decision; source-bound color, lens, and RAW-processing values still need
-rendered-transfer safety filtering.
+rendered-transfer safety filtering. Each candidate also carries a transfer
+hint: ``safe``, ``source_bound``, ``rendered_unsafe``, or
+``requires_target_image_spec``, plus ``compatible_file_safe`` and
+``rendered_image_safe`` booleans for host UI and preflight policy.
 
 Adapter classes
 ---------------

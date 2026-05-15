@@ -78,6 +78,14 @@ enum class MetadataConceptTimeZoneKind : uint8_t {
     Offset,
 };
 
+enum class MetadataConceptTransferHint : uint8_t {
+    Unknown,
+    Safe,
+    SourceBound,
+    RenderedUnsafe,
+    RequiresTargetImageSpec,
+};
+
 struct MetadataConceptCandidate final {
     MetadataConceptKind kind           = MetadataConceptKind::Orientation;
     MetadataConceptRole role           = MetadataConceptRole::Primary;
@@ -89,6 +97,13 @@ struct MetadataConceptCandidate final {
     uint8_t priority = 0U;
     bool preferred   = false;
     bool conflict    = false;
+
+    MetadataConceptTransferHint transfer_hint
+        = MetadataConceptTransferHint::Unknown;
+    bool compatible_file_safe       = false;
+    bool rendered_image_safe        = false;
+    bool requires_target_image_spec = false;
+    bool source_bound               = false;
 
     bool has_numeric      = false;
     uint8_t numeric_count = 0U;
@@ -169,5 +184,8 @@ metadata_concept_datetime_precision_name(
 
 const char*
 metadata_concept_timezone_kind_name(MetadataConceptTimeZoneKind kind) noexcept;
+
+const char*
+metadata_concept_transfer_hint_name(MetadataConceptTransferHint hint) noexcept;
 
 }  // namespace openmeta

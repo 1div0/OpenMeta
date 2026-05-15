@@ -5,7 +5,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 82%** for the public target scope.
+Current overall status: **medium-high, about 83%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -35,12 +35,12 @@ explicit outcome:
 | IPTC-IIM and portable XMP | IPTC datasets and XMP properties decode into typed entries, and bounded EXIF/IPTC-to-XMP projection exists for transfer/writeback. | Medium-high, about 75-85%. | Full MWG-style reconciliation of duplicated EXIF/XMP/IPTC concepts is still bounded. |
 | Orientation | EXIF/TIFF orientation query, LibRaw flip mapping, generic orientation helpers for index, rotation degrees, mirrored state, dimension swap, rotation-only fallback, human-readable labels, and EXIF-vs-XMP conflict reporting in the LibRaw bridge. | High, about 90-95%. | Higher-level policy for resolving container and host pixel-orientation state remains host-specific. |
 | Geometry, crop, active area, and borders | DNG crop/active-area/masked-area tags, Phase One/Leaf geometry, canonical border margins, vendor RAW-processing geometry buckets, and fuzzy crop/border-style paths are queryable. | Medium-high, about 85-90%. | More vendor-specific normalized rectangles and stronger output contracts for ambiguous multi-tag geometry. |
-| Color, white balance, and matrices | DNG color/calibration/reduction/forward matrix groups, white-balance vector groups, ICC metadata, RAW color/source-processing safety buckets, and cross-family concept candidates with full grouped value vectors are identified. | Medium-high, about 78-86%. | Deeper camera/vendor color science interpretation is intentionally conservative, especially for rendered-image transfer. |
-| Lens correction and RAW processing | Lens-correction groups, black/white levels, linearization, CFA/sensor layout, raw-storage identifiers, vendor RAW/source-processing buckets, and concept candidates with grouped table/vector values are classified for query and transfer safety. | Medium-high, about 74-82%. | Long-tail per-model correction tables and richer numeric normalization. |
-| Vendor MakerNotes | Broad MakerNote naming and source-processing classification exists for common vendors and several live computational/thermal vendors. Unknown entries remain lossless and source-private subgroups distinguish preview, face geometry, computational, thermal, stitch/panorama, pixel-shift, multi-shot, composite, and auto-lighting processing data. | Medium-high, about 77-86%. | ExifTool-style long-tail print conversions, encrypted/custom settings, and per-model private tables. |
+| Color, white balance, and matrices | DNG color/calibration/reduction/forward matrix groups, white-balance vector groups, ICC metadata, RAW color/source-processing safety buckets, transfer hints, and cross-family concept candidates with full grouped value vectors are identified. | Medium-high, about 79-87%. | Deeper camera/vendor color science interpretation is intentionally conservative, especially for rendered-image transfer. |
+| Lens correction and RAW processing | Lens-correction groups, black/white levels, linearization, CFA/sensor layout, raw-storage identifiers, vendor RAW/source-processing buckets, transfer hints, and concept candidates with grouped table/vector values are classified for query and transfer safety. | Medium-high, about 76-84%. | Long-tail per-model correction tables and richer numeric normalization. |
+| Vendor MakerNotes | Broad MakerNote naming and source-processing classification exists for common vendors and several live computational/thermal vendors. Unknown entries remain lossless and source-private subgroups distinguish preview, face geometry, computational, thermal, stitch/panorama, pixel-shift, multi-shot, composite, auto-lighting, RAW crop/active-area, source color-transform, lens-correction, and raw-level processing data. | Medium-high, about 79-87%. | ExifTool-style long-tail print conversions, encrypted/custom settings, and per-model private tables. |
 | BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA | BMFF derived fields, item-info rows, bounded relations, primary-linked roles, aux semantics, and draft C2PA/JUMBF structural fields are exposed. | Medium, about 60-70%. | Full BMFF scene modeling and full C2PA manifest/policy semantics. |
 | Photoshop IRB | Raw resources are preserved and a bounded interpreted subset is decoded for fixed-layout resources. | Medium, about 60-70%. | Broader resource-specific interpretation. |
-| Semantic query/search and records | Query helpers expose raw matches, confidence, provenance, value shapes, normalized candidates, canonical crop/active-area rectangles, border margins, source-processing buckets, optional RapidFuzz near-miss matching, structured interpretation records, and bounded cross-family concept resolution for orientation, date/time, color/profile, GPS, geometry, lens-correction, and RAW-processing with parsed date/time fields, timezone/precision classification, combined GPS timestamps, GPS altitude-reference state, canonical geometry origin/size/rect/margins, full grouped value vectors, and tolerance-aware GPS conflicts. | Medium, about 63-70%. | Richer host policy hints and more long-tail per-model concept aliases. |
+| Semantic query/search and records | Query helpers expose raw matches, confidence, provenance, value shapes, normalized candidates, canonical crop/active-area rectangles, border margins, source-processing buckets, optional RapidFuzz near-miss matching, structured interpretation records, and bounded cross-family concept resolution for orientation, date/time, color/profile, GPS, geometry, lens-correction, and RAW-processing with parsed date/time fields, timezone/precision classification, combined GPS timestamps, GPS altitude-reference state, canonical geometry origin/size/rect/margins, full grouped value vectors, transfer hints, rendered/compatible safety booleans, and tolerance-aware GPS/color/geometry conflicts. | Medium, about 66-72%. | More long-tail per-model concept aliases and clearer user-facing policy messages. |
 | Transfer-safety classification | Compatible-file versus rendered-image safety policies classify source-specific image geometry, color/profile, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private data. | High, about 85-90%. | More user-facing diagnostics and additional per-family policy tests. |
 
 ## Competitor Position
@@ -57,9 +57,8 @@ outputs.
 
 ## Next Interpretation Priorities
 
-1. Add richer host policy hints to concept candidates so inspection UIs can
-   distinguish portable facts, source-bound facts, and target-owned facts
-   without reimplementing transfer-safety logic.
+1. Turn concept transfer hints into higher-level user-facing diagnostics for
+   transfer previews and GUI workflows.
 2. Expand GPS policy beyond current coordinate tolerance and altitude-reference
    state, including unit/reference presentation and cross-family timestamp
    reconciliation.

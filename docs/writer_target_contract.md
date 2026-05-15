@@ -70,7 +70,9 @@ target-correct ICC/profile data and image specs separately.
 
 The table below is the public coarse policy for automatic transfer. It is not a
 privacy policy and it is not a replacement for application-specific metadata
-controls. Hosts may still strip more metadata.
+controls. Hosts may still strip more metadata. For per-candidate preflight UI,
+`metadata_concepts.h` exposes transfer hints such as `safe`, `source_bound`,
+`rendered_unsafe`, and `requires_target_image_spec`.
 
 | Metadata group | Examples | `CompatibleFile` | `RenderedImage` | Notes |
 | --- | --- | --- | --- | --- |

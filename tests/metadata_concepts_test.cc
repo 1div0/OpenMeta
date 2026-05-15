@@ -587,6 +587,181 @@ namespace {
         }
     }
 
+    TEST(MetadataConcepts, ExposesTransferHintsForHostPolicy)
+    {
+        MetaStore store;
+        (void)add_exif_u16(&store, "ifd0", 0x0112U, 6U);
+        (void)add_exif_text(&store, "exififd", 0x9003U, "2024:04:19 12:34:56");
+        (void)add_exif_text(&store, "gpsifd", 0x0001U, "N");
+        const std::array<URational, 3> lat = {
+            URational { 41U, 1U },
+            URational { 24U, 1U },
+            URational { 30U, 1U },
+        };
+        (void)add_exif_urational_array(&store, "gpsifd", 0x0002U,
+                                       std::span<const URational>(lat.data(),
+                                                                  lat.size()));
+        (void)add_exif_u16(&store, "exififd", 0xA001U, 1U);
+        const std::array<uint32_t, 9> color_matrix_values = {
+            1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+        };
+        (void)add_exif_u32_array(
+            &store, "ifd0", 0xC621U,
+            std::span<const uint32_t>(color_matrix_values.data(),
+                                      color_matrix_values.size()));
+        const std::array<uint32_t, 4> active_area_values = {
+            10U,
+            20U,
+            3010U,
+            4020U,
+        };
+        (void)add_exif_u32_array(
+            &store, "ifd0", 0xC68DU,
+            std::span<const uint32_t>(active_area_values.data(),
+                                      active_area_values.size()));
+        (void)add_exif_u32(&store, "mk_nikon_distortinfo", 0x0001U, 7U);
+        (void)add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+        (void)add_exif_u32(&store, "mk_google_shotlogdata", 0x0001U, 7U);
+        store.finalize();
+
+        const MetadataConceptResult result = resolve_metadata_concepts(store);
+
+        const MetadataConceptResolution* datetime
+            = find_concept(result, MetadataConceptKind::DateTime);
+        ASSERT_NE(datetime, nullptr);
+        const MetadataConceptCandidate* created
+            = find_role(*datetime, MetadataConceptRole::Created);
+        ASSERT_NE(created, nullptr);
+        EXPECT_EQ(created->transfer_hint, MetadataConceptTransferHint::Safe);
+        EXPECT_TRUE(created->compatible_file_safe);
+        EXPECT_TRUE(created->rendered_image_safe);
+
+        const MetadataConceptResolution* gps
+            = find_concept(result, MetadataConceptKind::Gps);
+        ASSERT_NE(gps, nullptr);
+        const MetadataConceptCandidate* gps_lat
+            = find_role(*gps, MetadataConceptRole::Latitude);
+        ASSERT_NE(gps_lat, nullptr);
+        EXPECT_EQ(gps_lat->transfer_hint, MetadataConceptTransferHint::Safe);
+        EXPECT_TRUE(gps_lat->rendered_image_safe);
+
+        const MetadataConceptResolution* orientation
+            = find_concept(result, MetadataConceptKind::Orientation);
+        ASSERT_NE(orientation, nullptr);
+        const MetadataConceptCandidate* orientation_value
+            = find_role(*orientation, MetadataConceptRole::Orientation);
+        ASSERT_NE(orientation_value, nullptr);
+        EXPECT_EQ(orientation_value->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        EXPECT_TRUE(orientation_value->compatible_file_safe);
+        EXPECT_FALSE(orientation_value->rendered_image_safe);
+        EXPECT_TRUE(orientation_value->requires_target_image_spec);
+
+        const MetadataConceptResolution* color
+            = find_concept(result, MetadataConceptKind::ColorProfile);
+        ASSERT_NE(color, nullptr);
+        const MetadataConceptCandidate* color_space
+            = find_role(*color, MetadataConceptRole::ColorSpace);
+        ASSERT_NE(color_space, nullptr);
+        EXPECT_EQ(color_space->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        const MetadataConceptCandidate* matrix
+            = find_role(*color, MetadataConceptRole::ColorMatrix);
+        ASSERT_NE(matrix, nullptr);
+        EXPECT_EQ(matrix->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(matrix->source_bound);
+        EXPECT_FALSE(matrix->rendered_image_safe);
+
+        const MetadataConceptResolution* geometry
+            = find_concept(result, MetadataConceptKind::Geometry);
+        ASSERT_NE(geometry, nullptr);
+        const MetadataConceptCandidate* active
+            = find_role(*geometry, MetadataConceptRole::ActiveArea);
+        ASSERT_NE(active, nullptr);
+        EXPECT_EQ(active->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        EXPECT_FALSE(active->rendered_image_safe);
+
+        const MetadataConceptResolution* lens
+            = find_concept(result, MetadataConceptKind::LensCorrection);
+        ASSERT_NE(lens, nullptr);
+        const MetadataConceptCandidate* lens_value
+            = find_role(*lens, MetadataConceptRole::LensCorrection);
+        ASSERT_NE(lens_value, nullptr);
+        EXPECT_EQ(lens_value->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(lens_value->source_bound);
+
+        const MetadataConceptResolution* raw
+            = find_concept(result, MetadataConceptKind::RawProcessing);
+        ASSERT_NE(raw, nullptr);
+        const MetadataConceptCandidate* black
+            = find_role(*raw, MetadataConceptRole::BlackLevel);
+        ASSERT_NE(black, nullptr);
+        EXPECT_EQ(black->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        const MetadataConceptCandidate* source
+            = find_role(*raw, MetadataConceptRole::SourceProcessing);
+        ASSERT_NE(source, nullptr);
+        EXPECT_EQ(source->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(source->compatible_file_safe);
+        EXPECT_FALSE(source->rendered_image_safe);
+        EXPECT_STREQ(metadata_concept_transfer_hint_name(
+                         MetadataConceptTransferHint::SourceBound),
+                     "source_bound");
+    }
+
+    TEST(MetadataConcepts, SurfacesColorAndGeometryConflicts)
+    {
+        {
+            MetaStore store;
+            (void)add_exif_u16(&store, "exififd", 0xA001U, 1U);
+            (void)add_exif_u16(&store, "ifd0", 0xA001U, 2U);
+            store.finalize();
+
+            const MetadataConceptResolution color
+                = resolve_metadata_concept(store,
+                                           MetadataConceptKind::ColorProfile);
+
+            EXPECT_TRUE(color.found);
+            EXPECT_TRUE(color.conflict);
+            uint32_t conflicts = 0U;
+            for (size_t i = 0U; i < color.candidates.size(); ++i) {
+                if (color.candidates[i].role == MetadataConceptRole::ColorSpace
+                    && color.candidates[i].conflict) {
+                    conflicts += 1U;
+                }
+            }
+            EXPECT_GE(conflicts, 2U);
+        }
+
+        {
+            MetaStore store;
+            (void)add_xmp_text(&store, "http://example.invalid/aux/1.0/",
+                               "aux:SensorBorderPadding", "64 32 168 128");
+            (void)add_xmp_text(&store, "http://example.invalid/aux/1.0/",
+                               "aux:OutputBorderPadding", "32 32 168 128");
+            store.finalize();
+
+            const MetadataConceptResolution geometry
+                = resolve_metadata_concept(store,
+                                           MetadataConceptKind::Geometry);
+
+            EXPECT_TRUE(geometry.found);
+            EXPECT_TRUE(geometry.conflict);
+            uint32_t conflicts = 0U;
+            for (size_t i = 0U; i < geometry.candidates.size(); ++i) {
+                if (geometry.candidates[i].role == MetadataConceptRole::Border
+                    && geometry.candidates[i].conflict) {
+                    conflicts += 1U;
+                }
+            }
+            EXPECT_GE(conflicts, 2U);
+        }
+    }
+
     TEST(MetadataConcepts, ResolvesSingleConcept)
     {
         MetaStore store;

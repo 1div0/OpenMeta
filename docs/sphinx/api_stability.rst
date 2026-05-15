@@ -129,13 +129,17 @@ Host-facing API map
      - First bounded resolver for duplicated host-facing concepts. Current
        scope reports candidates, candidate source entries, source families,
        preferred entries, normalized numeric/text keys, full normalized value
-       vectors, normalized date/time fields, date/time precision, timezone
-       kind, normalized geometry fields, and same-role conflicts for
+       vectors, transfer hints, normalized date/time fields, date/time
+       precision, timezone kind, normalized geometry fields, and same-role
+       conflicts for
        orientation, date/time, color/profile, GPS, geometry, lens-correction,
        and RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
        query-backed interpretation records where applicable. Geometry
        candidates cover crop, active area, border, and sensor geometry with
        canonical origin, size, rect, and margin fields when available.
+       Candidate transfer hints distinguish ``safe``, ``source_bound``,
+       ``rendered_unsafe``, and ``requires_target_image_spec`` evidence, with
+       compatible-file and rendered-image safety booleans.
        Color/white-balance, lens-correction, and RAW-processing concepts
        preserve grouped matrix/vector/table values for host inspection; they
        do not make source-bound values safe to serialize into rendered targets.

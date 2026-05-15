@@ -692,6 +692,52 @@ TEST(VendorRawProcessing, ClassifiesSourcePrivateSubgroups)
                  "thermal");
 }
 
+TEST(VendorRawProcessing, ClassifiesTransferCriticalMakerNoteTerms)
+{
+    const VendorRawProcessingGroup matrix_groups
+        = classify_vendor_raw_processing_field("mk_canon_colordata_0",
+                                               "ForwardMatrix2", 0x0100U);
+    EXPECT_TRUE(has_group(matrix_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup neutral_groups
+        = classify_vendor_raw_processing_field("mk_nikon_colorbalance_0",
+                                               "AsShotNeutral", 0x0101U);
+    EXPECT_TRUE(has_group(neutral_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(neutral_groups, VendorRawProcessingGroup::WhiteBalance));
+
+    const VendorRawProcessingGroup active_groups
+        = classify_vendor_raw_processing_field("mk_sony0", "DefaultCropSize",
+                                               0x0102U);
+    EXPECT_TRUE(has_group(active_groups, VendorRawProcessingGroup::Geometry));
+
+    const VendorRawProcessingGroup masked_groups
+        = classify_vendor_raw_processing_field("mk_fuji0", "MaskedAreas",
+                                               0x0103U);
+    EXPECT_TRUE(has_group(masked_groups, VendorRawProcessingGroup::Geometry));
+
+    const VendorRawProcessingGroup lens_groups
+        = classify_vendor_raw_processing_field("mk_panasonic0",
+                                               "PeripheralIlluminationCorr",
+                                               0x0104U);
+    EXPECT_TRUE(
+        has_group(lens_groups, VendorRawProcessingGroup::LensCorrection));
+
+    const VendorRawProcessingGroup optical_black_groups
+        = classify_vendor_raw_processing_field("mk_kodak_ifd_0",
+                                               "OpticalBlackLevel", 0x0105U);
+    EXPECT_TRUE(
+        has_group(optical_black_groups, VendorRawProcessingGroup::Sensor));
+
+    const VendorRawProcessingGroup fusion_groups
+        = classify_vendor_raw_processing_field("mk_apple0",
+                                               "DeepFusionFrameCount", 0x0106U);
+    EXPECT_TRUE(
+        has_group(fusion_groups, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(
+        has_group(fusion_groups, VendorRawProcessingGroup::PrivateTable));
+}
+
 TEST(VendorRawProcessing, ClassifiesCasioSourceProcessingFields)
 {
     const VendorRawProcessingGroup wb_groups

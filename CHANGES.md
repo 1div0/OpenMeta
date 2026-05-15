@@ -1,5 +1,29 @@
 # OpenMeta Changes
 
+## 0.4.10 - 2026-05-15
+
+Changes compared with `0.4.9`.
+
+### Added
+
+- Added host-facing transfer hints to metadata concept candidates so callers
+  can distinguish generally safe concepts from source-bound, rendered-unsafe,
+  and target-image-spec-dependent metadata before transfer.
+- Python concept dictionaries now expose the same transfer hint, compatible-file
+  safety, rendered-image safety, source-bound, and target-image-spec fields.
+- Added focused tests for concept transfer hints, color/geometry conflict
+  reporting, compatible-file preservation, rendered-image filtering, and
+  transfer-critical MakerNote classification.
+
+### Changed
+
+- Expanded transfer-critical MakerNote/source-processing classification for
+  RAW crop/active-area/border names, source color transforms and WB terms, lens
+  correction/shading/distortion terms, raw black/white/linearization terms, and
+  multi-frame/computational capture state.
+- Updated the public interpretation and host-integration docs to describe the
+  concept transfer hints and current interpretation readiness.
+
 ## 0.4.9 - 2026-04-28
 
 Changes compared with `0.4.8`.

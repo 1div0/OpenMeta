@@ -147,8 +147,11 @@ RAW-processing. It returns candidate source entries, source families, preferred
 entries, normalized date/time fields where available, date/time precision,
 timezone kind, GPS altitude-reference state, canonical geometry
 origin/size/rect/margins, full normalized value vectors for grouped
-matrix/vector/table concepts, and same-role conflict flags so host UI can show
-ambiguity instead of guessing silently.
+matrix/vector/table concepts, transfer hints, compatible/rendered safety
+booleans, and same-role conflict flags so host UI can show ambiguity instead
+of guessing silently. Transfer hints use ``safe``, ``source_bound``,
+``rendered_unsafe``, or ``requires_target_image_spec`` to separate portable
+facts from source RAW/correction data and target-owned image facts.
 
 For user-facing orientation display, use ``openmeta/orientation.h`` instead of
 showing only the numeric EXIF/TIFF index. ``interpret_exif_orientation(...)``

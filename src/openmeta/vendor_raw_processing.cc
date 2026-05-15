@@ -780,7 +780,14 @@ namespace {
             || contains(name, "CameraColorCalibration")
             || contains(name, "CameraCalibration")
             || contains(name, "CbCrMatrix") || contains(name, "CbCrGain")
-            || contains(name, "ToneCurve")) {
+            || contains(name, "ToneCurve") || contains(name, "ForwardMatrix")
+            || contains(name, "ReductionMatrix")
+            || contains(name, "ColorTransform")
+            || contains(name, "ColorCorrection")
+            || contains(name, "ColorCorrectionMatrix") || contains(name, "CCM")
+            || contains(name, "LookTable") || contains(name, "HueSat")
+            || contains(name, "ProfileHue")
+            || contains(name, "ProfileToneCurve")) {
             groups |= kVendorRawColor;
         }
         if (contains(name, "WB_") || contains(name, "WhiteBalance")
@@ -790,7 +797,10 @@ namespace {
             || contains(name, "WB_RB") || contains(name, "WB_G")
             || contains(name, "WBMode") || contains(name, "WBScale")
             || contains(name, "WB_RGBMul") || contains(name, "WB_RGBCoeffs")
-            || contains(name, "WB_Red") || contains(name, "WB_Blue")) {
+            || contains(name, "WB_Red") || contains(name, "WB_Blue")
+            || contains(name, "WBLevels") || contains(name, "AsShotNeutral")
+            || contains(name, "AsShotWhiteXY") || contains(name, "WhitePoint")
+            || contains(name, "NeutralColor")) {
             groups |= kVendorRawColor | kVendorRawWhiteBalance;
         }
         if (contains(name, "ImageWidth") || contains(name, "ImageHeight")
@@ -798,7 +808,12 @@ namespace {
             || contains(name, "Crop") || contains(name, "ActiveArea")
             || contains(name, "SensorWidth") || contains(name, "SensorHeight")
             || contains(name, "SensorFull") || contains(name, "SensorLeft")
-            || contains(name, "SensorTop") || contains(name, "SensorAreas")) {
+            || contains(name, "SensorTop") || contains(name, "SensorAreas")
+            || contains(name, "DefaultCrop") || contains(name, "MaskedArea")
+            || contains(name, "MaskedAreas") || contains(name, "RawCrop")
+            || contains(name, "SensorBorder") || contains(name, "ValidArea")
+            || contains(name, "ActiveWidth")
+            || contains(name, "ActiveHeight")) {
             groups |= kVendorRawGeometry;
         }
         if (contains(name, "Strip") || contains(name, "ByteCount")
@@ -820,7 +835,13 @@ namespace {
             || contains(name, "Vignet") || contains(name, "LensCorrection")
             || contains(name, "Aberration") || contains(name, "Shading")
             || contains(name, "Peripheral") || contains(name, "Diffraction")
-            || contains(name, "LensModulationOptimizer")) {
+            || contains(name, "LensModulationOptimizer")
+            || contains(name, "LensShading") || contains(name, "LensDistortion")
+            || contains(name, "ChromaticAberration")
+            || contains(name, "PeripheralIllumination")
+            || contains(name, "GeometricDistortion")
+            || contains(name, "LateralChromatic")
+            || contains(name, "CACorrection") || contains(name, "Warp")) {
             groups |= kVendorRawLensCorrection;
         }
         if (contains(name, "BlackLevel") || contains(name, "WhiteLevel")
@@ -830,7 +851,12 @@ namespace {
             || contains(name, "RawValueMedian")
             || contains(name, "CameraTemperature") || contains(name, "RawDepth")
             || contains(name, "BitDepth") || contains(name, "BayerPattern")
-            || contains(name, "Linearity")) {
+            || contains(name, "Linearity") || contains(name, "OpticalBlack")
+            || contains(name, "BlackMask") || contains(name, "BlackCurrent")
+            || contains(name, "WhiteClip") || contains(name, "SaturationLevel")
+            || contains(name, "LinearResponse") || contains(name, "RowBlack")
+            || contains(name, "ColumnBlack")
+            || contains(name, "MaskedPixels")) {
             groups |= kVendorRawSensor;
         }
         if (contains(name, "DataDump") || contains(name, "UnknownBlock")
@@ -848,7 +874,12 @@ namespace {
             || contains(name, "ImageProcessing") || contains(name, "PixelShift")
             || contains(name, "MultiShot") || contains(name, "Composite")
             || contains(name, "AutoLightingOptimizer")
-            || contains(name, "Computational")) {
+            || contains(name, "Computational") || contains(name, "DeepFusion")
+            || contains(name, "SmartHDR") || contains(name, "NightMode")
+            || contains(name, "ImageFusion") || contains(name, "FrameFusion")
+            || contains(name, "MultiFrame") || contains(name, "Bracket")
+            || contains(name, "MotionPhoto") || contains(name, "LivePhoto")
+            || contains(name, "HDRMerge")) {
             groups |= kVendorRawComputational | kVendorRawPrivateTable;
         }
         if (contains(name, "Thermal") || contains(name, "Radiometric")

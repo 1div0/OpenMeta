@@ -765,16 +765,26 @@ namespace {
                                      MatchProvenanceState* provenance) noexcept
     {
         uint32_t terms = 0U;
-        if (term_matches(name, "crop", enable_fuzzy, provenance)) {
+        if (term_matches(name, "crop", enable_fuzzy, provenance)
+            || term_matches(name, "rawcrop", enable_fuzzy, provenance)
+            || term_matches(name, "raw crop", enable_fuzzy, provenance)
+            || term_matches(name, "defaultcrop", enable_fuzzy, provenance)
+            || term_matches(name, "default crop", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Crop);
         }
-        if (term_matches(name, "border", enable_fuzzy, provenance)) {
+        if (term_matches(name, "border", enable_fuzzy, provenance)
+            || term_matches(name, "sensorborder", enable_fuzzy, provenance)
+            || term_matches(name, "sensor border", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Border);
         }
         if (term_matches(name, "margin", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Margin);
         }
-        if (term_matches(name, "padding", enable_fuzzy, provenance)) {
+        if (term_matches(name, "padding", enable_fuzzy, provenance)
+            || term_matches(name, "maskedarea", enable_fuzzy, provenance)
+            || term_matches(name, "masked area", enable_fuzzy, provenance)
+            || term_matches(name, "opticalblack", enable_fuzzy, provenance)
+            || term_matches(name, "optical black", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Padding);
         }
         if (term_matches(name, "activearea", enable_fuzzy, provenance)
@@ -867,8 +877,18 @@ namespace {
             || term_matches(name, "tone curve", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
         }
-        if (term_matches(name, "matrix", enable_fuzzy, provenance)) {
+        if (term_matches(name, "matrix", enable_fuzzy, provenance)
+            || term_matches(name, "forwardmatrix", enable_fuzzy, provenance)
+            || term_matches(name, "forward matrix", enable_fuzzy, provenance)
+            || term_matches(name, "reductionmatrix", enable_fuzzy, provenance)
+            || term_matches(name, "reduction matrix", enable_fuzzy, provenance)
+            || term_matches(name, "ccm", enable_fuzzy, provenance)
+            || term_matches(name, "colorcorrectionmatrix", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "color correction matrix", enable_fuzzy,
+                            provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Matrix);
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
         }
         if (term_matches(name, "calibration", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Calibration);
@@ -891,7 +911,19 @@ namespace {
             || term_matches(name, "shading", enable_fuzzy, provenance)
             || term_matches(name, "peripheral", enable_fuzzy, provenance)
             || term_matches(name, "diffraction", enable_fuzzy, provenance)
-            || term_matches(name, "opcode", enable_fuzzy, provenance)) {
+            || term_matches(name, "opcode", enable_fuzzy, provenance)
+            || term_matches(name, "chromaticaberration", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "chromatic aberration", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "geometricdistortion", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "geometric distortion", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "peripheralillumination", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "peripheral illumination", enable_fuzzy,
+                            provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Lens);
         }
         if (term_matches(name, "correction", enable_fuzzy, provenance)
@@ -913,15 +945,26 @@ namespace {
     {
         uint32_t terms = 0U;
         if (term_matches(name, "blacklevel", enable_fuzzy, provenance)
-            || term_matches(name, "black level", enable_fuzzy, provenance)) {
+            || term_matches(name, "black level", enable_fuzzy, provenance)
+            || term_matches(name, "opticalblack", enable_fuzzy, provenance)
+            || term_matches(name, "optical black", enable_fuzzy, provenance)
+            || term_matches(name, "blackmask", enable_fuzzy, provenance)
+            || term_matches(name, "black mask", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::BlackLevel);
         }
         if (term_matches(name, "whitelevel", enable_fuzzy, provenance)
-            || term_matches(name, "white level", enable_fuzzy, provenance)) {
+            || term_matches(name, "white level", enable_fuzzy, provenance)
+            || term_matches(name, "whiteclip", enable_fuzzy, provenance)
+            || term_matches(name, "white clip", enable_fuzzy, provenance)
+            || term_matches(name, "saturationlevel", enable_fuzzy, provenance)
+            || term_matches(name, "saturation level", enable_fuzzy,
+                            provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::WhiteLevel);
         }
         if (term_matches(name, "linearization", enable_fuzzy, provenance)
-            || term_matches(name, "linearity", enable_fuzzy, provenance)) {
+            || term_matches(name, "linearity", enable_fuzzy, provenance)
+            || term_matches(name, "linearresponse", enable_fuzzy, provenance)
+            || term_matches(name, "linear response", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::Linearization);
         }
@@ -970,11 +1013,27 @@ namespace {
             || term_matches(name, "raw value range", enable_fuzzy, provenance)
             || term_matches(name, "rawvaluemedian", enable_fuzzy, provenance)
             || term_matches(name, "raw value median", enable_fuzzy, provenance)
+            || term_matches(name, "maskedpixels", enable_fuzzy, provenance)
+            || term_matches(name, "masked pixels", enable_fuzzy, provenance)
             || contains_ascii_case_insensitive(group, "phaseone")) {
             if (contains_ascii_case_insensitive(group, "phaseone")) {
                 note_exact_match(provenance);
             }
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor);
+        }
+        if (term_matches(name, "pixelshift", enable_fuzzy, provenance)
+            || term_matches(name, "pixel shift", enable_fuzzy, provenance)
+            || term_matches(name, "multishot", enable_fuzzy, provenance)
+            || term_matches(name, "multi shot", enable_fuzzy, provenance)
+            || term_matches(name, "multiframe", enable_fuzzy, provenance)
+            || term_matches(name, "multi frame", enable_fuzzy, provenance)
+            || term_matches(name, "deepfusion", enable_fuzzy, provenance)
+            || term_matches(name, "deep fusion", enable_fuzzy, provenance)
+            || term_matches(name, "smart hdr", enable_fuzzy, provenance)
+            || term_matches(name, "imagefusion", enable_fuzzy, provenance)
+            || term_matches(name, "image fusion", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(
+                MetadataQueryMatchTerm::SourceProcessing);
         }
         return terms;
     }

@@ -727,6 +727,133 @@ namespace {
         return true;
     }
 
+    static void set_transfer_hint(MetadataConceptCandidate* candidate,
+                                  MetadataConceptTransferHint hint,
+                                  bool compatible_safe,
+                                  bool rendered_safe) noexcept
+    {
+        if (!candidate) {
+            return;
+        }
+        candidate->transfer_hint        = hint;
+        candidate->compatible_file_safe = compatible_safe;
+        candidate->rendered_image_safe  = rendered_safe;
+        candidate->requires_target_image_spec
+            = hint == MetadataConceptTransferHint::RequiresTargetImageSpec;
+        candidate->source_bound
+            = hint == MetadataConceptTransferHint::SourceBound
+              || hint == MetadataConceptTransferHint::RenderedUnsafe;
+    }
+
+    static void
+    assign_transfer_hint(MetadataConceptCandidate* candidate) noexcept
+    {
+        if (!candidate) {
+            return;
+        }
+        switch (candidate->kind) {
+        case MetadataConceptKind::DateTime:
+        case MetadataConceptKind::Gps:
+            set_transfer_hint(candidate, MetadataConceptTransferHint::Safe,
+                              true, true);
+            return;
+        case MetadataConceptKind::Orientation:
+            set_transfer_hint(
+                candidate, MetadataConceptTransferHint::RequiresTargetImageSpec,
+                true, false);
+            return;
+        case MetadataConceptKind::Geometry:
+            set_transfer_hint(
+                candidate, MetadataConceptTransferHint::RequiresTargetImageSpec,
+                true, false);
+            return;
+        case MetadataConceptKind::LensCorrection:
+            set_transfer_hint(candidate,
+                              MetadataConceptTransferHint::RenderedUnsafe, true,
+                              false);
+            return;
+        case MetadataConceptKind::RawProcessing:
+            switch (candidate->role) {
+            case MetadataConceptRole::BlackLevel:
+            case MetadataConceptRole::WhiteLevel:
+            case MetadataConceptRole::Linearization:
+                set_transfer_hint(candidate,
+                                  MetadataConceptTransferHint::RenderedUnsafe,
+                                  true, false);
+                return;
+            case MetadataConceptRole::CfaLayout:
+            case MetadataConceptRole::SensorGeometry:
+            case MetadataConceptRole::RawStorage:
+            case MetadataConceptRole::SourceProcessing:
+            case MetadataConceptRole::Primary:
+                set_transfer_hint(candidate,
+                                  MetadataConceptTransferHint::SourceBound,
+                                  true, false);
+                return;
+            case MetadataConceptRole::Orientation:
+            case MetadataConceptRole::Created:
+            case MetadataConceptRole::Digitized:
+            case MetadataConceptRole::Modified:
+            case MetadataConceptRole::MetadataDate:
+            case MetadataConceptRole::DateCreated:
+            case MetadataConceptRole::ColorSpace:
+            case MetadataConceptRole::IccProfile:
+            case MetadataConceptRole::ColorMatrix:
+            case MetadataConceptRole::WhiteBalance:
+            case MetadataConceptRole::Latitude:
+            case MetadataConceptRole::Longitude:
+            case MetadataConceptRole::Altitude:
+            case MetadataConceptRole::Timestamp:
+            case MetadataConceptRole::Crop:
+            case MetadataConceptRole::ActiveArea:
+            case MetadataConceptRole::Border:
+            case MetadataConceptRole::LensCorrection: break;
+            }
+            break;
+        case MetadataConceptKind::ColorProfile:
+            switch (candidate->role) {
+            case MetadataConceptRole::ColorMatrix:
+            case MetadataConceptRole::WhiteBalance:
+                set_transfer_hint(candidate,
+                                  MetadataConceptTransferHint::RenderedUnsafe,
+                                  true, false);
+                return;
+            case MetadataConceptRole::ColorSpace:
+            case MetadataConceptRole::IccProfile:
+            case MetadataConceptRole::Primary:
+                set_transfer_hint(
+                    candidate,
+                    MetadataConceptTransferHint::RequiresTargetImageSpec, true,
+                    false);
+                return;
+            case MetadataConceptRole::Orientation:
+            case MetadataConceptRole::Created:
+            case MetadataConceptRole::Digitized:
+            case MetadataConceptRole::Modified:
+            case MetadataConceptRole::MetadataDate:
+            case MetadataConceptRole::DateCreated:
+            case MetadataConceptRole::Latitude:
+            case MetadataConceptRole::Longitude:
+            case MetadataConceptRole::Altitude:
+            case MetadataConceptRole::Timestamp:
+            case MetadataConceptRole::Crop:
+            case MetadataConceptRole::ActiveArea:
+            case MetadataConceptRole::Border:
+            case MetadataConceptRole::SensorGeometry:
+            case MetadataConceptRole::LensCorrection:
+            case MetadataConceptRole::BlackLevel:
+            case MetadataConceptRole::WhiteLevel:
+            case MetadataConceptRole::Linearization:
+            case MetadataConceptRole::CfaLayout:
+            case MetadataConceptRole::RawStorage:
+            case MetadataConceptRole::SourceProcessing: break;
+            }
+            break;
+        }
+        set_transfer_hint(candidate, MetadataConceptTransferHint::Unknown,
+                          false, false);
+    }
+
     static MetadataConceptCandidate*
     find_candidate(MetadataConceptResolution* resolution, EntryId entry_id,
                    MetadataConceptRole role,
@@ -2341,6 +2468,7 @@ namespace {
             MetadataConceptCandidate& candidate = resolution->candidates[i];
             candidate.preferred                 = false;
             candidate.conflict                  = false;
+            assign_transfer_hint(&candidate);
             if (candidate.source_entries.empty()) {
                 add_unique_entry(&resolution->source_entries,
                                  candidate.entry_id);
@@ -2539,6 +2667,20 @@ metadata_concept_timezone_kind_name(MetadataConceptTimeZoneKind kind) noexcept
     case MetadataConceptTimeZoneKind::Local: return "local";
     case MetadataConceptTimeZoneKind::Utc: return "utc";
     case MetadataConceptTimeZoneKind::Offset: return "offset";
+    }
+    return "unknown";
+}
+
+const char*
+metadata_concept_transfer_hint_name(MetadataConceptTransferHint hint) noexcept
+{
+    switch (hint) {
+    case MetadataConceptTransferHint::Unknown: return "unknown";
+    case MetadataConceptTransferHint::Safe: return "safe";
+    case MetadataConceptTransferHint::SourceBound: return "source_bound";
+    case MetadataConceptTransferHint::RenderedUnsafe: return "rendered_unsafe";
+    case MetadataConceptTransferHint::RequiresTargetImageSpec:
+        return "requires_target_image_spec";
     }
     return "unknown";
 }

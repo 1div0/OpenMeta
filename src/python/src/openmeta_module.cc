@@ -1161,9 +1161,17 @@ namespace {
         out["entry_id"]       = nb::int_(candidate.entry_id);
         out["source_entries"] = metadata_query_entry_ids_to_python(
             candidate.source_entries);
-        out["priority"]      = nb::int_(candidate.priority);
-        out["preferred"]     = nb::bool_(candidate.preferred);
-        out["conflict"]      = nb::bool_(candidate.conflict);
+        out["priority"]           = nb::int_(candidate.priority);
+        out["preferred"]          = nb::bool_(candidate.preferred);
+        out["conflict"]           = nb::bool_(candidate.conflict);
+        out["transfer_hint"]      = candidate.transfer_hint;
+        out["transfer_hint_name"] = nb::str(
+            metadata_concept_transfer_hint_name(candidate.transfer_hint));
+        out["compatible_file_safe"] = nb::bool_(candidate.compatible_file_safe);
+        out["rendered_image_safe"]  = nb::bool_(candidate.rendered_image_safe);
+        out["requires_target_image_spec"] = nb::bool_(
+            candidate.requires_target_image_spec);
+        out["source_bound"]  = nb::bool_(candidate.source_bound);
         out["has_numeric"]   = nb::bool_(candidate.has_numeric);
         out["numeric_count"] = nb::int_(candidate.numeric_count);
         if (candidate.has_numeric) {
@@ -6027,6 +6035,14 @@ NB_MODULE(_openmeta, m)
         .value("Local", MetadataConceptTimeZoneKind::Local)
         .value("Utc", MetadataConceptTimeZoneKind::Utc)
         .value("Offset", MetadataConceptTimeZoneKind::Offset);
+
+    nb::enum_<MetadataConceptTransferHint>(m, "MetadataConceptTransferHint")
+        .value("Unknown", MetadataConceptTransferHint::Unknown)
+        .value("Safe", MetadataConceptTransferHint::Safe)
+        .value("SourceBound", MetadataConceptTransferHint::SourceBound)
+        .value("RenderedUnsafe", MetadataConceptTransferHint::RenderedUnsafe)
+        .value("RequiresTargetImageSpec",
+               MetadataConceptTransferHint::RequiresTargetImageSpec);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)

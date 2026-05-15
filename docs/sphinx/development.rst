@@ -31,16 +31,17 @@ model should stay compact:
      - High, about 98-100% for the current target scope.
    * - Interpretation
      - Normalize names and values, group entries by meaning, and classify
-       source-bound data such as RAW crop, color, lens-correction, sensor, and
-       vendor-private fields.
-     - Medium-high, about 82%.
+       source-bound data such as RAW crop, color, lens-correction, sensor,
+       computational capture state, and vendor-private fields.
+     - Medium-high, about 83%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
-       bounded cross-family concept resolutions for crop/border/active-area,
-       exposure/gain, color/WB, orientation, date/time, GPS, lens-correction,
-       and RAW/source-processing fields across standard and vendor metadata.
-     - Medium, about 63-70%.
+       bounded cross-family concept resolutions, transfer hints, and conflict
+       flags for crop/border/active-area, exposure/gain, color/WB,
+       orientation, date/time, GPS, lens-correction, and RAW/source-processing
+       fields across standard and vendor metadata.
+     - Medium, about 66-72%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -111,10 +112,10 @@ lens-correction, and RAW-processing into candidate lists with candidate source
 entries, source families, preferred entries, normalized compare keys, parsed
 date/time fields, date/time precision, timezone kind, GPS altitude-reference
 state, canonical geometry origin/size/rect/margins, full normalized value
-vectors for grouped matrix/vector/table records, and same-role conflict flags.
-This is deliberately an inspection/policy surface; host code still decides
-whether a conflict should be shown, ignored, or corrected during
-editing/transfer.
+vectors for grouped matrix/vector/table records, transfer hints, compatible
+and rendered safety booleans, and same-role conflict flags. This is
+deliberately an inspection/policy surface; host code still decides whether a
+conflict should be shown, ignored, or corrected during editing/transfer.
 
 Read-path coverage snapshot
 ---------------------------
