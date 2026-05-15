@@ -106,8 +106,13 @@ Changes compared with `0.4.8`.
   resolution for orientation, date/time, color/profile, and GPS candidates
   across EXIF, XMP, IPTC, ICC, and PNG text where applicable, including source
   families, candidate source entries, preferred entries, normalized compare
-  keys, parsed date/time fields, combined GPS date/time candidates, and
-  same-role conflict flags.
+  keys, parsed date/time fields, timezone/precision classification, combined
+  GPS date/time candidates, GPS altitude-reference state, and same-role
+  conflict flags.
+- Extended cross-family concept resolution with geometry candidates for crop,
+  active area, border, and sensor-geometry records. Geometry candidates expose
+  canonical origin, size, rect, and margin fields when the query/interpretation
+  layer can normalize them.
 - Semantic crop queries now expose canonical border-margin candidates for
   parseable border/padding XMP text, DNG masked-area candidates, and Phase
   One/Leaf geometry margins.

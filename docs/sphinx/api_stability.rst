@@ -129,13 +129,19 @@ Host-facing API map
      - First bounded resolver for duplicated host-facing concepts. Current
        scope reports candidates, candidate source entries, source families,
        preferred entries, normalized numeric/text keys, normalized date/time
-       fields, and same-role conflicts for orientation, date/time,
-       color/profile, and GPS evidence across EXIF, XMP, IPTC, ICC, and PNG
-       text where applicable. GPS date/time is combined from ``GPSDateStamp``
-       plus ``GPSTimeStamp`` when both entries exist. It is intended for
-       inspection UI and host policy decisions; it does not rewrite metadata or
-       hide ambiguity. Python ``Document`` and ``TransferSourceSnapshot``
-       expose matching dictionary wrappers.
+       fields, date/time precision, timezone kind, normalized geometry fields,
+       and same-role conflicts for orientation, date/time, color/profile, GPS,
+       and geometry evidence across EXIF, XMP, IPTC, ICC, PNG text, and
+       query-backed interpretation records where applicable. Geometry
+       candidates cover crop, active area, border, and sensor geometry with
+       canonical origin, size, rect, and margin fields when available. GPS
+       date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp`` when
+       both entries exist, and GPS altitude candidates expose
+       altitude-reference code plus below-sea-level state when reference
+       metadata is present. It is intended for inspection UI and host policy
+       decisions; it does not rewrite metadata or hide ambiguity. Python
+       ``Document`` and
+       ``TransferSourceSnapshot`` expose matching dictionary wrappers.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

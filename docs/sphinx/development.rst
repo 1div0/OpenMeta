@@ -106,12 +106,13 @@ confidence, source entries, and normalized geometry/value arrays where
 available.
 
 For cross-family duplicated concepts, use ``openmeta/metadata_concepts.h``.
-It currently resolves orientation, date/time, color/profile, and GPS into
-candidate lists with candidate source entries, source families, preferred
-entries, normalized compare keys, parsed date/time fields, and same-role
-conflict flags. This is deliberately an inspection/policy surface; host code
-still decides whether a conflict should be shown, ignored, or corrected during
-editing/transfer.
+It currently resolves orientation, date/time, color/profile, GPS, and geometry
+into candidate lists with candidate source entries, source families, preferred
+entries, normalized compare keys, parsed date/time fields, date/time precision,
+timezone kind, GPS altitude-reference state, canonical geometry
+origin/size/rect/margins, and same-role conflict flags. This is deliberately an
+inspection/policy surface; host code still decides whether a conflict should be
+shown, ignored, or corrected during editing/transfer.
 
 Read-path coverage snapshot
 ---------------------------

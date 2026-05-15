@@ -1111,10 +1111,17 @@ namespace {
             return nb::none();
         }
         nb::dict out;
-        out["year"]     = nb::int_(candidate.date_time_year);
-        out["month"]    = nb::int_(candidate.date_time_month);
-        out["day"]      = nb::int_(candidate.date_time_day);
-        out["has_time"] = nb::bool_(candidate.date_time_has_time);
+        out["year"]           = nb::int_(candidate.date_time_year);
+        out["month"]          = nb::int_(candidate.date_time_month);
+        out["day"]            = nb::int_(candidate.date_time_day);
+        out["has_time"]       = nb::bool_(candidate.date_time_has_time);
+        out["precision"]      = candidate.date_time_precision;
+        out["precision_name"] = nb::str(
+            metadata_concept_datetime_precision_name(
+                candidate.date_time_precision));
+        out["timezone"]      = candidate.date_time_zone;
+        out["timezone_name"] = nb::str(
+            metadata_concept_timezone_kind_name(candidate.date_time_zone));
         if (candidate.date_time_has_time) {
             out["hour"]   = nb::int_(candidate.date_time_hour);
             out["minute"] = nb::int_(candidate.date_time_minute);
@@ -1164,10 +1171,30 @@ namespace {
         } else {
             out["numeric"] = nb::none();
         }
+        out["has_origin"] = nb::bool_(candidate.has_origin);
+        out["origin"]
+            = metadata_query_optional_pair_to_python(candidate.has_origin,
+                                                     candidate.origin);
+        out["has_size"] = nb::bool_(candidate.has_size);
+        out["size"] = metadata_query_optional_pair_to_python(candidate.has_size,
+                                                             candidate.size);
+        out["has_rect"] = nb::bool_(candidate.has_rect);
+        out["rect"] = metadata_query_optional_rect_to_python(candidate.has_rect,
+                                                             candidate.rect);
+        out["has_margins"] = nb::bool_(candidate.has_margins);
+        out["margins"]
+            = metadata_query_optional_margins_to_python(candidate.has_margins,
+                                                        candidate.margins);
         out["text"]          = sv_to_py(candidate.text);
         out["value_key"]     = sv_to_py(candidate.value_key);
         out["has_date_time"] = nb::bool_(candidate.has_date_time);
         out["date_time"]     = metadata_concept_datetime_to_python(candidate);
+        out["has_gps_altitude_reference"] = nb::bool_(
+            candidate.has_gps_altitude_reference);
+        out["gps_altitude_below_sea_level"] = nb::bool_(
+            candidate.gps_altitude_below_sea_level);
+        out["gps_altitude_reference_code"] = nb::int_(
+            candidate.gps_altitude_reference_code);
         return out;
     }
 
@@ -5940,7 +5967,8 @@ NB_MODULE(_openmeta, m)
         .value("Orientation", MetadataConceptKind::Orientation)
         .value("DateTime", MetadataConceptKind::DateTime)
         .value("ColorProfile", MetadataConceptKind::ColorProfile)
-        .value("Gps", MetadataConceptKind::Gps);
+        .value("Gps", MetadataConceptKind::Gps)
+        .value("Geometry", MetadataConceptKind::Geometry);
 
     nb::enum_<MetadataConceptSourceFamily>(m, "MetadataConceptSourceFamily")
         .value("Unknown", MetadataConceptSourceFamily::Unknown)
@@ -5967,7 +5995,23 @@ NB_MODULE(_openmeta, m)
         .value("Latitude", MetadataConceptRole::Latitude)
         .value("Longitude", MetadataConceptRole::Longitude)
         .value("Altitude", MetadataConceptRole::Altitude)
-        .value("Timestamp", MetadataConceptRole::Timestamp);
+        .value("Timestamp", MetadataConceptRole::Timestamp)
+        .value("Crop", MetadataConceptRole::Crop)
+        .value("ActiveArea", MetadataConceptRole::ActiveArea)
+        .value("Border", MetadataConceptRole::Border)
+        .value("SensorGeometry", MetadataConceptRole::SensorGeometry);
+
+    nb::enum_<MetadataConceptDateTimePrecision>(
+        m, "MetadataConceptDateTimePrecision")
+        .value("Unknown", MetadataConceptDateTimePrecision::Unknown)
+        .value("Date", MetadataConceptDateTimePrecision::Date)
+        .value("DateTime", MetadataConceptDateTimePrecision::DateTime);
+
+    nb::enum_<MetadataConceptTimeZoneKind>(m, "MetadataConceptTimeZoneKind")
+        .value("Unknown", MetadataConceptTimeZoneKind::Unknown)
+        .value("Local", MetadataConceptTimeZoneKind::Local)
+        .value("Utc", MetadataConceptTimeZoneKind::Utc)
+        .value("Offset", MetadataConceptTimeZoneKind::Offset);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)

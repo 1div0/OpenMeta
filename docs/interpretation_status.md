@@ -40,7 +40,7 @@ explicit outcome:
 | Vendor MakerNotes | Broad MakerNote naming and source-processing classification exists for common vendors and several live computational/thermal vendors. Unknown entries remain lossless and source-private subgroups distinguish preview, face geometry, computational, thermal, and stitch/panorama data. | Medium-high, about 75-85%. | ExifTool-style long-tail print conversions, encrypted/custom settings, and per-model private tables. |
 | BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA | BMFF derived fields, item-info rows, bounded relations, primary-linked roles, aux semantics, and draft C2PA/JUMBF structural fields are exposed. | Medium, about 60-70%. | Full BMFF scene modeling and full C2PA manifest/policy semantics. |
 | Photoshop IRB | Raw resources are preserved and a bounded interpreted subset is decoded for fixed-layout resources. | Medium, about 60-70%. | Broader resource-specific interpretation. |
-| Semantic query/search and records | Query helpers expose raw matches, confidence, provenance, value shapes, normalized candidates, canonical crop/active-area rectangles, border margins, source-processing buckets, optional RapidFuzz near-miss matching, structured interpretation records, and first bounded cross-family concept resolution for orientation, date/time, color/profile, and GPS with parsed date/time fields and combined GPS timestamps. | Medium, about 52-60%. | More canonical shapes, deeper GPS/date normalization, and richer per-record host policy hints. |
+| Semantic query/search and records | Query helpers expose raw matches, confidence, provenance, value shapes, normalized candidates, canonical crop/active-area rectangles, border margins, source-processing buckets, optional RapidFuzz near-miss matching, structured interpretation records, and first bounded cross-family concept resolution for orientation, date/time, color/profile, GPS, and geometry with parsed date/time fields, timezone/precision classification, combined GPS timestamps, GPS altitude-reference state, and canonical geometry origin/size/rect/margins. | Medium, about 58-65%. | More canonical shapes for color/lens/RAW-processing records, richer GPS coordinate/reference policy, and richer per-record host policy hints. |
 | Transfer-safety classification | Compatible-file versus rendered-image safety policies classify source-specific image geometry, color/profile, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private data. | High, about 85-90%. | More user-facing diagnostics and additional per-family policy tests. |
 
 ## Competitor Position
@@ -58,10 +58,11 @@ outputs.
 ## Next Interpretation Priorities
 
 1. Expand cross-family concept resolution beyond the current orientation,
-   date/time, color/profile, and GPS pass, especially richer timezone, GPS
-   altitude/reference, and host policy hints.
-2. Add more canonical record shapes for vendor geometry, color, lens
-   correction, and RAW-processing groups.
+   date/time, color/profile, GPS, and geometry pass, especially richer GPS
+   coordinate validation, altitude unit/reference policy, and host policy
+   hints.
+2. Add more canonical record shapes for vendor color, lens correction, and
+   RAW-processing groups.
 3. Expand MakerNote meaning depth in vendor order: Nikon, Canon, Sony,
    Fujifilm, Phase One/Leaf, then remaining active vendors.
 4. Deepen BMFF/CR3/HEIF/AVIF item graph semantics only where hosts can use the

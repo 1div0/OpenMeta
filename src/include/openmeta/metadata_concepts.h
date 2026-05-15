@@ -21,6 +21,7 @@ enum class MetadataConceptKind : uint8_t {
     DateTime,
     ColorProfile,
     Gps,
+    Geometry,
 };
 
 enum class MetadataConceptSourceFamily : uint8_t {
@@ -49,6 +50,23 @@ enum class MetadataConceptRole : uint8_t {
     Longitude,
     Altitude,
     Timestamp,
+    Crop,
+    ActiveArea,
+    Border,
+    SensorGeometry,
+};
+
+enum class MetadataConceptDateTimePrecision : uint8_t {
+    Unknown,
+    Date,
+    DateTime,
+};
+
+enum class MetadataConceptTimeZoneKind : uint8_t {
+    Unknown,
+    Local,
+    Utc,
+    Offset,
 };
 
 struct MetadataConceptCandidate final {
@@ -67,13 +85,31 @@ struct MetadataConceptCandidate final {
     uint8_t numeric_count = 0U;
     double numeric[4] {};
 
+    bool has_origin = false;
+    double origin[2] {};
+
+    bool has_size = false;
+    double size[2] {};
+
+    bool has_rect = false;
+    /// Rect is normalized as x, y, width, height.
+    double rect[4] {};
+
+    bool has_margins = false;
+    /// Margins are normalized as left, top, right, bottom.
+    double margins[4] {};
+
     std::string text;
     /// Normalized value used for same-role conflict checks.
     std::string value_key;
 
-    bool has_date_time               = false;
-    bool date_time_has_time          = false;
-    bool date_time_has_utc_offset    = false;
+    bool has_date_time            = false;
+    bool date_time_has_time       = false;
+    bool date_time_has_utc_offset = false;
+    MetadataConceptDateTimePrecision date_time_precision
+        = MetadataConceptDateTimePrecision::Unknown;
+    MetadataConceptTimeZoneKind date_time_zone
+        = MetadataConceptTimeZoneKind::Unknown;
     int16_t date_time_year           = 0;
     uint8_t date_time_month          = 0U;
     uint8_t date_time_day            = 0U;
@@ -81,6 +117,10 @@ struct MetadataConceptCandidate final {
     uint8_t date_time_minute         = 0U;
     uint8_t date_time_second         = 0U;
     int16_t date_time_utc_offset_min = 0;
+
+    bool has_gps_altitude_reference     = false;
+    bool gps_altitude_below_sea_level   = false;
+    uint8_t gps_altitude_reference_code = 0U;
 };
 
 struct MetadataConceptResolution final {
@@ -110,5 +150,12 @@ metadata_concept_source_family_name(MetadataConceptSourceFamily family) noexcept
 
 const char*
 metadata_concept_role_name(MetadataConceptRole role) noexcept;
+
+const char*
+metadata_concept_datetime_precision_name(
+    MetadataConceptDateTimePrecision precision) noexcept;
+
+const char*
+metadata_concept_timezone_kind_name(MetadataConceptTimeZoneKind kind) noexcept;
 
 }  // namespace openmeta

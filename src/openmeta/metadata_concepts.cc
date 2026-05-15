@@ -449,6 +449,43 @@ namespace {
         return hour < 24U && minute < 60U && second < 61U;
     }
 
+    static void set_datetime_precision(MetadataConceptCandidate* candidate)
+    {
+        if (!candidate || !candidate->has_date_time) {
+            return;
+        }
+        if (candidate->date_time_has_time) {
+            candidate->date_time_precision
+                = MetadataConceptDateTimePrecision::DateTime;
+        } else {
+            candidate->date_time_precision
+                = MetadataConceptDateTimePrecision::Date;
+        }
+    }
+
+    static void set_datetime_timezone(MetadataConceptCandidate* candidate,
+                                      bool has_offset,
+                                      int16_t offset_min) noexcept
+    {
+        if (!candidate) {
+            return;
+        }
+        candidate->date_time_has_utc_offset = has_offset;
+        if (!has_offset) {
+            candidate->date_time_zone
+                = candidate->date_time_has_time
+                      ? MetadataConceptTimeZoneKind::Local
+                      : MetadataConceptTimeZoneKind::Unknown;
+            return;
+        }
+        candidate->date_time_utc_offset_min = offset_min;
+        if (offset_min == 0) {
+            candidate->date_time_zone = MetadataConceptTimeZoneKind::Utc;
+        } else {
+            candidate->date_time_zone = MetadataConceptTimeZoneKind::Offset;
+        }
+    }
+
     static void format_datetime_key(const MetadataConceptCandidate& candidate,
                                     std::string* out)
     {
@@ -478,6 +515,7 @@ namespace {
     }
 
     static bool timezone_offset_from_text(std::string_view text,
+                                          uint32_t min_digits_before,
                                           int16_t* offset_min) noexcept
     {
         if (!offset_min) {
@@ -489,12 +527,14 @@ namespace {
                 digits_before += 1U;
                 continue;
             }
-            if ((text[i] == 'Z' || text[i] == 'z') && digits_before >= 14U) {
+            if ((text[i] == 'Z' || text[i] == 'z')
+                && digits_before >= min_digits_before) {
                 *offset_min = 0;
                 return true;
             }
-            if ((text[i] == '+' || text[i] == '-') && digits_before >= 14U
-                && i + 2U < text.size() && ascii_is_digit(text[i + 1U])
+            if ((text[i] == '+' || text[i] == '-')
+                && digits_before >= min_digits_before && i + 2U < text.size()
+                && ascii_is_digit(text[i + 1U])
                 && ascii_is_digit(text[i + 2U])) {
                 const uint32_t hour = parse_decimal_digits(text, i + 1U, 2U);
                 size_t minute_pos   = i + 3U;
@@ -553,6 +593,7 @@ namespace {
         candidate->date_time_month    = static_cast<uint8_t>(month);
         candidate->date_time_day      = static_cast<uint8_t>(day);
         candidate->date_time_has_time = false;
+        candidate->date_time_zone     = MetadataConceptTimeZoneKind::Unknown;
         if (digits.size() >= 14U) {
             const uint32_t hour   = parse_decimal_digits(digits, 8U, 2U);
             const uint32_t minute = parse_decimal_digits(digits, 10U, 2U);
@@ -562,12 +603,13 @@ namespace {
                 candidate->date_time_hour     = static_cast<uint8_t>(hour);
                 candidate->date_time_minute   = static_cast<uint8_t>(minute);
                 candidate->date_time_second   = static_cast<uint8_t>(second);
+                candidate->date_time_zone = MetadataConceptTimeZoneKind::Local;
             }
         }
+        set_datetime_precision(candidate);
         int16_t offset = 0;
-        if (timezone_offset_from_text(text, &offset)) {
-            candidate->date_time_has_utc_offset = true;
-            candidate->date_time_utc_offset_min = offset;
+        if (timezone_offset_from_text(text, 14U, &offset)) {
+            set_datetime_timezone(candidate, true, offset);
         }
         format_datetime_key(*candidate, &candidate->value_key);
         return true;
@@ -575,11 +617,15 @@ namespace {
 
     static bool fill_time_from_value(const ByteArena& arena,
                                      const MetaValue& value, uint8_t* hour,
-                                     uint8_t* minute, uint8_t* second)
+                                     uint8_t* minute, uint8_t* second,
+                                     bool* has_utc_offset,
+                                     int16_t* utc_offset_min)
     {
-        if (!hour || !minute || !second) {
+        if (!hour || !minute || !second || !has_utc_offset || !utc_offset_min) {
             return false;
         }
+        *has_utc_offset = false;
+        *utc_offset_min = 0;
         double values[3] {};
         if (value_to_numeric_array(arena, value, values, 3U) == 3U) {
             if (values[0] < 0.0 || values[1] < 0.0 || values[2] < 0.0) {
@@ -620,15 +666,21 @@ namespace {
         if (!valid_time(h, m, s)) {
             return false;
         }
-        *hour   = static_cast<uint8_t>(h);
-        *minute = static_cast<uint8_t>(m);
-        *second = static_cast<uint8_t>(s);
+        *hour          = static_cast<uint8_t>(h);
+        *minute        = static_cast<uint8_t>(m);
+        *second        = static_cast<uint8_t>(s);
+        int16_t offset = 0;
+        if (timezone_offset_from_text(text, 6U, &offset)) {
+            *has_utc_offset = true;
+            *utc_offset_min = offset;
+        }
         return true;
     }
 
     static bool attach_time_to_candidate(MetadataConceptCandidate* candidate,
                                          uint8_t hour, uint8_t minute,
-                                         uint8_t second, bool utc_time) noexcept
+                                         uint8_t second, bool has_utc_offset,
+                                         int16_t utc_offset_min) noexcept
     {
         if (!candidate || !candidate->has_date_time) {
             return false;
@@ -640,10 +692,8 @@ namespace {
         candidate->date_time_hour     = hour;
         candidate->date_time_minute   = minute;
         candidate->date_time_second   = second;
-        if (utc_time) {
-            candidate->date_time_has_utc_offset = true;
-            candidate->date_time_utc_offset_min = 0;
-        }
+        set_datetime_precision(candidate);
+        set_datetime_timezone(candidate, has_utc_offset, utc_offset_min);
         format_datetime_key(*candidate, &candidate->value_key);
         return true;
     }
@@ -718,6 +768,28 @@ namespace {
                 dst->numeric[i] = src.numeric[i];
             }
         }
+        if (!dst->has_origin && src.has_origin) {
+            dst->has_origin = true;
+            dst->origin[0]  = src.origin[0];
+            dst->origin[1]  = src.origin[1];
+        }
+        if (!dst->has_size && src.has_size) {
+            dst->has_size = true;
+            dst->size[0]  = src.size[0];
+            dst->size[1]  = src.size[1];
+        }
+        if (!dst->has_rect && src.has_rect) {
+            dst->has_rect = true;
+            for (uint8_t i = 0U; i < 4U; ++i) {
+                dst->rect[i] = src.rect[i];
+            }
+        }
+        if (!dst->has_margins && src.has_margins) {
+            dst->has_margins = true;
+            for (uint8_t i = 0U; i < 4U; ++i) {
+                dst->margins[i] = src.margins[i];
+            }
+        }
         if (dst->text.empty() && !src.text.empty()) {
             dst->text = src.text;
         }
@@ -730,6 +802,8 @@ namespace {
             dst->has_date_time            = true;
             dst->date_time_has_time       = src.date_time_has_time;
             dst->date_time_has_utc_offset = src.date_time_has_utc_offset;
+            dst->date_time_precision      = src.date_time_precision;
+            dst->date_time_zone           = src.date_time_zone;
             dst->date_time_year           = src.date_time_year;
             dst->date_time_month          = src.date_time_month;
             dst->date_time_day            = src.date_time_day;
@@ -742,16 +816,24 @@ namespace {
                    && dst->date_time_month == src.date_time_month
                    && dst->date_time_day == src.date_time_day) {
             if (!dst->date_time_has_time && src.date_time_has_time) {
-                dst->date_time_has_time = true;
-                dst->date_time_hour     = src.date_time_hour;
-                dst->date_time_minute   = src.date_time_minute;
-                dst->date_time_second   = src.date_time_second;
+                dst->date_time_has_time  = true;
+                dst->date_time_precision = src.date_time_precision;
+                dst->date_time_hour      = src.date_time_hour;
+                dst->date_time_minute    = src.date_time_minute;
+                dst->date_time_second    = src.date_time_second;
             }
             if (!dst->date_time_has_utc_offset
                 && src.date_time_has_utc_offset) {
                 dst->date_time_has_utc_offset = true;
+                dst->date_time_zone           = src.date_time_zone;
                 dst->date_time_utc_offset_min = src.date_time_utc_offset_min;
             }
+        }
+        if (!dst->has_gps_altitude_reference
+            && src.has_gps_altitude_reference) {
+            dst->has_gps_altitude_reference = src.has_gps_altitude_reference;
+            dst->gps_altitude_below_sea_level = src.gps_altitude_below_sea_level;
+            dst->gps_altitude_reference_code = src.gps_altitude_reference_code;
         }
     }
 
@@ -875,8 +957,10 @@ namespace {
             if (!exif_entry_ifd_and_tag(store, entry, ifd, tag)) {
                 continue;
             }
+            bool has_offset = false;
+            int16_t offset  = 0;
             if (!fill_time_from_value(store.arena(), entry.value, hour, minute,
-                                      second)) {
+                                      second, &has_offset, &offset)) {
                 continue;
             }
             if (out_id) {
@@ -890,8 +974,9 @@ namespace {
         return false;
     }
 
-    static bool find_exif_numeric(const MetaStore& store, std::string_view ifd,
-                                  uint16_t tag, double* out) noexcept
+    static bool find_exif_numeric_entry(const MetaStore& store,
+                                        std::string_view ifd, uint16_t tag,
+                                        EntryId* out_id, double* out) noexcept
     {
         const std::span<const Entry> entries = store.entries();
         for (EntryId id = 0U; id < entries.size(); ++id) {
@@ -904,12 +989,19 @@ namespace {
             }
             double values[1] {};
             if (value_to_numeric_array(store.arena(), entry.value, values, 1U)
-                == 1U) {
-                if (out) {
-                    *out = values[0];
-                }
-                return true;
+                != 1U) {
+                continue;
             }
+            if (out_id) {
+                *out_id = id;
+            }
+            if (out) {
+                *out = values[0];
+            }
+            return true;
+        }
+        if (out_id) {
+            *out_id = kInvalidEntryId;
         }
         return false;
     }
@@ -926,6 +1018,67 @@ namespace {
         for (uint8_t i = 0U; i < copy_count; ++i) {
             candidate->numeric[i] = values[i];
         }
+    }
+
+    static void fill_pair_candidate(bool present, const double* src,
+                                    bool* dst_present, double* dst) noexcept
+    {
+        if (!dst_present || !dst) {
+            return;
+        }
+        *dst_present = present;
+        if (!present || !src) {
+            return;
+        }
+        dst[0] = src[0];
+        dst[1] = src[1];
+    }
+
+    static void fill_quad_candidate(bool present, const double* src,
+                                    bool* dst_present, double* dst) noexcept
+    {
+        if (!dst_present || !dst) {
+            return;
+        }
+        *dst_present = present;
+        if (!present || !src) {
+            return;
+        }
+        dst[0] = src[0];
+        dst[1] = src[1];
+        dst[2] = src[2];
+        dst[3] = src[3];
+    }
+
+    static std::string geometry_key(const MetadataConceptCandidate& candidate)
+    {
+        char buf[160];
+        if (candidate.has_rect) {
+            std::snprintf(buf, sizeof(buf), "rect:%.12g,%.12g,%.12g,%.12g",
+                          candidate.rect[0], candidate.rect[1],
+                          candidate.rect[2], candidate.rect[3]);
+            return std::string(buf);
+        }
+        if (candidate.has_margins) {
+            std::snprintf(buf, sizeof(buf), "margins:%.12g,%.12g,%.12g,%.12g",
+                          candidate.margins[0], candidate.margins[1],
+                          candidate.margins[2], candidate.margins[3]);
+            return std::string(buf);
+        }
+        if (candidate.has_size) {
+            std::snprintf(buf, sizeof(buf), "size:%.12g,%.12g",
+                          candidate.size[0], candidate.size[1]);
+            return std::string(buf);
+        }
+        if (candidate.has_origin) {
+            std::snprintf(buf, sizeof(buf), "origin:%.12g,%.12g",
+                          candidate.origin[0], candidate.origin[1]);
+            return std::string(buf);
+        }
+        if (candidate.has_numeric && candidate.numeric_count != 0U) {
+            return numeric_key(candidate.numeric[0]);
+        }
+        return std::string();
     }
 
     static bool parse_xmp_gps_coordinate(std::string_view text, double* out)
@@ -1271,11 +1424,14 @@ namespace {
         uint8_t hour            = 0U;
         uint8_t minute          = 0U;
         uint8_t second          = 0U;
+        bool has_offset         = false;
+        int16_t offset          = 0;
         if (!fill_time_from_value(store.arena(), time_entry.value, &hour,
-                                  &minute, &second)) {
+                                  &minute, &second, &has_offset, &offset)) {
             return;
         }
-        (void)attach_time_to_candidate(&candidate, hour, minute, second, false);
+        (void)attach_time_to_candidate(&candidate, hour, minute, second,
+                                       has_offset, offset);
         add_unique_entry(&candidate.source_entries, time_id);
         append_candidate(out, candidate);
     }
@@ -1457,6 +1613,94 @@ namespace {
         }
     }
 
+    static MetadataConceptRole
+    geometry_role_from_semantic(MetadataQuerySemanticKind semantic) noexcept
+    {
+        switch (semantic) {
+        case MetadataQuerySemanticKind::Crop: return MetadataConceptRole::Crop;
+        case MetadataQuerySemanticKind::ActiveArea:
+            return MetadataConceptRole::ActiveArea;
+        case MetadataQuerySemanticKind::Border:
+            return MetadataConceptRole::Border;
+        case MetadataQuerySemanticKind::SensorGeometry:
+            return MetadataConceptRole::SensorGeometry;
+        case MetadataQuerySemanticKind::Unknown:
+        case MetadataQuerySemanticKind::Exposure:
+        case MetadataQuerySemanticKind::Gain:
+        case MetadataQuerySemanticKind::Color:
+        case MetadataQuerySemanticKind::WhiteBalance:
+        case MetadataQuerySemanticKind::ColorMatrix:
+        case MetadataQuerySemanticKind::LensCorrection:
+        case MetadataQuerySemanticKind::Orientation:
+        case MetadataQuerySemanticKind::ExposureGain:
+        case MetadataQuerySemanticKind::BlackLevel:
+        case MetadataQuerySemanticKind::WhiteLevel:
+        case MetadataQuerySemanticKind::Linearization:
+        case MetadataQuerySemanticKind::CfaLayout:
+        case MetadataQuerySemanticKind::RawStorage:
+        case MetadataQuerySemanticKind::SourceProcessing: break;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static void
+    copy_interpretation_geometry(const MetadataInterpretationRecord& record,
+                                 MetadataConceptCandidate* candidate)
+    {
+        if (!candidate) {
+            return;
+        }
+        fill_pair_candidate(record.has_origin, record.origin,
+                            &candidate->has_origin, candidate->origin);
+        fill_pair_candidate(record.has_size, record.size, &candidate->has_size,
+                            candidate->size);
+        fill_quad_candidate(record.has_rect, record.rect, &candidate->has_rect,
+                            candidate->rect);
+        fill_quad_candidate(record.has_margins, record.margins,
+                            &candidate->has_margins, candidate->margins);
+        if (record.has_values && !record.values.empty()) {
+            const uint8_t count = static_cast<uint8_t>(
+                std::min<size_t>(record.values.size(), 4U));
+            fill_numeric_candidate(candidate, record.values.data(), count);
+        }
+        candidate->value_key = geometry_key(*candidate);
+    }
+
+    static void append_geometry_candidates(const MetaStore& store,
+                                           MetadataConceptResolution* out)
+    {
+        if (!out) {
+            return;
+        }
+        MetadataInterpretationResult result
+            = interpret_metadata_query(store, MetadataQueryKind::Crop);
+        for (size_t i = 0U; i < result.records.size(); ++i) {
+            const MetadataInterpretationRecord& record = result.records[i];
+            const MetadataConceptRole role = geometry_role_from_semantic(
+                record.semantic);
+            if (role == MetadataConceptRole::Primary) {
+                continue;
+            }
+            if (record.source_entries.empty()) {
+                continue;
+            }
+            const EntryId entry_id = record.source_entries[0];
+            if (entry_id == kInvalidEntryId) {
+                continue;
+            }
+            MetadataConceptCandidate candidate = make_entry_candidate(
+                store, entry_id, MetadataConceptKind::Geometry, role,
+                record.semantic, record.shape, record.confidence);
+            candidate.source_entries.clear();
+            for (size_t e = 0U; e < record.source_entries.size(); ++e) {
+                add_unique_entry(&candidate.source_entries,
+                                 record.source_entries[e]);
+            }
+            copy_interpretation_geometry(record, &candidate);
+            append_candidate(out, candidate);
+        }
+    }
+
     static void append_gps_numeric_candidate(const MetaStore& store, EntryId id,
                                              MetadataConceptRole role,
                                              double value, uint8_t priority,
@@ -1502,14 +1746,31 @@ namespace {
             double value = 0.0;
             if (value_to_numeric_array(store.arena(), entry.value, &value, 1U)
                 == 1U) {
-                double ref = 0.0;
-                if (find_exif_numeric(store, "gpsifd", kGpsAltitudeRefTag, &ref)
-                    && ref > 0.0) {
+                double ref         = 0.0;
+                EntryId ref_id     = kInvalidEntryId;
+                const bool has_ref = find_exif_numeric_entry(store, "gpsifd",
+                                                             kGpsAltitudeRefTag,
+                                                             &ref_id, &ref);
+                const bool below_sea_level = has_ref && ref > 0.0;
+                if (below_sea_level) {
                     value = -std::fabs(value);
                 }
-                append_gps_numeric_candidate(store, id,
-                                             MetadataConceptRole::Altitude,
-                                             value, 90U, out);
+                MetadataConceptCandidate candidate
+                    = make_entry_candidate(store, id, MetadataConceptKind::Gps,
+                                           MetadataConceptRole::Altitude,
+                                           MetadataQuerySemanticKind::Unknown,
+                                           MetadataQueryValueShape::Scalar,
+                                           90U);
+                fill_numeric_candidate(&candidate, &value, 1U);
+                candidate.value_key = gps_numeric_key(value);
+                if (has_ref) {
+                    candidate.has_gps_altitude_reference   = true;
+                    candidate.gps_altitude_below_sea_level = below_sea_level;
+                    candidate.gps_altitude_reference_code
+                        = static_cast<uint8_t>(ref > 0.0 ? 1U : 0U);
+                    add_unique_entry(&candidate.source_entries, ref_id);
+                }
+                append_candidate(out, candidate);
             }
         } else if (entry.key.data.exif_tag.tag == kGpsTimeStampTag
                    || entry.key.data.exif_tag.tag == kGpsDateStampTag) {
@@ -1530,6 +1791,68 @@ namespace {
         }
     }
 
+    static bool find_xmp_gps_altitude_ref(const MetaStore& store,
+                                          EntryId* out_id,
+                                          uint8_t* out_ref_code)
+    {
+        if (out_id) {
+            *out_id = kInvalidEntryId;
+        }
+        if (out_ref_code) {
+            *out_ref_code = 0U;
+        }
+        const std::span<const Entry> entries = store.entries();
+        for (EntryId id = 0U; id < entries.size(); ++id) {
+            const Entry& entry = entries[id];
+            if (any(entry.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            if (entry.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+            const std::string_view path
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.property_path);
+            if (!ascii_contains_ci(path, "GPSAltitudeRef")) {
+                continue;
+            }
+
+            double numeric = 0.0;
+            if (value_to_numeric_array(store.arena(), entry.value, &numeric, 1U)
+                == 1U) {
+                if (out_id) {
+                    *out_id = id;
+                }
+                if (out_ref_code) {
+                    *out_ref_code = numeric > 0.0 ? 1U : 0U;
+                }
+                return true;
+            }
+
+            std::string text;
+            if (!value_to_text(store.arena(), entry.value, &text)) {
+                continue;
+            }
+            std::string key;
+            normalize_text_key(text, &key);
+            uint8_t ref_code = 0U;
+            if (!key.empty() && key[0] == '1') {
+                ref_code = 1U;
+            } else if (ascii_contains_ci(key, "below")
+                       || ascii_contains_ci(key, "sealevelbelow")) {
+                ref_code = 1U;
+            }
+            if (out_id) {
+                *out_id = id;
+            }
+            if (out_ref_code) {
+                *out_ref_code = ref_code;
+            }
+            return true;
+        }
+        return false;
+    }
+
     static void append_xmp_gps_candidate(const MetaStore& store, EntryId id,
                                          const Entry& entry,
                                          MetadataConceptResolution* out)
@@ -1545,6 +1868,8 @@ namespace {
         } else if (ascii_contains_ci(path, "GPSLongitude")) {
             role     = MetadataConceptRole::Longitude;
             priority = 80U;
+        } else if (ascii_contains_ci(path, "GPSAltitudeRef")) {
+            return;
         } else if (ascii_contains_ci(path, "GPSAltitude")) {
             role     = MetadataConceptRole::Altitude;
             priority = 75U;
@@ -1575,8 +1900,21 @@ namespace {
         } else if (role == MetadataConceptRole::Altitude) {
             double numeric = 0.0;
             if (parse_xmp_gps_coordinate(text, &numeric)) {
+                EntryId ref_id     = kInvalidEntryId;
+                uint8_t ref_code   = 0U;
+                const bool has_ref = find_xmp_gps_altitude_ref(store, &ref_id,
+                                                               &ref_code);
+                if (has_ref && ref_code != 0U) {
+                    numeric = -std::fabs(numeric);
+                }
                 fill_numeric_candidate(&candidate, &numeric, 1U);
                 candidate.value_key = gps_numeric_key(numeric);
+                if (has_ref) {
+                    candidate.has_gps_altitude_reference   = true;
+                    candidate.gps_altitude_below_sea_level = ref_code != 0U;
+                    candidate.gps_altitude_reference_code  = ref_code;
+                    add_unique_entry(&candidate.source_entries, ref_id);
+                }
             }
         }
         if (candidate.value_key.empty()) {
@@ -1624,7 +1962,8 @@ namespace {
         if (!fill_datetime_from_text(date_text, &candidate)) {
             return;
         }
-        (void)attach_time_to_candidate(&candidate, hour, minute, second, true);
+        (void)attach_time_to_candidate(&candidate, hour, minute, second, true,
+                                       0);
         add_unique_entry(&candidate.source_entries, time_id);
         append_candidate(out, candidate);
     }
@@ -1800,6 +2139,10 @@ namespace {
             MetadataConceptRole::Longitude,
             MetadataConceptRole::Altitude,
             MetadataConceptRole::Timestamp,
+            MetadataConceptRole::Crop,
+            MetadataConceptRole::ActiveArea,
+            MetadataConceptRole::Border,
+            MetadataConceptRole::SensorGeometry,
         };
         for (size_t i = 0U; i < std::size(roles); ++i) {
             mark_role_preferred(resolution, roles[i]);
@@ -1839,6 +2182,9 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind)
         append_color_profile_candidates(store, &out);
         break;
     case MetadataConceptKind::Gps: append_gps_candidates(store, &out); break;
+    case MetadataConceptKind::Geometry:
+        append_geometry_candidates(store, &out);
+        break;
     }
     finalize_resolution(&out);
     return out;
@@ -1848,7 +2194,7 @@ MetadataConceptResult
 resolve_metadata_concepts(const MetaStore& store)
 {
     MetadataConceptResult out;
-    out.concepts.reserve(4U);
+    out.concepts.reserve(5U);
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Orientation));
     out.concepts.push_back(
@@ -1857,6 +2203,8 @@ resolve_metadata_concepts(const MetaStore& store)
         resolve_metadata_concept(store, MetadataConceptKind::ColorProfile));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Gps));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::Geometry));
     return out;
 }
 
@@ -1868,6 +2216,7 @@ metadata_concept_kind_name(MetadataConceptKind kind) noexcept
     case MetadataConceptKind::DateTime: return "date_time";
     case MetadataConceptKind::ColorProfile: return "color_profile";
     case MetadataConceptKind::Gps: return "gps";
+    case MetadataConceptKind::Geometry: return "geometry";
     }
     return "unknown";
 }
@@ -1907,6 +2256,34 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::Longitude: return "longitude";
     case MetadataConceptRole::Altitude: return "altitude";
     case MetadataConceptRole::Timestamp: return "timestamp";
+    case MetadataConceptRole::Crop: return "crop";
+    case MetadataConceptRole::ActiveArea: return "active_area";
+    case MetadataConceptRole::Border: return "border";
+    case MetadataConceptRole::SensorGeometry: return "sensor_geometry";
+    }
+    return "unknown";
+}
+
+const char*
+metadata_concept_datetime_precision_name(
+    MetadataConceptDateTimePrecision precision) noexcept
+{
+    switch (precision) {
+    case MetadataConceptDateTimePrecision::Unknown: return "unknown";
+    case MetadataConceptDateTimePrecision::Date: return "date";
+    case MetadataConceptDateTimePrecision::DateTime: return "date_time";
+    }
+    return "unknown";
+}
+
+const char*
+metadata_concept_timezone_kind_name(MetadataConceptTimeZoneKind kind) noexcept
+{
+    switch (kind) {
+    case MetadataConceptTimeZoneKind::Unknown: return "unknown";
+    case MetadataConceptTimeZoneKind::Local: return "local";
+    case MetadataConceptTimeZoneKind::Utc: return "utc";
+    case MetadataConceptTimeZoneKind::Offset: return "offset";
     }
     return "unknown";
 }

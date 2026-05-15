@@ -60,6 +60,18 @@ namespace {
         return id;
     }
 
+    static EntryId add_exif_u32_array(MetaStore* store, std::string_view ifd,
+                                      uint16_t tag,
+                                      std::span<const uint32_t> values)
+    {
+        Entry entry;
+        entry.key        = make_exif_tag_key(store->arena(), ifd, tag);
+        entry.value      = make_u32_array(store->arena(), values);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
     static EntryId add_xmp_text(MetaStore* store, std::string_view ns,
                                 std::string_view path, std::string_view value)
     {
@@ -188,6 +200,15 @@ namespace {
                                                                   lon.size()));
         (void)add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
                            "exif:GPSLatitude", "41,24.500N");
+        const EntryId altitude_ref = add_exif_u16(&store, "gpsifd", 0x0005U,
+                                                  1U);
+        const std::array<URational, 1> alt = {
+            URational { 100U, 1U },
+        };
+        const EntryId altitude
+            = add_exif_urational_array(&store, "gpsifd", 0x0006U,
+                                       std::span<const URational>(alt.data(),
+                                                                  alt.size()));
         const EntryId gps_date = add_exif_text(&store, "gpsifd", 0x001DU,
                                                "2024:04:19");
         const std::array<URational, 3> gps_time = {
@@ -198,6 +219,29 @@ namespace {
         const EntryId gps_time_id = add_exif_urational_array(
             &store, "gpsifd", 0x0007U,
             std::span<const URational>(gps_time.data(), gps_time.size()));
+        const std::array<uint32_t, 2> crop_origin_values = { 12U, 34U };
+        const std::array<uint32_t, 2> crop_size_values   = { 4000U, 3000U };
+        const std::span<const uint32_t> crop_origin_span(
+            crop_origin_values.data(), crop_origin_values.size());
+        const std::span<const uint32_t> crop_size_span(crop_size_values.data(),
+                                                       crop_size_values.size());
+        const EntryId crop_origin = add_exif_u32_array(&store, "ifd0", 0xC61FU,
+                                                       crop_origin_span);
+        const EntryId crop_size   = add_exif_u32_array(&store, "ifd0", 0xC620U,
+                                                       crop_size_span);
+        const std::array<uint32_t, 4> active_area_values = {
+            10U,
+            20U,
+            3010U,
+            4020U,
+        };
+        const EntryId active_area = add_exif_u32_array(
+            &store, "ifd0", 0xC68DU,
+            std::span<const uint32_t>(active_area_values.data(),
+                                      active_area_values.size()));
+        const EntryId border_padding
+            = add_xmp_text(&store, "http://example.invalid/aux/1.0/",
+                           "aux:SensorBorderPadding", "64 32 168 128");
         store.finalize();
 
         const MetadataConceptResult result = resolve_metadata_concepts(store);
@@ -232,18 +276,25 @@ namespace {
         EXPECT_EQ(created->date_time_year, 2024);
         EXPECT_EQ(created->date_time_month, 4U);
         EXPECT_EQ(created->date_time_day, 19U);
+        EXPECT_EQ(created->date_time_precision,
+                  MetadataConceptDateTimePrecision::DateTime);
+        EXPECT_EQ(created->date_time_zone, MetadataConceptTimeZoneKind::Local);
         const MetadataConceptCandidate* xmp_created
             = find_role_family(*datetime, MetadataConceptRole::Created,
                                MetadataConceptSourceFamily::Xmp);
         ASSERT_NE(xmp_created, nullptr);
         EXPECT_TRUE(xmp_created->date_time_has_utc_offset);
         EXPECT_EQ(xmp_created->date_time_utc_offset_min, 0);
+        EXPECT_EQ(xmp_created->date_time_zone,
+                  MetadataConceptTimeZoneKind::Utc);
         ASSERT_NE(find_role(*datetime, MetadataConceptRole::Modified), nullptr);
         const MetadataConceptCandidate* iptc_created
             = find_role(*datetime, MetadataConceptRole::DateCreated);
         ASSERT_NE(iptc_created, nullptr);
         EXPECT_TRUE(iptc_created->has_date_time);
         EXPECT_TRUE(iptc_created->date_time_has_time);
+        EXPECT_EQ(iptc_created->date_time_zone,
+                  MetadataConceptTimeZoneKind::Utc);
 
         const MetadataConceptResolution* color
             = find_concept(result, MetadataConceptKind::ColorProfile);
@@ -272,6 +323,18 @@ namespace {
         ASSERT_NE(lon_candidate, nullptr);
         ASSERT_TRUE(lon_candidate->has_numeric);
         EXPECT_NEAR(lon_candidate->numeric[0], 2.15, 0.000001);
+        const MetadataConceptCandidate* altitude_candidate
+            = find_role(*gps, MetadataConceptRole::Altitude);
+        ASSERT_NE(altitude_candidate, nullptr);
+        ASSERT_TRUE(altitude_candidate->has_numeric);
+        EXPECT_NEAR(altitude_candidate->numeric[0], -100.0, 0.000001);
+        EXPECT_TRUE(altitude_candidate->has_gps_altitude_reference);
+        EXPECT_TRUE(altitude_candidate->gps_altitude_below_sea_level);
+        EXPECT_EQ(altitude_candidate->gps_altitude_reference_code, 1U);
+        EXPECT_TRUE(
+            contains_entry(altitude_candidate->source_entries, altitude_ref));
+        EXPECT_TRUE(
+            contains_entry(altitude_candidate->source_entries, altitude));
         const MetadataConceptCandidate* gps_timestamp
             = find_role(*gps, MetadataConceptRole::Timestamp);
         ASSERT_NE(gps_timestamp, nullptr);
@@ -281,10 +344,55 @@ namespace {
         EXPECT_EQ(gps_timestamp->date_time_hour, 12U);
         EXPECT_EQ(gps_timestamp->date_time_minute, 34U);
         EXPECT_EQ(gps_timestamp->date_time_second, 56U);
+        EXPECT_EQ(gps_timestamp->date_time_precision,
+                  MetadataConceptDateTimePrecision::DateTime);
+        EXPECT_EQ(gps_timestamp->date_time_zone,
+                  MetadataConceptTimeZoneKind::Utc);
         EXPECT_TRUE(contains_entry(gps_timestamp->source_entries, gps_date));
         EXPECT_TRUE(contains_entry(gps_timestamp->source_entries, gps_time_id));
         EXPECT_EQ(gps->preferred_entry, latitude);
         EXPECT_NE(longitude, kInvalidEntryId);
+
+        const MetadataConceptResolution* geometry
+            = find_concept(result, MetadataConceptKind::Geometry);
+        ASSERT_NE(geometry, nullptr);
+        EXPECT_TRUE(geometry->found);
+        const MetadataConceptCandidate* crop
+            = find_role(*geometry, MetadataConceptRole::Crop);
+        ASSERT_NE(crop, nullptr);
+        ASSERT_TRUE(crop->has_origin);
+        EXPECT_DOUBLE_EQ(crop->origin[0], 12.0);
+        EXPECT_DOUBLE_EQ(crop->origin[1], 34.0);
+        ASSERT_TRUE(crop->has_size);
+        EXPECT_DOUBLE_EQ(crop->size[0], 4000.0);
+        EXPECT_DOUBLE_EQ(crop->size[1], 3000.0);
+        ASSERT_TRUE(crop->has_rect);
+        EXPECT_DOUBLE_EQ(crop->rect[0], 12.0);
+        EXPECT_DOUBLE_EQ(crop->rect[1], 34.0);
+        EXPECT_DOUBLE_EQ(crop->rect[2], 4000.0);
+        EXPECT_DOUBLE_EQ(crop->rect[3], 3000.0);
+        EXPECT_TRUE(contains_entry(crop->source_entries, crop_origin));
+        EXPECT_TRUE(contains_entry(crop->source_entries, crop_size));
+
+        const MetadataConceptCandidate* active
+            = find_role(*geometry, MetadataConceptRole::ActiveArea);
+        ASSERT_NE(active, nullptr);
+        ASSERT_TRUE(active->has_rect);
+        EXPECT_DOUBLE_EQ(active->rect[0], 20.0);
+        EXPECT_DOUBLE_EQ(active->rect[1], 10.0);
+        EXPECT_DOUBLE_EQ(active->rect[2], 4000.0);
+        EXPECT_DOUBLE_EQ(active->rect[3], 3000.0);
+        EXPECT_TRUE(contains_entry(active->source_entries, active_area));
+
+        const MetadataConceptCandidate* border
+            = find_role(*geometry, MetadataConceptRole::Border);
+        ASSERT_NE(border, nullptr);
+        ASSERT_TRUE(border->has_margins);
+        EXPECT_DOUBLE_EQ(border->margins[0], 64.0);
+        EXPECT_DOUBLE_EQ(border->margins[1], 32.0);
+        EXPECT_DOUBLE_EQ(border->margins[2], 168.0);
+        EXPECT_DOUBLE_EQ(border->margins[3], 128.0);
+        EXPECT_TRUE(contains_entry(border->source_entries, border_padding));
     }
 
     TEST(MetadataConcepts, FlagsConflictingCreatedDatesAcrossFamilies)

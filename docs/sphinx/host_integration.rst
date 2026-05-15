@@ -56,11 +56,16 @@ entries, confidence, and normalized geometry/value arrays.
 
 For host code that needs to reconcile duplicated concepts across metadata
 families, use ``metadata_concepts.h``. It reports orientation, date/time,
-color/profile, and GPS candidates with source families, preferred entries, and
-same-role conflict flags. Date/time candidates include parsed date/time fields
-when the source value is recognizable, and GPS timestamps combine
-``GPSDateStamp`` with ``GPSTimeStamp`` when both are present. Treat this as an
-inspection and policy input rather than an automatic metadata rewrite decision.
+color/profile, GPS, and geometry candidates with source families, preferred
+entries, and same-role conflict flags. Geometry candidates expose crop,
+active-area, border, and sensor-geometry roles with canonical origin, size,
+rect, and margin fields when available. Date/time candidates include parsed
+date/time fields when the source value is recognizable, plus precision and
+timezone-kind fields. GPS timestamps combine ``GPSDateStamp`` with
+``GPSTimeStamp`` when both are present, and GPS altitude candidates report
+whether ``GPSAltitudeRef`` marked the height as below sea level. Treat this as
+an inspection and policy input rather than an automatic metadata rewrite
+decision.
 
 Adapter classes
 ---------------
@@ -87,7 +92,7 @@ OpenMeta splits host integration surfaces deliberately:
   ``metadata_interpretation.h`` for query-backed semantic records
 - concept-resolution utility:
   ``metadata_concepts.h`` for cross-family orientation, date/time,
-  color/profile, and GPS conflict inspection
+  color/profile, GPS, and geometry conflict inspection
 
 Read and query
 --------------
