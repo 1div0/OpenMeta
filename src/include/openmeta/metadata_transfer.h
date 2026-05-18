@@ -443,6 +443,11 @@ enum class TransferConceptDiagnosticReason : uint8_t {
     TargetImageSpecRequired,
 };
 
+enum class TransferConceptDiagnosticSeverity : uint8_t {
+    Info,
+    Warning,
+};
+
 struct TransferConceptDiagnostic final {
     MetadataConceptKind kind         = MetadataConceptKind::Orientation;
     MetadataConceptRole role         = MetadataConceptRole::Primary;
@@ -451,6 +456,8 @@ struct TransferConceptDiagnostic final {
         = TransferConceptDiagnosticAction::Drop;
     TransferConceptDiagnosticReason reason
         = TransferConceptDiagnosticReason::Unknown;
+    TransferConceptDiagnosticSeverity severity
+        = TransferConceptDiagnosticSeverity::Warning;
     EntryId entry_id = kInvalidEntryId;
     std::vector<EntryId> source_entries;
     bool preferred                      = false;
@@ -1959,6 +1966,18 @@ transfer_concept_diagnostic_action_name(
 const char*
 transfer_concept_diagnostic_reason_name(
     TransferConceptDiagnosticReason reason) noexcept;
+
+TransferConceptDiagnosticSeverity
+transfer_concept_diagnostic_severity(
+    const TransferConceptDiagnostic& diagnostic) noexcept;
+
+const char*
+transfer_concept_diagnostic_severity_name(
+    TransferConceptDiagnosticSeverity severity) noexcept;
+
+const char*
+transfer_concept_diagnostic_message(
+    const TransferConceptDiagnostic& diagnostic) noexcept;
 
 /**
  * \brief Report which opt-in raw source carriers are passthrough candidates.

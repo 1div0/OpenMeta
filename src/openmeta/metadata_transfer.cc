@@ -13358,6 +13358,21 @@ namespace {
         return TransferConceptDiagnosticAction::Drop;
     }
 
+    static TransferConceptDiagnosticSeverity
+    concept_diagnostic_severity_for_values(
+        TransferConceptDiagnosticAction action,
+        TransferConceptDiagnosticReason reason, bool conflict) noexcept
+    {
+        if (conflict) {
+            return TransferConceptDiagnosticSeverity::Warning;
+        }
+        if (action == TransferConceptDiagnosticAction::Keep
+            && reason == TransferConceptDiagnosticReason::Safe) {
+            return TransferConceptDiagnosticSeverity::Info;
+        }
+        return TransferConceptDiagnosticSeverity::Warning;
+    }
+
     static void
     append_diagnostic_source_entries(const MetadataConceptCandidate& candidate,
                                      TransferConceptDiagnostic* diagnostic)
@@ -13387,6 +13402,9 @@ namespace {
         out.action = concept_diagnostic_action_for_candidate(candidate, safety);
         out.reason = concept_diagnostic_reason_from_hint(
             candidate.transfer_hint);
+        out.severity
+            = concept_diagnostic_severity_for_values(out.action, out.reason,
+                                                     candidate.conflict);
         out.entry_id                   = candidate.entry_id;
         out.preferred                  = candidate.preferred;
         out.conflict                   = candidate.conflict;
@@ -13482,6 +13500,59 @@ transfer_concept_diagnostic_reason_name(
         return "target_image_spec_required";
     }
     return "unknown";
+}
+
+TransferConceptDiagnosticSeverity
+transfer_concept_diagnostic_severity(
+    const TransferConceptDiagnostic& diagnostic) noexcept
+{
+    return concept_diagnostic_severity_for_values(diagnostic.action,
+                                                  diagnostic.reason,
+                                                  diagnostic.conflict);
+}
+
+const char*
+transfer_concept_diagnostic_severity_name(
+    TransferConceptDiagnosticSeverity severity) noexcept
+{
+    switch (severity) {
+    case TransferConceptDiagnosticSeverity::Info: return "info";
+    case TransferConceptDiagnosticSeverity::Warning: return "warning";
+    }
+    return "unknown";
+}
+
+const char*
+transfer_concept_diagnostic_message(
+    const TransferConceptDiagnostic& diagnostic) noexcept
+{
+    if (diagnostic.conflict) {
+        return "multiple source values conflict; host policy should choose, "
+               "rewrite, or omit this concept";
+    }
+    switch (diagnostic.action) {
+    case TransferConceptDiagnosticAction::Keep:
+        return "metadata is safe to keep for this transfer mode";
+    case TransferConceptDiagnosticAction::RequiresTargetImageSpec:
+        return "source value describes target-owned image properties; provide "
+               "target image specs or write a target-correct value";
+    case TransferConceptDiagnosticAction::Drop:
+        switch (diagnostic.reason) {
+        case TransferConceptDiagnosticReason::RenderedUnsafe:
+            return "source processing metadata is unsafe for rendered-image "
+                   "transfer and will be dropped";
+        case TransferConceptDiagnosticReason::SourceBound:
+            return "metadata is bound to the source RAW or correction pipeline "
+                   "and will be dropped for this transfer mode";
+        case TransferConceptDiagnosticReason::TargetImageSpecRequired:
+            return "target-owned metadata is missing target image specs and "
+                   "will be dropped";
+        case TransferConceptDiagnosticReason::Safe:
+        case TransferConceptDiagnosticReason::Unknown: break;
+        }
+        break;
+    }
+    return "metadata has no safe automatic transfer action for this mode";
 }
 
 namespace {

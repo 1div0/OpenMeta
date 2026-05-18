@@ -69,7 +69,9 @@ hint: `safe`, `source_bound`, `rendered_unsafe`, or
 `rendered_image_safe` booleans for host UI and preflight policy. For transfer
 previews, `transfer_concept_diagnostics_from_store(...)` converts those hints
 into keep/drop/requires-target-image-spec actions for a selected
-`TransferSafetyMode`.
+`TransferSafetyMode`, plus stable severity tokens and default message text for
+host UI. Hosts can localize or replace the wording, but they do not need to
+invent the basic safe/drop/rewrite reasons.
 
 ## Adapter Classes
 
@@ -640,8 +642,14 @@ for (size_t i = 0U; i < diagnostics.diagnostics.size(); ++i) {
         openmeta::transfer_concept_diagnostic_action_name(item.action);
     const char* reason =
         openmeta::transfer_concept_diagnostic_reason_name(item.reason);
+    const char* severity =
+        openmeta::transfer_concept_diagnostic_severity_name(item.severity);
+    const char* message =
+        openmeta::transfer_concept_diagnostic_message(item);
     (void)action;
     (void)reason;
+    (void)severity;
+    (void)message;
 }
 ```
 
@@ -659,7 +667,13 @@ diagnostics = doc.transfer_concept_diagnostics(
     openmeta.TransferSafetyMode.RenderedImage
 )
 for item in diagnostics["diagnostics"]:
-    print(item["kind_name"], item["role_name"], item["action_name"])
+    print(
+        item["kind_name"],
+        item["role_name"],
+        item["action_name"],
+        item["severity_name"],
+        item["message"],
+    )
 ```
 
 `metaread` prints

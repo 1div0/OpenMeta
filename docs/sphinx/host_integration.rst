@@ -75,7 +75,9 @@ transfer hint: ``safe``, ``source_bound``, ``rendered_unsafe``, or
 ``rendered_image_safe`` booleans for host UI and preflight policy. For transfer
 previews, ``transfer_concept_diagnostics_from_store(...)`` converts those hints
 into keep/drop/requires-target-image-spec actions for a selected
-``TransferSafetyMode``.
+``TransferSafetyMode``, plus stable severity tokens and default message text
+for host UI. Hosts can localize or replace the wording, but they do not need to
+invent the basic safe/drop/rewrite reasons.
 
 Adapter classes
 ---------------
@@ -631,8 +633,14 @@ host UI, not as a rendered-output write source.
            openmeta::transfer_concept_diagnostic_action_name(item.action);
        const char* reason =
            openmeta::transfer_concept_diagnostic_reason_name(item.reason);
+       const char* severity =
+           openmeta::transfer_concept_diagnostic_severity_name(item.severity);
+       const char* message =
+           openmeta::transfer_concept_diagnostic_message(item);
        (void)action;
        (void)reason;
+       (void)severity;
+       (void)message;
    }
 
 Python uses the same family enum:
@@ -650,7 +658,13 @@ Python uses the same family enum:
        openmeta.TransferSafetyMode.RenderedImage
    )
    for item in diagnostics["diagnostics"]:
-       print(item["kind_name"], item["role_name"], item["action_name"])
+       print(
+           item["kind_name"],
+           item["role_name"],
+           item["action_name"],
+           item["severity_name"],
+           item["message"],
+       )
 
 ``metaread`` prints
 ``vendor_raw_processing[sony|canon|nikon|fujifilm|pentax|panasonic|olympus|kodak|minolta|sigma|samsung|ricoh|apple|dji|google|flir|casio|sanyo|kyoceraraw|reconyx|hp|jvc|ge|motorola|nintendo|microsoft]=...``

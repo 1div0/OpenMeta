@@ -1,5 +1,21 @@
 # OpenMeta Changes
 
+## 0.4.12 - 2026-05-18
+
+Changes compared with `0.4.11`.
+
+### Added
+
+- Added stable severity and message helpers for transfer concept diagnostics so
+  host/UI code can display concise transfer-preview reasons without inventing
+  its own default text.
+
+### Changed
+
+- Expanded conservative RAW/source-processing classification for additional
+  Pentax, Panasonic, Olympus, Kodak, Minolta, and Sigma MakerNote/raw table
+  patterns.
+
 ## 0.4.11 - 2026-05-15
 
 Changes compared with `0.4.10`.

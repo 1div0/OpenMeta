@@ -256,6 +256,14 @@ TEST(VendorRawProcessing, ClassifiesPentaxRawProcessingFields)
     EXPECT_TRUE(
         has_group(correction_groups, VendorRawProcessingGroup::LensCorrection));
 
+    const VendorRawProcessingGroup rawdev_groups
+        = classify_vendor_raw_processing_field("mk_pentax_rawdev_0",
+                                               "RawDevelopmentMemory", 0x0010U);
+    EXPECT_TRUE(
+        has_group(rawdev_groups, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(
+        has_group(rawdev_groups, VendorRawProcessingGroup::PrivateTable));
+
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_pentax0", "PentaxModelID",
                                                0x0005U);
@@ -300,6 +308,21 @@ TEST(VendorRawProcessing, ClassifiesPanasonicRawProcessingFields)
                                                0x0021U);
     EXPECT_TRUE(
         has_group(private_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup rawinfo_groups
+        = classify_vendor_raw_processing_field("mk_panasonic_rawinfo_0",
+                                               "CompressedRawData", 0x0100U);
+    EXPECT_TRUE(has_group(rawinfo_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(has_group(rawinfo_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(rawinfo_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup lens_groups
+        = classify_vendor_raw_processing_field("mk_panasonic_lensinfo_0",
+                                               "DistortionParams", 0x0101U);
+    EXPECT_TRUE(
+        has_group(lens_groups, VendorRawProcessingGroup::LensCorrection));
+    EXPECT_TRUE(has_group(lens_groups, VendorRawProcessingGroup::PrivateTable));
 }
 
 TEST(VendorRawProcessing, ClassifiesOlympusRawProcessingFields)
@@ -340,6 +363,16 @@ TEST(VendorRawProcessing, ClassifiesOlympusRawProcessingFields)
     EXPECT_TRUE(has_group(rawdev_groups, VendorRawProcessingGroup::Sensor));
     EXPECT_TRUE(
         has_group(rawdev_groups, VendorRawProcessingGroup::PrivateTable));
+    EXPECT_TRUE(has_group(rawdev_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(rawdev_groups, VendorRawProcessingGroup::Computational));
+
+    const VendorRawProcessingGroup face_groups
+        = classify_vendor_raw_processing_field("mk_olympus_focusinfo_0",
+                                               "FaceDetectArea", 0x0200U);
+    EXPECT_TRUE(has_group(face_groups, VendorRawProcessingGroup::FaceGeometry));
+    EXPECT_TRUE(has_group(face_groups, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(face_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_olympus_equipment_0",
@@ -370,6 +403,22 @@ TEST(VendorRawProcessing, ClassifiesKodakRawProcessingFields)
         = classify_vendor_raw_processing_field("mk_kodak_ifd_0", "RawHistogram",
                                                0x0C4EU);
     EXPECT_TRUE(has_group(raw_groups, VendorRawProcessingGroup::RawData));
+
+    const VendorRawProcessingGroup sensorcal_groups
+        = classify_vendor_raw_processing_field("mk_kodak_sensorcal_0",
+                                               "SensorCalibrationData",
+                                               0x0100U);
+    EXPECT_TRUE(has_group(sensorcal_groups, VendorRawProcessingGroup::Sensor));
+    EXPECT_TRUE(
+        has_group(sensorcal_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup rawdata_groups
+        = classify_vendor_raw_processing_field("mk_kodak_rawdata_0",
+                                               "RawDataOffset", 0x0101U);
+    EXPECT_TRUE(has_group(rawdata_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(has_group(rawdata_groups, VendorRawProcessingGroup::Storage));
+    EXPECT_TRUE(
+        has_group(rawdata_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_kodak0", "KodakModel",
@@ -409,6 +458,20 @@ TEST(VendorRawProcessing, ClassifiesMinoltaRawProcessingFields)
     EXPECT_TRUE(has_group(storage_groups, VendorRawProcessingGroup::RawData));
     EXPECT_TRUE(
         has_group(storage_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup colorcomp_groups
+        = classify_vendor_raw_processing_field("mk_minolta_colorcomp_0",
+                                               "ColorCompensation", 0x0010U);
+    EXPECT_TRUE(has_group(colorcomp_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(colorcomp_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup lens_groups
+        = classify_vendor_raw_processing_field("mk_minolta_lensdata_0",
+                                               "LensCorrectionTable", 0x0020U);
+    EXPECT_TRUE(
+        has_group(lens_groups, VendorRawProcessingGroup::LensCorrection));
+    EXPECT_TRUE(has_group(lens_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_minolta0", "LensType",
@@ -461,6 +524,21 @@ TEST(VendorRawProcessing, ClassifiesSigmaRawProcessingFields)
     EXPECT_TRUE(has_group(x3f_sensor_groups, VendorRawProcessingGroup::Sensor));
     EXPECT_TRUE(
         has_group(x3f_sensor_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup rawdata_groups
+        = classify_vendor_raw_processing_field("mk_sigma_rawdata_0",
+                                               "RawDataOffset", 0x0050U);
+    EXPECT_TRUE(has_group(rawdata_groups, VendorRawProcessingGroup::RawData));
+    EXPECT_TRUE(has_group(rawdata_groups, VendorRawProcessingGroup::Storage));
+    EXPECT_TRUE(
+        has_group(rawdata_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup matrix_groups
+        = classify_vendor_raw_processing_field("mk_sigma_colorcalib_0",
+                                               "ColorMatrix", 0x0060U);
+    EXPECT_TRUE(has_group(matrix_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(matrix_groups, VendorRawProcessingGroup::PrivateTable));
 
     const VendorRawProcessingGroup capture_groups
         = classify_vendor_raw_processing_field("mk_sigma0", "LensType",
@@ -1193,13 +1271,14 @@ TEST(VendorRawProcessing, SummarizesFamiliesFromStore)
         = vendor_raw_processing_from_store(store,
                                            VendorRawProcessingFamily::Olympus);
     EXPECT_EQ(olympus.fields_seen, 5U);
-    EXPECT_EQ(olympus.color_fields, 2U);
+    EXPECT_EQ(olympus.color_fields, 3U);
     EXPECT_EQ(olympus.white_balance_fields, 1U);
     EXPECT_EQ(olympus.geometry_fields, 1U);
     EXPECT_EQ(olympus.lens_correction_fields, 1U);
     EXPECT_EQ(olympus.raw_data_fields, 1U);
     EXPECT_EQ(olympus.sensor_fields, 1U);
     EXPECT_EQ(olympus.private_table_fields, 5U);
+    EXPECT_EQ(olympus.computational_fields, 1U);
 
     const VendorRawProcessingSummary kodak
         = vendor_raw_processing_from_store(store,

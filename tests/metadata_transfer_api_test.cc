@@ -21264,6 +21264,15 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     ASSERT_NE(created_diag, nullptr);
     EXPECT_EQ(created_diag->reason,
               openmeta::TransferConceptDiagnosticReason::Safe);
+    EXPECT_EQ(created_diag->severity,
+              openmeta::TransferConceptDiagnosticSeverity::Info);
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_severity(*created_diag),
+              openmeta::TransferConceptDiagnosticSeverity::Info);
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_severity_name(
+                     created_diag->severity),
+                 "info");
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(*created_diag),
+                 "metadata is safe to keep for this transfer mode");
 
     const openmeta::TransferConceptDiagnostic* altitude_diag
         = find_transfer_concept_diagnostic(
@@ -21287,6 +21296,15 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     EXPECT_EQ(
         orientation_diag->reason,
         openmeta::TransferConceptDiagnosticReason::TargetImageSpecRequired);
+    EXPECT_EQ(orientation_diag->severity,
+              openmeta::TransferConceptDiagnosticSeverity::Warning);
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_severity_name(
+                     orientation_diag->severity),
+                 "warning");
+    EXPECT_STREQ(
+        openmeta::transfer_concept_diagnostic_message(*orientation_diag),
+        "source value describes target-owned image properties; provide target "
+        "image specs or write a target-correct value");
 
     const openmeta::TransferConceptDiagnostic* color_space_diag
         = find_transfer_concept_diagnostic(
@@ -21295,6 +21313,12 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
             openmeta::TransferConceptDiagnosticAction::RequiresTargetImageSpec);
     ASSERT_NE(color_space_diag, nullptr);
     EXPECT_TRUE(color_space_diag->conflict);
+    EXPECT_EQ(color_space_diag->severity,
+              openmeta::TransferConceptDiagnosticSeverity::Warning);
+    EXPECT_STREQ(
+        openmeta::transfer_concept_diagnostic_message(*color_space_diag),
+        "multiple source values conflict; host policy should choose, rewrite, "
+        "or omit this concept");
 
     const openmeta::TransferConceptDiagnostic* matrix_diag
         = find_transfer_concept_diagnostic(
@@ -21304,6 +21328,12 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     ASSERT_NE(matrix_diag, nullptr);
     EXPECT_EQ(matrix_diag->reason,
               openmeta::TransferConceptDiagnosticReason::RenderedUnsafe);
+    EXPECT_EQ(matrix_diag->severity,
+              openmeta::TransferConceptDiagnosticSeverity::Warning);
+    EXPECT_STREQ(
+        openmeta::transfer_concept_diagnostic_message(*matrix_diag),
+        "source processing metadata is unsafe for rendered-image transfer and "
+        "will be dropped");
 
     const openmeta::TransferConceptDiagnostic* source_diag
         = find_transfer_concept_diagnostic(
@@ -21313,6 +21343,12 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     ASSERT_NE(source_diag, nullptr);
     EXPECT_EQ(source_diag->reason,
               openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_EQ(source_diag->severity,
+              openmeta::TransferConceptDiagnosticSeverity::Warning);
+    EXPECT_STREQ(
+        openmeta::transfer_concept_diagnostic_message(*source_diag),
+        "metadata is bound to the source RAW or correction pipeline and will "
+        "be dropped for this transfer mode");
 
     const openmeta::TransferConceptDiagnostics compatible
         = openmeta::transfer_concept_diagnostics_from_store(

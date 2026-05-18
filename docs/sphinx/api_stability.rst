@@ -152,18 +152,20 @@ Host-facing API map
        metadata or hide ambiguity. Python ``Document`` and
        ``TransferSourceSnapshot`` expose matching dictionary wrappers.
    * - Transfer concept diagnostics:
-       ``transfer_concept_diagnostics_from_store(...)``
+       ``transfer_concept_diagnostics_from_store(...)``,
+       ``transfer_concept_diagnostic_message(...)``
      - ``openmeta/metadata_transfer.h``
      - Experimental
      - Preflight view over concept candidates for ``TransferSafetyMode``.
        Each diagnostic reports concept kind/role, transfer hint,
-       keep/drop/requires-target-image-spec action, reason token, conflict
-       flag, source entries, compatible/rendered safety booleans, and GPS
-       altitude-reference presentation fields. Intended for UI previews and
-       host policy messages before calling ``prepare_metadata_for_target(...)``;
-       it does not replace the actual transfer filter. Python ``Document`` and
+       keep/drop/requires-target-image-spec action, reason token, severity
+       token, default message text, conflict flag, source entries,
+       compatible/rendered safety booleans, and GPS altitude-reference
+       presentation fields. Intended for UI previews and host policy messages
+       before calling ``prepare_metadata_for_target(...)``; it does not replace
+       the actual transfer filter. Python ``Document`` and
        ``TransferSourceSnapshot`` expose ``transfer_concept_diagnostics(...)``
-       dictionaries.
+       dictionaries with ``severity_name`` and ``message`` fields.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

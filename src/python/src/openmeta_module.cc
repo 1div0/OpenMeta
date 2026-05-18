@@ -1368,6 +1368,13 @@ namespace {
         out["reason"]      = diagnostic.reason;
         out["reason_name"] = nb::str(
             transfer_concept_diagnostic_reason_name(diagnostic.reason));
+        const TransferConceptDiagnosticSeverity severity
+            = transfer_concept_diagnostic_severity(diagnostic);
+        out["severity"]      = severity;
+        out["severity_name"] = nb::str(
+            transfer_concept_diagnostic_severity_name(severity));
+        out["message"] = nb::str(
+            transfer_concept_diagnostic_message(diagnostic));
         out["entry_id"]       = nb::int_(diagnostic.entry_id);
         out["source_entries"] = metadata_query_entry_ids_to_python(
             diagnostic.source_entries);
@@ -6494,6 +6501,11 @@ NB_MODULE(_openmeta, m)
                TransferConceptDiagnosticReason::RenderedUnsafe)
         .value("TargetImageSpecRequired",
                TransferConceptDiagnosticReason::TargetImageSpecRequired);
+
+    nb::enum_<TransferConceptDiagnosticSeverity>(
+        m, "TransferConceptDiagnosticSeverity")
+        .value("Info", TransferConceptDiagnosticSeverity::Info)
+        .value("Warning", TransferConceptDiagnosticSeverity::Warning);
 
     m.attr("TRANSFER_TARGET_IMAGE_SPEC_MAX_SAMPLES") = nb::int_(
         kTransferTargetImageSpecMaxSamples);

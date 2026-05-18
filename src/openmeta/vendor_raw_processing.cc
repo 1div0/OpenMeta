@@ -280,13 +280,34 @@ namespace {
         if (contains(ifd, "lenscorr")) {
             groups |= kVendorRawLensCorrection;
         }
+        if (contains(ifd, "rawdev") || contains(ifd, "imageprocessing")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "sensorcalibration")) {
+            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
         return groups;
     }
 
     static uint32_t classify_panasonic_ifd(std::string_view ifd) noexcept
     {
-        (void)ifd;
         uint32_t groups = 0U;
+        if (contains(ifd, "rawinfo") || contains(ifd, "rawdata")) {
+            groups |= kVendorRawRawData | kVendorRawSensor
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "wbinfo")) {
+            groups |= kVendorRawColor | kVendorRawWhiteBalance
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "lensinfo") || contains(ifd, "distortion")
+            || contains(ifd, "shading")) {
+            groups |= kVendorRawLensCorrection | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "transform") || contains(ifd, "postprocess")
+            || contains(ifd, "hdr")) {
+            groups |= kVendorRawComputational | kVendorRawPrivateTable;
+        }
         return groups;
     }
 
@@ -297,13 +318,37 @@ namespace {
             || contains(ifd, "rawdevelopment")) {
             groups |= kVendorRawPrivateTable;
         }
+        if (contains(ifd, "rawinfo")) {
+            groups |= kVendorRawRawData | kVendorRawSensor;
+        }
+        if (contains(ifd, "lensdata") || contains(ifd, "distortion")
+            || contains(ifd, "vignet")) {
+            groups |= kVendorRawLensCorrection | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "focusinfo") || contains(ifd, "face")) {
+            groups |= kVendorRawFaceGeometry | kVendorRawGeometry
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "rawdevelopment")) {
+            groups |= kVendorRawColor | kVendorRawComputational;
+        }
         return groups;
     }
 
     static uint32_t classify_kodak_ifd(std::string_view ifd) noexcept
     {
-        (void)ifd;
         uint32_t groups = 0U;
+        if (contains(ifd, "sensorinfo") || contains(ifd, "sensorcal")) {
+            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "colorbalance") || contains(ifd, "wb")) {
+            groups |= kVendorRawColor | kVendorRawWhiteBalance
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "rawinfo") || contains(ifd, "rawdata")) {
+            groups |= kVendorRawRawData | kVendorRawStorage
+                      | kVendorRawPrivateTable;
+        }
         return groups;
     }
 
@@ -316,6 +361,15 @@ namespace {
         if (contains(ifd, "wbinfo")) {
             groups |= kVendorRawColor | kVendorRawWhiteBalance;
         }
+        if (contains(ifd, "colorcomp") || contains(ifd, "colorcorr")) {
+            groups |= kVendorRawColor | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "lensdata") || contains(ifd, "lenscorrection")) {
+            groups |= kVendorRawLensCorrection | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "cameraoffset") || contains(ifd, "sensordata")) {
+            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
         return groups;
     }
 
@@ -327,6 +381,16 @@ namespace {
         }
         if (starts_with(ifd, "x3f_")) {
             groups |= kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "rawdata")) {
+            groups |= kVendorRawRawData | kVendorRawStorage
+                      | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "sensor") || contains(ifd, "blacklevel")) {
+            groups |= kVendorRawSensor | kVendorRawPrivateTable;
+        }
+        if (contains(ifd, "colorcalib") || contains(ifd, "matrix")) {
+            groups |= kVendorRawColor | kVendorRawPrivateTable;
         }
         return groups;
     }

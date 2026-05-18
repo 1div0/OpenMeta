@@ -80,7 +80,8 @@ controls. Hosts may still strip more metadata. For per-candidate preflight UI,
 ``metadata_concepts.h`` exposes transfer hints such as ``safe``,
 ``source_bound``, ``rendered_unsafe``, and ``requires_target_image_spec``;
 ``transfer_concept_diagnostics_from_store(...)`` maps those hints to
-keep/drop/requires-target-image-spec actions for a selected transfer mode.
+keep/drop/requires-target-image-spec actions, severity tokens, and default
+message text for a selected transfer mode.
 
 .. list-table::
    :header-rows: 1

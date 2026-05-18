@@ -148,15 +148,16 @@ Coverage matrix
        rendered/compatible safety booleans, and tolerance-aware
        GPS/color/geometry conflicts.
      - Medium, about 68-74%.
-     - More long-tail per-model concept aliases and clearer user-facing policy
-       messages.
+     - More long-tail per-model concept aliases and richer localized policy
+       wording.
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
        source-specific image geometry, color/profile, RAW-processing, MakerNote,
        JUMBF/C2PA, and vendor-private data, with concept-level diagnostics that
-       report keep/drop/requires-target-image-spec actions before prepare.
-     - High, about 87-91%.
-     - More per-family policy tests and richer host-authored message text.
+       report keep/drop/requires-target-image-spec actions, severity, and
+       default message text before prepare.
+     - High, about 88-92%.
+     - More per-family policy tests and optional host localization hooks.
 
 Competitor position
 -------------------
@@ -174,8 +175,8 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Deepen transfer diagnostics into host-authored message templates for GUI
-   workflows.
+1. Deepen transfer diagnostics with optional host localization/formatting hooks
+   for GUI workflows.
 2. Expand GPS policy beyond current coordinate tolerance, altitude-reference
    display, and EXIF timestamp assembly into broader cross-family
    reconciliation.

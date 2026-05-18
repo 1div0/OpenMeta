@@ -40,8 +40,8 @@ explicit outcome:
 | Vendor MakerNotes | Broad MakerNote naming and source-processing classification exists for common vendors and several live computational/thermal vendors. Unknown entries remain lossless and source-private subgroups distinguish preview, face geometry, computational, thermal, stitch/panorama, pixel-shift, multi-shot, composite, auto-lighting, RAW crop/active-area, source color-transform, lens-correction, raw-level processing data, and Phase One/Leaf RAW-processing fields handled by direct classification plus dedicated normalized helpers. | Medium-high, about 80-88%. | ExifTool-style long-tail print conversions, encrypted/custom settings, and per-model private tables. |
 | BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA | BMFF derived fields, item-info rows, bounded relations, primary-linked roles, aux semantics, and draft C2PA/JUMBF structural fields are exposed. | Medium, about 60-70%. | Full BMFF scene modeling and full C2PA manifest/policy semantics. |
 | Photoshop IRB | Raw resources are preserved and a bounded interpreted subset is decoded for fixed-layout resources. | Medium, about 60-70%. | Broader resource-specific interpretation. |
-| Semantic query/search and records | Query helpers expose raw matches, confidence, provenance, value shapes, normalized candidates, canonical crop/active-area rectangles, border margins, source-processing buckets, optional RapidFuzz near-miss matching, structured interpretation records, and bounded cross-family concept resolution for orientation, date/time, color/profile, GPS, geometry, lens-correction, and RAW-processing with parsed date/time fields, timezone/precision classification, combined GPS timestamps, GPS altitude-reference state and display token, canonical geometry origin/size/rect/margins, full grouped value vectors, transfer hints, rendered/compatible safety booleans, and tolerance-aware GPS/color/geometry conflicts. | Medium, about 68-74%. | More long-tail per-model concept aliases and clearer user-facing policy messages. |
-| Transfer-safety classification | Compatible-file versus rendered-image safety policies classify source-specific image geometry, color/profile, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private data, with concept-level diagnostics that report keep/drop/requires-target-image-spec actions before prepare. | High, about 87-91%. | More per-family policy tests and richer host-authored message text. |
+| Semantic query/search and records | Query helpers expose raw matches, confidence, provenance, value shapes, normalized candidates, canonical crop/active-area rectangles, border margins, source-processing buckets, optional RapidFuzz near-miss matching, structured interpretation records, and bounded cross-family concept resolution for orientation, date/time, color/profile, GPS, geometry, lens-correction, and RAW-processing with parsed date/time fields, timezone/precision classification, combined GPS timestamps, GPS altitude-reference state and display token, canonical geometry origin/size/rect/margins, full grouped value vectors, transfer hints, rendered/compatible safety booleans, and tolerance-aware GPS/color/geometry conflicts. | Medium, about 68-74%. | More long-tail per-model concept aliases and richer localized policy wording. |
+| Transfer-safety classification | Compatible-file versus rendered-image safety policies classify source-specific image geometry, color/profile, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private data, with concept-level diagnostics that report keep/drop/requires-target-image-spec actions, severity, and default message text before prepare. | High, about 88-92%. | More per-family policy tests and optional host localization hooks. |
 
 ## Competitor Position
 
@@ -57,8 +57,8 @@ outputs.
 
 ## Next Interpretation Priorities
 
-1. Deepen transfer diagnostics into host-authored message templates for GUI
-   workflows.
+1. Deepen transfer diagnostics with optional host localization/formatting hooks
+   for GUI workflows.
 2. Expand GPS policy beyond current coordinate tolerance, altitude-reference
    display, and EXIF timestamp assembly into broader cross-family
    reconciliation.
