@@ -211,6 +211,14 @@ TEST(VendorRawProcessing, ClassifiesExpandedActiveVendorProcessingFields)
     EXPECT_TRUE(
         has_group(sony_camera_info, VendorRawProcessingGroup::PrivateTable));
 
+    const VendorRawProcessingGroup sony_panorama
+        = classify_vendor_raw_processing_field("mk_sony_panorama_0",
+                                               "PanoramaCropLeft", 0x0004U);
+    EXPECT_TRUE(has_group(sony_panorama, VendorRawProcessingGroup::Geometry));
+    EXPECT_TRUE(has_group(sony_panorama, VendorRawProcessingGroup::Stitch));
+    EXPECT_TRUE(
+        has_group(sony_panorama, VendorRawProcessingGroup::PrivateTable));
+
     const VendorRawProcessingGroup canon_sensor
         = classify_vendor_raw_processing_field("mk_canon_sensorinfo_0",
                                                "SensorWidth", 0x0001U);

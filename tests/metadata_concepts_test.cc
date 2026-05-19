@@ -580,6 +580,114 @@ namespace {
         EXPECT_DOUBLE_EQ(active->margins[3], 16.0);
     }
 
+    TEST(MetadataConcepts, ResolvesVendorRawGeometryAsTargetOwnedConcepts)
+    {
+        MetaStore store;
+        const EntryId canon_width
+            = add_exif_u32(&store, "mk_canon_aspectinfo_0", 0x0001U, 4000U);
+        const EntryId canon_height
+            = add_exif_u32(&store, "mk_canon_aspectinfo_0", 0x0002U, 3000U);
+        const EntryId canon_left = add_exif_u32(&store, "mk_canon_aspectinfo_0",
+                                                0x0003U, 12U);
+        const EntryId canon_top  = add_exif_u32(&store, "mk_canon_aspectinfo_0",
+                                                0x0004U, 8U);
+
+        const EntryId margin_left  = add_exif_u32(&store, "mk_canon_cropinfo_0",
+                                                  0x0000U, 16U);
+        const EntryId margin_right = add_exif_u32(&store, "mk_canon_cropinfo_0",
+                                                  0x0001U, 20U);
+        const EntryId margin_top   = add_exif_u32(&store, "mk_canon_cropinfo_0",
+                                                  0x0002U, 4U);
+        const EntryId margin_bottom
+            = add_exif_u32(&store, "mk_canon_cropinfo_0", 0x0003U, 6U);
+
+        const EntryId nikon_left
+            = add_exif_u32(&store, "mk_nikoncapture_cropdata_0", 0x001EU, 10U);
+        const EntryId nikon_top
+            = add_exif_u32(&store, "mk_nikoncapture_cropdata_0", 0x0026U, 20U);
+        const EntryId nikon_right  = add_exif_u32(&store,
+                                                  "mk_nikoncapture_cropdata_0",
+                                                  0x002EU, 4010U);
+        const EntryId nikon_bottom = add_exif_u32(&store,
+                                                  "mk_nikoncapture_cropdata_0",
+                                                  0x0036U, 3020U);
+
+        const EntryId sony_left   = add_exif_u32(&store, "mk_sony_panorama_0",
+                                                 0x0004U, 100U);
+        const EntryId sony_top    = add_exif_u32(&store, "mk_sony_panorama_0",
+                                                 0x0005U, 20U);
+        const EntryId sony_right  = add_exif_u32(&store, "mk_sony_panorama_0",
+                                                 0x0006U, 120U);
+        const EntryId sony_bottom = add_exif_u32(&store, "mk_sony_panorama_0",
+                                                 0x0007U, 30U);
+        store.finalize();
+
+        const MetadataConceptResult result = resolve_metadata_concepts(store);
+
+        const MetadataConceptResolution* geometry
+            = find_concept(result, MetadataConceptKind::Geometry);
+        ASSERT_NE(geometry, nullptr);
+        EXPECT_TRUE(geometry->found);
+
+        const MetadataConceptCandidate* canon_crop
+            = find_role_entries(*geometry, MetadataConceptRole::Crop,
+                                canon_left, canon_width);
+        ASSERT_NE(canon_crop, nullptr);
+        EXPECT_EQ(canon_crop->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        EXPECT_TRUE(canon_crop->requires_target_image_spec);
+        ASSERT_TRUE(canon_crop->has_rect);
+        EXPECT_DOUBLE_EQ(canon_crop->rect[0], 12.0);
+        EXPECT_DOUBLE_EQ(canon_crop->rect[1], 8.0);
+        EXPECT_DOUBLE_EQ(canon_crop->rect[2], 4000.0);
+        EXPECT_DOUBLE_EQ(canon_crop->rect[3], 3000.0);
+        EXPECT_TRUE(contains_entry(canon_crop->source_entries, canon_height));
+        EXPECT_TRUE(contains_entry(canon_crop->source_entries, canon_top));
+
+        const MetadataConceptCandidate* canon_border
+            = find_role_entries(*geometry, MetadataConceptRole::Border,
+                                margin_left, margin_right);
+        ASSERT_NE(canon_border, nullptr);
+        EXPECT_EQ(canon_border->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        ASSERT_TRUE(canon_border->has_margins);
+        EXPECT_DOUBLE_EQ(canon_border->margins[0], 16.0);
+        EXPECT_DOUBLE_EQ(canon_border->margins[1], 4.0);
+        EXPECT_DOUBLE_EQ(canon_border->margins[2], 20.0);
+        EXPECT_DOUBLE_EQ(canon_border->margins[3], 6.0);
+        EXPECT_TRUE(contains_entry(canon_border->source_entries, margin_top));
+        EXPECT_TRUE(
+            contains_entry(canon_border->source_entries, margin_bottom));
+
+        const MetadataConceptCandidate* nikon_crop
+            = find_role_entries(*geometry, MetadataConceptRole::Crop,
+                                nikon_left, nikon_right);
+        ASSERT_NE(nikon_crop, nullptr);
+        EXPECT_EQ(nikon_crop->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        ASSERT_TRUE(nikon_crop->has_rect);
+        EXPECT_DOUBLE_EQ(nikon_crop->rect[0], 10.0);
+        EXPECT_DOUBLE_EQ(nikon_crop->rect[1], 20.0);
+        EXPECT_DOUBLE_EQ(nikon_crop->rect[2], 4000.0);
+        EXPECT_DOUBLE_EQ(nikon_crop->rect[3], 3000.0);
+        EXPECT_TRUE(contains_entry(nikon_crop->source_entries, nikon_top));
+        EXPECT_TRUE(contains_entry(nikon_crop->source_entries, nikon_bottom));
+
+        const MetadataConceptCandidate* sony_border
+            = find_role_entries(*geometry, MetadataConceptRole::Border,
+                                sony_left, sony_right);
+        ASSERT_NE(sony_border, nullptr);
+        EXPECT_EQ(sony_border->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        ASSERT_TRUE(sony_border->has_margins);
+        EXPECT_DOUBLE_EQ(sony_border->margins[0], 100.0);
+        EXPECT_DOUBLE_EQ(sony_border->margins[1], 20.0);
+        EXPECT_DOUBLE_EQ(sony_border->margins[2], 120.0);
+        EXPECT_DOUBLE_EQ(sony_border->margins[3], 30.0);
+        EXPECT_TRUE(contains_entry(sony_border->source_entries, sony_top));
+        EXPECT_TRUE(contains_entry(sony_border->source_entries, sony_bottom));
+    }
+
     TEST(MetadataConcepts, ResolvesGroupedVendorRecordsForInspectionHints)
     {
         MetaStore store;

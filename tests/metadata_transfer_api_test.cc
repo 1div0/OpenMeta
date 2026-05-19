@@ -21287,6 +21287,47 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     raf_size.origin.order_in_block      = 11U;
     const openmeta::EntryId raf_size_id = store.add_entry(raf_size);
     ASSERT_NE(raf_size_id, openmeta::kInvalidEntryId);
+
+    openmeta::Entry canon_crop_width;
+    canon_crop_width.key          = openmeta::make_exif_tag_key(store.arena(),
+                                                                "mk_canon_aspectinfo_0",
+                                                                0x0001U);
+    canon_crop_width.value        = openmeta::make_u32(4000U);
+    canon_crop_width.origin.block = block;
+    canon_crop_width.origin.order_in_block = 12U;
+    const openmeta::EntryId canon_width_id = store.add_entry(canon_crop_width);
+    ASSERT_NE(canon_width_id, openmeta::kInvalidEntryId);
+
+    openmeta::Entry canon_crop_height;
+    canon_crop_height.key          = openmeta::make_exif_tag_key(store.arena(),
+                                                                 "mk_canon_aspectinfo_0",
+                                                                 0x0002U);
+    canon_crop_height.value        = openmeta::make_u32(3000U);
+    canon_crop_height.origin.block = block;
+    canon_crop_height.origin.order_in_block = 13U;
+    const openmeta::EntryId canon_height_id = store.add_entry(
+        canon_crop_height);
+    ASSERT_NE(canon_height_id, openmeta::kInvalidEntryId);
+
+    openmeta::Entry canon_crop_left;
+    canon_crop_left.key          = openmeta::make_exif_tag_key(store.arena(),
+                                                               "mk_canon_aspectinfo_0",
+                                                               0x0003U);
+    canon_crop_left.value        = openmeta::make_u32(12U);
+    canon_crop_left.origin.block = block;
+    canon_crop_left.origin.order_in_block = 14U;
+    const openmeta::EntryId canon_left_id = store.add_entry(canon_crop_left);
+    ASSERT_NE(canon_left_id, openmeta::kInvalidEntryId);
+
+    openmeta::Entry canon_crop_top;
+    canon_crop_top.key          = openmeta::make_exif_tag_key(store.arena(),
+                                                              "mk_canon_aspectinfo_0",
+                                                              0x0004U);
+    canon_crop_top.value        = openmeta::make_u32(8U);
+    canon_crop_top.origin.block = block;
+    canon_crop_top.origin.order_in_block = 15U;
+    const openmeta::EntryId canon_top_id = store.add_entry(canon_crop_top);
+    ASSERT_NE(canon_top_id, openmeta::kInvalidEntryId);
     store.finalize();
 
     const openmeta::TransferConceptDiagnostics rendered
@@ -21370,6 +21411,21 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         contains_entry_id(active_area_diag->source_entries, raf_origin_id));
     EXPECT_TRUE(
         contains_entry_id(active_area_diag->source_entries, raf_size_id));
+
+    const openmeta::TransferConceptDiagnostic* crop_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::Geometry,
+            openmeta::MetadataConceptRole::Crop,
+            openmeta::TransferConceptDiagnosticAction::RequiresTargetImageSpec);
+    ASSERT_NE(crop_diag, nullptr);
+    EXPECT_EQ(
+        crop_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::TargetImageSpecRequired);
+    EXPECT_TRUE(crop_diag->requires_target_image_spec);
+    EXPECT_TRUE(contains_entry_id(crop_diag->source_entries, canon_width_id));
+    EXPECT_TRUE(contains_entry_id(crop_diag->source_entries, canon_height_id));
+    EXPECT_TRUE(contains_entry_id(crop_diag->source_entries, canon_left_id));
+    EXPECT_TRUE(contains_entry_id(crop_diag->source_entries, canon_top_id));
 
     const openmeta::TransferConceptDiagnostic* color_space_diag
         = find_transfer_concept_diagnostic(

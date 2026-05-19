@@ -33,7 +33,7 @@ model should stay compact:
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, color, lens-correction, sensor,
        computational capture state, and vendor-private fields.
-     - Medium-high, about 84%.
+     - Medium-high, about 85%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
@@ -41,7 +41,7 @@ model should stay compact:
        flags for crop/border/active-area, exposure/gain, color/WB,
        orientation, date/time, GPS, lens-correction, and RAW/source-processing
        fields across standard and vendor metadata.
-     - Medium, about 68-74%.
+     - Medium, about 70-76%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -81,11 +81,12 @@ It returns both raw matches and normalized candidates for crop/active-area,
 exposure/gain, white balance, color, lens correction, orientation, and
 RAW-processing queries.
 Crop queries include DNG crop tags, ``ActiveArea``, Phase One/Leaf raw
-geometry, Fujifilm RAF raw crop/zoom rectangles, and fuzzy crop/border-style
-XMP property paths. The non-crop queries expose per-entry value candidates and
-reuse standard tag names, selected DNG tags, fuzzy XMP paths, canonical
-border-margin parsing, and vendor RAW-processing classification where
-applicable.
+geometry, Fujifilm RAF raw crop/zoom rectangles, Canon aspect/crop metadata,
+Nikon Capture crop bounds, Sony panorama crop margins, and fuzzy
+crop/border-style XMP property paths. The non-crop queries expose per-entry
+value candidates and reuse standard tag names, selected DNG tags, fuzzy XMP
+paths, canonical border-margin parsing, and vendor RAW-processing
+classification where applicable.
 They also append grouped candidates for related DNG color matrix/calibration/
 reduction/forward matrix tags, DNG white-balance vector tags, and
 lens-correction table groups. Vendor-classified MakerNote/RAW fields can also

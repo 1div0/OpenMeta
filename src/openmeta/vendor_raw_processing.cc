@@ -154,6 +154,10 @@ namespace {
             || contains(ifd, "tag9050")) {
             groups |= kVendorRawPrivateTable;
         }
+        if (contains(ifd, "panorama")) {
+            groups |= kVendorRawGeometry | kVendorRawStitch
+                      | kVendorRawPrivateTable;
+        }
         return groups;
     }
 

@@ -54,9 +54,10 @@ color/profile, GPS, geometry, lens-correction, and RAW-processing candidates
 with source families, preferred entries, and same-role conflict flags. Geometry
 candidates expose crop, active-area, border, and sensor-geometry roles with
 canonical origin, size, rect, and margin fields when available, including
-known DNG, Phase One/Leaf, and Fujifilm RAF raw geometry patterns. Color/white
-balance, lens-correction, and RAW-processing candidates expose full normalized
-value vectors for grouped matrix/vector/table records. Date/time candidates
+known DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon Capture, and Sony
+panorama geometry patterns. Color/white balance, lens-correction, and
+RAW-processing candidates expose full normalized value vectors for grouped
+matrix/vector/table records. Date/time candidates
 include parsed date/time fields when the source value is recognizable, plus
 precision and timezone-kind fields. GPS timestamps combine `GPSDateStamp` with
 `GPSTimeStamp` when both are present, and GPS altitude candidates report

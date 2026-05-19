@@ -39,19 +39,21 @@ Family Gap Matrix
      - Long-tail vendor private tables and model-specific MakerNote fields
      - Keep adding named tables only when they are stable and safety-classified
    * - Nikon NEF/NRW
-     - Strong TIFF/EXIF path plus expanded Nikon MakerNote tables
+     - Strong TIFF/EXIF path plus expanded Nikon MakerNote tables and
+       normalized Nikon Capture crop bounds
      - Model-specific encrypted/custom-setting tables and less common
        correction records
      - Add focused Nikon tables with byte-order/version gates and safety
        buckets
    * - Sony ARW/SR2/SRF
      - Strong TIFF/EXIF path plus Sony RAW/source-processing classification
+       and panorama crop-margin interpretation
      - Older SRF/SR2 private structures and model-specific private tables
      - Extend native SR2/SRF table naming and keep raw payload preservation as
        the fallback
    * - Canon CR2
-     - Strong TIFF/EXIF path plus Canon MakerNote and crop/aspect/color-data
-       classification
+     - Strong TIFF/EXIF path plus Canon MakerNote, normalized aspect/crop
+       geometry, and crop/aspect/color-data classification
      - Long-tail Canon custom functions and per-model color/correction tables
      - Continue table-by-table decode with rendered-transfer safety coverage
    * - Canon CR3

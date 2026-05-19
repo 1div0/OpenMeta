@@ -98,8 +98,9 @@ Host-facing API map
        Current coverage includes crop/active-area/border margins,
        exposure/gain, white balance, color, lens correction, orientation, and
        RAW/source-processing metadata across standard tags, selected DNG tags,
-       Fujifilm RAF raw crop/zoom rectangles, fuzzy XMP paths, and vendor
-       RAW-processing classification. Matches report ``exact_match``,
+       Fujifilm RAF raw crop/zoom rectangles, Canon aspect/crop metadata,
+       Nikon Capture crop bounds, Sony panorama crop margins, fuzzy XMP paths,
+       and vendor RAW-processing classification. Matches report ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
        ``OPENMETA_ENABLE_RAPIDFUZZ=ON`` adds optional near-miss
@@ -119,9 +120,10 @@ Host-facing API map
        carry query class, semantic kind, normalized shape, confidence, source
        entry ids, and normalized origin/size/rect/margins/value arrays where
        available. Current scope covers orientation, geometry/crop/border
-       including Fujifilm RAF raw crop/zoom rectangles, exposure/gain,
-       color/white-balance, lens-correction, and RAW/source-processing
-       records, and grouped vendor-family table/vector records where
+       including Fujifilm RAF, Canon, Nikon Capture, and Sony panorama
+       geometry patterns, exposure/gain, color/white-balance, lens-correction,
+       and RAW/source-processing records, and grouped vendor-family table/vector
+       records where
        classification supports them. Python ``Document`` and
        ``TransferSourceSnapshot`` expose matching dictionary wrappers.
    * - Cross-family concept resolution:
@@ -140,8 +142,8 @@ Host-facing API map
        query-backed interpretation records where applicable. Geometry
        candidates cover crop, active area, border, and sensor geometry with
        canonical origin, size, rect, and margin fields when available,
-       including normalized DNG, Phase One/Leaf, and Fujifilm RAF geometry
-       patterns.
+       including normalized DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon
+       Capture, and Sony panorama geometry patterns.
        Candidate transfer hints distinguish ``safe``, ``source_bound``,
        ``rendered_unsafe``, and ``requires_target_image_spec`` evidence, with
        compatible-file and rendered-image safety booleans.

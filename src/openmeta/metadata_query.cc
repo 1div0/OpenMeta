@@ -89,18 +89,34 @@ namespace {
     static constexpr uint16_t kSamsungChromaticAberrationCorrParamsTag = 0x7035U;
     static constexpr uint16_t kSamsungDistortionCorrParamsTag = 0x7037U;
 
-    static constexpr uint16_t kPhaseOneSensorWidthTag        = 0x0108U;
-    static constexpr uint16_t kPhaseOneSensorHeightTag       = 0x0109U;
-    static constexpr uint16_t kPhaseOneSensorLeftMarginTag   = 0x010AU;
-    static constexpr uint16_t kPhaseOneSensorTopMarginTag    = 0x010BU;
-    static constexpr uint16_t kPhaseOneImageWidthTag         = 0x010CU;
-    static constexpr uint16_t kPhaseOneImageHeightTag        = 0x010DU;
-    static constexpr std::string_view kPhaseOneMainIfd       = "mk_phaseone0";
-    static constexpr uint16_t kFujiRafRawImageFullSizeTag    = 0x0100U;
-    static constexpr uint16_t kFujiRafRawImageCropTopLeftTag = 0x0110U;
-    static constexpr uint16_t kFujiRafRawImageCroppedSizeTag = 0x0111U;
-    static constexpr uint16_t kFujiRafRawZoomTopLeftTag      = 0x0118U;
-    static constexpr uint16_t kFujiRafRawZoomSizeTag         = 0x0119U;
+    static constexpr uint16_t kPhaseOneSensorWidthTag          = 0x0108U;
+    static constexpr uint16_t kPhaseOneSensorHeightTag         = 0x0109U;
+    static constexpr uint16_t kPhaseOneSensorLeftMarginTag     = 0x010AU;
+    static constexpr uint16_t kPhaseOneSensorTopMarginTag      = 0x010BU;
+    static constexpr uint16_t kPhaseOneImageWidthTag           = 0x010CU;
+    static constexpr uint16_t kPhaseOneImageHeightTag          = 0x010DU;
+    static constexpr std::string_view kPhaseOneMainIfd         = "mk_phaseone0";
+    static constexpr uint16_t kFujiRafRawImageFullSizeTag      = 0x0100U;
+    static constexpr uint16_t kFujiRafRawImageCropTopLeftTag   = 0x0110U;
+    static constexpr uint16_t kFujiRafRawImageCroppedSizeTag   = 0x0111U;
+    static constexpr uint16_t kFujiRafRawZoomTopLeftTag        = 0x0118U;
+    static constexpr uint16_t kFujiRafRawZoomSizeTag           = 0x0119U;
+    static constexpr uint16_t kCanonAspectCroppedImageWidthTag = 0x0001U;
+    static constexpr uint16_t kCanonAspectCroppedImageHeightTag = 0x0002U;
+    static constexpr uint16_t kCanonAspectCroppedImageLeftTag   = 0x0003U;
+    static constexpr uint16_t kCanonAspectCroppedImageTopTag    = 0x0004U;
+    static constexpr uint16_t kCanonCropLeftMarginTag           = 0x0000U;
+    static constexpr uint16_t kCanonCropRightMarginTag          = 0x0001U;
+    static constexpr uint16_t kCanonCropTopMarginTag            = 0x0002U;
+    static constexpr uint16_t kCanonCropBottomMarginTag         = 0x0003U;
+    static constexpr uint16_t kNikonCaptureCropLeftTag          = 0x001EU;
+    static constexpr uint16_t kNikonCaptureCropTopTag           = 0x0026U;
+    static constexpr uint16_t kNikonCaptureCropRightTag         = 0x002EU;
+    static constexpr uint16_t kNikonCaptureCropBottomTag        = 0x0036U;
+    static constexpr uint16_t kSonyPanoramaCropLeftTag          = 0x0004U;
+    static constexpr uint16_t kSonyPanoramaCropTopTag           = 0x0005U;
+    static constexpr uint16_t kSonyPanoramaCropRightTag         = 0x0006U;
+    static constexpr uint16_t kSonyPanoramaCropBottomTag        = 0x0007U;
 
     static constexpr uint16_t kDngColorMatrixTags[] = {
         kDngColorMatrix1Tag,
@@ -2242,7 +2258,24 @@ namespace {
                && starts_with_ascii_case_insensitive(ifd, "raf");
     }
 
-    static void append_fujifilm_raf_rect_candidate(
+    static bool first_entry_value_to_double(const MetaStore& store, EntryId id,
+                                            double* out) noexcept
+    {
+        if (!out || id == kInvalidEntryId) {
+            return false;
+        }
+        double values[4] {};
+        uint32_t count = 0U;
+        if (!value_to_double_array(store, store.entry(id).value, values, 4U,
+                                   &count)
+            || count < 1U) {
+            return false;
+        }
+        *out = values[0];
+        return true;
+    }
+
+    static void append_origin_size_rect_candidate(
         const MetaStore& store, MetadataQueryResult* result, EntryId origin_id,
         EntryId size_id, EntryId full_size_id,
         MetadataQuerySemanticKind semantic, uint8_t confidence)
@@ -2358,16 +2391,278 @@ namespace {
                 const EntryId size_id
                     = find_first_exif_entry(store, ifd,
                                             kFujiRafRawImageCroppedSizeTag);
-                append_fujifilm_raf_rect_candidate(
+                append_origin_size_rect_candidate(
                     store, result, origin_id, size_id, full_size_id,
                     MetadataQuerySemanticKind::ActiveArea, 94U);
             } else {
                 const EntryId size_id
                     = find_first_exif_entry(store, ifd, kFujiRafRawZoomSizeTag);
-                append_fujifilm_raf_rect_candidate(
+                append_origin_size_rect_candidate(
                     store, result, origin_id, size_id, full_size_id,
                     MetadataQuerySemanticKind::Crop, 88U);
             }
+        }
+    }
+
+    static void append_scalar_origin_size_rect_candidate(
+        const MetaStore& store, MetadataQueryResult* result, EntryId left_id,
+        EntryId top_id, EntryId width_id, EntryId height_id,
+        MetadataQuerySemanticKind semantic, uint8_t confidence)
+    {
+        if (!result || left_id == kInvalidEntryId || top_id == kInvalidEntryId
+            || width_id == kInvalidEntryId || height_id == kInvalidEntryId) {
+            return;
+        }
+
+        double left   = 0.0;
+        double top    = 0.0;
+        double width  = 0.0;
+        double height = 0.0;
+        if (!first_entry_value_to_double(store, left_id, &left)
+            || !first_entry_value_to_double(store, top_id, &top)
+            || !first_entry_value_to_double(store, width_id, &width)
+            || !first_entry_value_to_double(store, height_id, &height)
+            || left < 0.0 || top < 0.0 || width <= 0.0 || height <= 0.0) {
+            return;
+        }
+
+        MetadataQueryCandidate candidate;
+        candidate.semantic         = semantic;
+        candidate.normalized_shape = MetadataQueryValueShape::Rect;
+        candidate.confidence       = confidence;
+        append_unique_entry(&candidate.source_entries, left_id);
+        append_unique_entry(&candidate.source_entries, top_id);
+        append_unique_entry(&candidate.source_entries, width_id);
+        append_unique_entry(&candidate.source_entries, height_id);
+        candidate.has_origin = true;
+        candidate.origin[0]  = left;
+        candidate.origin[1]  = top;
+        candidate.has_size   = true;
+        candidate.size[0]    = width;
+        candidate.size[1]    = height;
+        candidate.has_rect   = true;
+        candidate.rect[0]    = left;
+        candidate.rect[1]    = top;
+        candidate.rect[2]    = width;
+        candidate.rect[3]    = height;
+        candidate.has_values = true;
+        candidate.values.reserve(4U);
+        candidate.values.push_back(left);
+        candidate.values.push_back(top);
+        candidate.values.push_back(width);
+        candidate.values.push_back(height);
+        result->candidates.push_back(candidate);
+    }
+
+    static void append_scalar_bounds_rect_candidate(
+        const MetaStore& store, MetadataQueryResult* result, EntryId left_id,
+        EntryId top_id, EntryId right_id, EntryId bottom_id,
+        MetadataQuerySemanticKind semantic, uint8_t confidence)
+    {
+        if (!result || left_id == kInvalidEntryId || top_id == kInvalidEntryId
+            || right_id == kInvalidEntryId || bottom_id == kInvalidEntryId) {
+            return;
+        }
+
+        double left   = 0.0;
+        double top    = 0.0;
+        double right  = 0.0;
+        double bottom = 0.0;
+        if (!first_entry_value_to_double(store, left_id, &left)
+            || !first_entry_value_to_double(store, top_id, &top)
+            || !first_entry_value_to_double(store, right_id, &right)
+            || !first_entry_value_to_double(store, bottom_id, &bottom)
+            || left < 0.0 || top < 0.0 || right <= left || bottom <= top) {
+            return;
+        }
+
+        MetadataQueryCandidate candidate;
+        candidate.semantic         = semantic;
+        candidate.normalized_shape = MetadataQueryValueShape::Rect;
+        candidate.confidence       = confidence;
+        append_unique_entry(&candidate.source_entries, left_id);
+        append_unique_entry(&candidate.source_entries, top_id);
+        append_unique_entry(&candidate.source_entries, right_id);
+        append_unique_entry(&candidate.source_entries, bottom_id);
+        candidate.has_origin = true;
+        candidate.origin[0]  = left;
+        candidate.origin[1]  = top;
+        candidate.has_size   = true;
+        candidate.size[0]    = right - left;
+        candidate.size[1]    = bottom - top;
+        candidate.has_rect   = true;
+        candidate.rect[0]    = left;
+        candidate.rect[1]    = top;
+        candidate.rect[2]    = right - left;
+        candidate.rect[3]    = bottom - top;
+        candidate.has_values = true;
+        candidate.values.reserve(4U);
+        candidate.values.push_back(left);
+        candidate.values.push_back(top);
+        candidate.values.push_back(right);
+        candidate.values.push_back(bottom);
+        result->candidates.push_back(candidate);
+    }
+
+    static void append_scalar_margin_candidate(
+        const MetaStore& store, MetadataQueryResult* result, EntryId left_id,
+        EntryId top_id, EntryId right_id, EntryId bottom_id,
+        MetadataQuerySemanticKind semantic, uint8_t confidence)
+    {
+        if (!result || left_id == kInvalidEntryId || top_id == kInvalidEntryId
+            || right_id == kInvalidEntryId || bottom_id == kInvalidEntryId) {
+            return;
+        }
+
+        double left   = 0.0;
+        double top    = 0.0;
+        double right  = 0.0;
+        double bottom = 0.0;
+        if (!first_entry_value_to_double(store, left_id, &left)
+            || !first_entry_value_to_double(store, top_id, &top)
+            || !first_entry_value_to_double(store, right_id, &right)
+            || !first_entry_value_to_double(store, bottom_id, &bottom)
+            || left < 0.0 || top < 0.0 || right < 0.0 || bottom < 0.0) {
+            return;
+        }
+
+        MetadataQueryCandidate candidate;
+        candidate.semantic         = semantic;
+        candidate.normalized_shape = MetadataQueryValueShape::Vec4;
+        candidate.confidence       = confidence;
+        append_unique_entry(&candidate.source_entries, left_id);
+        append_unique_entry(&candidate.source_entries, top_id);
+        append_unique_entry(&candidate.source_entries, right_id);
+        append_unique_entry(&candidate.source_entries, bottom_id);
+        candidate.has_margins = true;
+        candidate.margins[0]  = left;
+        candidate.margins[1]  = top;
+        candidate.margins[2]  = right;
+        candidate.margins[3]  = bottom;
+        candidate.has_values  = true;
+        candidate.values.reserve(4U);
+        candidate.values.push_back(left);
+        candidate.values.push_back(top);
+        candidate.values.push_back(right);
+        candidate.values.push_back(bottom);
+        result->candidates.push_back(candidate);
+    }
+
+    static void append_canon_aspect_crop_candidate(const MetaStore& store,
+                                                   MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0U; i < entries.size(); ++i) {
+            const Entry& entry = entries[i];
+            if (entry_is_deleted(entry)
+                || entry.key.kind != MetaKeyKind::ExifTag
+                || entry.key.data.exif_tag.tag
+                       != kCanonAspectCroppedImageLeftTag) {
+                continue;
+            }
+            const std::string_view ifd
+                = arena_string(store.arena(), entry.key.data.exif_tag.ifd);
+            if (!starts_with_ascii_case_insensitive(ifd,
+                                                    "mk_canon_aspectinfo")) {
+                continue;
+            }
+            append_scalar_origin_size_rect_candidate(
+                store, result, static_cast<EntryId>(i),
+                find_first_exif_entry(store, ifd,
+                                      kCanonAspectCroppedImageTopTag),
+                find_first_exif_entry(store, ifd,
+                                      kCanonAspectCroppedImageWidthTag),
+                find_first_exif_entry(store, ifd,
+                                      kCanonAspectCroppedImageHeightTag),
+                MetadataQuerySemanticKind::Crop, 91U);
+        }
+    }
+
+    static void append_canon_crop_margin_candidate(const MetaStore& store,
+                                                   MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0U; i < entries.size(); ++i) {
+            const Entry& entry = entries[i];
+            if (entry_is_deleted(entry)
+                || entry.key.kind != MetaKeyKind::ExifTag
+                || entry.key.data.exif_tag.tag != kCanonCropLeftMarginTag) {
+                continue;
+            }
+            const std::string_view ifd
+                = arena_string(store.arena(), entry.key.data.exif_tag.ifd);
+            if (!starts_with_ascii_case_insensitive(ifd, "mk_canon_cropinfo")) {
+                continue;
+            }
+            append_scalar_margin_candidate(
+                store, result, static_cast<EntryId>(i),
+                find_first_exif_entry(store, ifd, kCanonCropTopMarginTag),
+                find_first_exif_entry(store, ifd, kCanonCropRightMarginTag),
+                find_first_exif_entry(store, ifd, kCanonCropBottomMarginTag),
+                MetadataQuerySemanticKind::Border, 90U);
+        }
+    }
+
+    static void append_nikon_capture_crop_candidate(const MetaStore& store,
+                                                    MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0U; i < entries.size(); ++i) {
+            const Entry& entry = entries[i];
+            if (entry_is_deleted(entry)
+                || entry.key.kind != MetaKeyKind::ExifTag
+                || entry.key.data.exif_tag.tag != kNikonCaptureCropLeftTag) {
+                continue;
+            }
+            const std::string_view ifd
+                = arena_string(store.arena(), entry.key.data.exif_tag.ifd);
+            if (!starts_with_ascii_case_insensitive(
+                    ifd, "mk_nikoncapture_cropdata")) {
+                continue;
+            }
+            append_scalar_bounds_rect_candidate(
+                store, result, static_cast<EntryId>(i),
+                find_first_exif_entry(store, ifd, kNikonCaptureCropTopTag),
+                find_first_exif_entry(store, ifd, kNikonCaptureCropRightTag),
+                find_first_exif_entry(store, ifd, kNikonCaptureCropBottomTag),
+                MetadataQuerySemanticKind::Crop, 88U);
+        }
+    }
+
+    static void append_sony_panorama_crop_candidate(const MetaStore& store,
+                                                    MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0U; i < entries.size(); ++i) {
+            const Entry& entry = entries[i];
+            if (entry_is_deleted(entry)
+                || entry.key.kind != MetaKeyKind::ExifTag
+                || entry.key.data.exif_tag.tag != kSonyPanoramaCropLeftTag) {
+                continue;
+            }
+            const std::string_view ifd
+                = arena_string(store.arena(), entry.key.data.exif_tag.ifd);
+            if (!starts_with_ascii_case_insensitive(ifd, "mk_sony_panorama")) {
+                continue;
+            }
+            append_scalar_margin_candidate(
+                store, result, static_cast<EntryId>(i),
+                find_first_exif_entry(store, ifd, kSonyPanoramaCropTopTag),
+                find_first_exif_entry(store, ifd, kSonyPanoramaCropRightTag),
+                find_first_exif_entry(store, ifd, kSonyPanoramaCropBottomTag),
+                MetadataQuerySemanticKind::Border, 87U);
         }
     }
 
@@ -2674,6 +2969,10 @@ query_crop_metadata(const MetaStore& store)
     append_active_area_candidate(store, &result);
     append_phaseone_crop_candidate(store, &result);
     append_fujifilm_raf_crop_candidate(store, &result);
+    append_canon_aspect_crop_candidate(store, &result);
+    append_canon_crop_margin_candidate(store, &result);
+    append_nikon_capture_crop_candidate(store, &result);
+    append_sony_panorama_crop_candidate(store, &result);
     append_masked_areas_candidate(store, &result);
     append_crop_match_candidates(store, &result);
     return result;

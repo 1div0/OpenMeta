@@ -160,7 +160,8 @@ safe-transfer policy, not for writing source RAW transforms into rendered
 outputs.
 Known geometry patterns can also become normalized rectangles; current public
 coverage includes DNG crop/active-area tags, Phase One/Leaf RAW geometry, and
-Fujifilm RAF raw crop/zoom fields.
+Fujifilm RAF raw crop/zoom fields, plus Canon, Nikon Capture, and Sony
+panorama crop/border patterns.
 
 Call `metadata_query_fuzzy_search_available()` when a UI wants to expose that
 the stronger fuzzy matcher is compiled in.

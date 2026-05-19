@@ -426,6 +426,140 @@ TEST(MetadataQuery, NormalizesFujifilmRafRawZoomCandidate)
     EXPECT_DOUBLE_EQ(candidate->margins[3], 976.0);
 }
 
+TEST(MetadataQuery, NormalizesCanonAspectInfoCropCandidate)
+{
+    MetaStore store;
+    const EntryId width_id  = add_exif_u32(&store, "mk_canon_aspectinfo_0",
+                                           0x0001U, 4000U);
+    const EntryId height_id = add_exif_u32(&store, "mk_canon_aspectinfo_0",
+                                           0x0002U, 3000U);
+    const EntryId left_id   = add_exif_u32(&store, "mk_canon_aspectinfo_0",
+                                           0x0003U, 12U);
+    const EntryId top_id    = add_exif_u32(&store, "mk_canon_aspectinfo_0",
+                                           0x0004U, 8U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate(result, MetadataQuerySemanticKind::Crop);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->normalized_shape, MetadataQueryValueShape::Rect);
+    EXPECT_EQ(candidate->confidence, 91U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, width_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, height_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, left_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, top_id));
+    ASSERT_TRUE(candidate->has_origin);
+    EXPECT_DOUBLE_EQ(candidate->origin[0], 12.0);
+    EXPECT_DOUBLE_EQ(candidate->origin[1], 8.0);
+    ASSERT_TRUE(candidate->has_size);
+    EXPECT_DOUBLE_EQ(candidate->size[0], 4000.0);
+    EXPECT_DOUBLE_EQ(candidate->size[1], 3000.0);
+    ASSERT_TRUE(candidate->has_rect);
+    EXPECT_DOUBLE_EQ(candidate->rect[0], 12.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[1], 8.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[2], 4000.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[3], 3000.0);
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 4U);
+}
+
+TEST(MetadataQuery, NormalizesCanonCropInfoMargins)
+{
+    MetaStore store;
+    const EntryId left_id = add_exif_u32(&store, "mk_canon_cropinfo_0", 0x0000U,
+                                         16U);
+    const EntryId right_id = add_exif_u32(&store, "mk_canon_cropinfo_0",
+                                          0x0001U, 20U);
+    const EntryId top_id = add_exif_u32(&store, "mk_canon_cropinfo_0", 0x0002U,
+                                        4U);
+    const EntryId bottom_id = add_exif_u32(&store, "mk_canon_cropinfo_0",
+                                           0x0003U, 6U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result, MetadataQuerySemanticKind::Border,
+                                    MetadataQueryValueShape::Vec4, 4U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->confidence, 90U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, left_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, right_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, top_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, bottom_id));
+    ASSERT_TRUE(candidate->has_margins);
+    EXPECT_DOUBLE_EQ(candidate->margins[0], 16.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[1], 4.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[2], 20.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[3], 6.0);
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 4U);
+}
+
+TEST(MetadataQuery, NormalizesNikonCaptureCropData)
+{
+    MetaStore store;
+    const EntryId left_id   = add_exif_u32(&store, "mk_nikoncapture_cropdata_0",
+                                           0x001EU, 10U);
+    const EntryId top_id    = add_exif_u32(&store, "mk_nikoncapture_cropdata_0",
+                                           0x0026U, 20U);
+    const EntryId right_id  = add_exif_u32(&store, "mk_nikoncapture_cropdata_0",
+                                           0x002EU, 4010U);
+    const EntryId bottom_id = add_exif_u32(&store, "mk_nikoncapture_cropdata_0",
+                                           0x0036U, 3020U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate(result, MetadataQuerySemanticKind::Crop);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->normalized_shape, MetadataQueryValueShape::Rect);
+    EXPECT_EQ(candidate->confidence, 88U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, left_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, top_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, right_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, bottom_id));
+    ASSERT_TRUE(candidate->has_rect);
+    EXPECT_DOUBLE_EQ(candidate->rect[0], 10.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[1], 20.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[2], 4000.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[3], 3000.0);
+}
+
+TEST(MetadataQuery, NormalizesSonyPanoramaCropMargins)
+{
+    MetaStore store;
+    const EntryId left_id  = add_exif_u32(&store, "mk_sony_panorama_0", 0x0004U,
+                                          100U);
+    const EntryId top_id   = add_exif_u32(&store, "mk_sony_panorama_0", 0x0005U,
+                                          20U);
+    const EntryId right_id = add_exif_u32(&store, "mk_sony_panorama_0", 0x0006U,
+                                          120U);
+    const EntryId bottom_id = add_exif_u32(&store, "mk_sony_panorama_0",
+                                           0x0007U, 30U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result, MetadataQuerySemanticKind::Border,
+                                    MetadataQueryValueShape::Vec4, 4U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->confidence, 87U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, left_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, top_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, right_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, bottom_id));
+    ASSERT_TRUE(candidate->has_margins);
+    EXPECT_DOUBLE_EQ(candidate->margins[0], 100.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[1], 20.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[2], 120.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[3], 30.0);
+}
+
 TEST(MetadataQuery, MatchesFuzzyXmpCropPath)
 {
     MetaStore store;

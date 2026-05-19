@@ -1,5 +1,16 @@
 # OpenMeta Changes
 
+## 0.4.15 - 2026-05-19
+
+Changes compared with `0.4.14`.
+
+### Added
+
+- Added normalized vendor RAW geometry candidates for Canon aspect/crop
+  metadata, Nikon Capture crop bounds, and Sony panorama crop margins.
+- Extended concept and transfer-diagnostic tests so these vendor geometry
+  records remain target-image-spec-gated for rendered transfers.
+
 ## 0.4.14 - 2026-05-19
 
 Changes compared with `0.4.13`.
