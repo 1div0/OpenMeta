@@ -1743,7 +1743,7 @@ namespace {
     }
 
     static std::string_view
-    lens_correction_group_key(std::string_view group) noexcept
+    vendor_raw_processing_family_group_key(std::string_view group) noexcept
     {
         if (starts_with_ascii_case_insensitive(group, "mk_sony")) {
             return "mk_sony";
@@ -1826,6 +1826,31 @@ namespace {
         if (starts_with_ascii_case_insensitive(group, "mk_microsoft")) {
             return "mk_microsoft";
         }
+        if (starts_with_ascii_case_insensitive(group, "mk_phaseone")) {
+            return "mk_phaseone";
+        }
+        if (starts_with_ascii_case_insensitive(group, "mk_leaf")) {
+            return "mk_leaf";
+        }
+        if (starts_with_ascii_case_insensitive(group, "raf_")
+            || starts_with_ascii_case_insensitive(group, "raf")) {
+            return "raf";
+        }
+        if (starts_with_ascii_case_insensitive(group, "x3f_")
+            || starts_with_ascii_case_insensitive(group, "x3f")) {
+            return "x3f";
+        }
+        return {};
+    }
+
+    static std::string_view
+    lens_correction_group_key(std::string_view group) noexcept
+    {
+        const std::string_view vendor_key
+            = vendor_raw_processing_family_group_key(group);
+        if (!vendor_key.empty()) {
+            return vendor_key;
+        }
         return group;
     }
 
@@ -1889,6 +1914,137 @@ namespace {
                 }
                 const std::string_view current_key = lens_correction_group_key(
                     current.group);
+                if (current_key != group_key) {
+                    continue;
+                }
+                append_unique_entry(&candidate.source_entries,
+                                    current.entry_id);
+                append_candidate_numeric_values(store, current.entry_id,
+                                                &candidate);
+                if (candidate.confidence < current.confidence) {
+                    candidate.confidence = current.confidence;
+                }
+            }
+
+            if (candidate.source_entries.size() >= 2U) {
+                result->candidates.push_back(candidate);
+            }
+        }
+    }
+
+    static bool vendor_match_can_group(const MetadataQueryMatch& match,
+                                       MetadataQueryKind kind) noexcept
+    {
+        if (match.entry_id == kInvalidEntryId
+            || match.key_kind != MetaKeyKind::ExifTag
+            || match.semantic == MetadataQuerySemanticKind::Unknown) {
+            return false;
+        }
+        if (vendor_raw_processing_family_group_key(match.group).empty()) {
+            return false;
+        }
+        switch (kind) {
+        case MetadataQueryKind::WhiteBalance:
+            return match.semantic == MetadataQuerySemanticKind::WhiteBalance;
+        case MetadataQueryKind::Color:
+            return match.semantic == MetadataQuerySemanticKind::Color
+                   || match.semantic == MetadataQuerySemanticKind::ColorMatrix;
+        case MetadataQueryKind::RawProcessing:
+            return match.semantic == MetadataQuerySemanticKind::BlackLevel
+                   || match.semantic == MetadataQuerySemanticKind::WhiteLevel
+                   || match.semantic == MetadataQuerySemanticKind::Linearization
+                   || match.semantic == MetadataQuerySemanticKind::CfaLayout
+                   || match.semantic
+                          == MetadataQuerySemanticKind::SensorGeometry
+                   || match.semantic == MetadataQuerySemanticKind::RawStorage
+                   || match.semantic
+                          == MetadataQuerySemanticKind::SourceProcessing;
+        case MetadataQueryKind::Crop:
+        case MetadataQueryKind::ExposureGain:
+        case MetadataQueryKind::LensCorrection:
+        case MetadataQueryKind::Orientation: break;
+        }
+        return false;
+    }
+
+    static MetadataQueryValueShape
+    vendor_group_candidate_shape(MetadataQueryKind kind,
+                                 MetadataQuerySemanticKind semantic) noexcept
+    {
+        switch (kind) {
+        case MetadataQueryKind::WhiteBalance:
+            return MetadataQueryValueShape::VectorSet;
+        case MetadataQueryKind::Color:
+            if (semantic == MetadataQuerySemanticKind::ColorMatrix) {
+                return MetadataQueryValueShape::MatrixSet;
+            }
+            return MetadataQueryValueShape::Table;
+        case MetadataQueryKind::RawProcessing:
+            return MetadataQueryValueShape::Table;
+        case MetadataQueryKind::Crop:
+        case MetadataQueryKind::ExposureGain:
+        case MetadataQueryKind::LensCorrection:
+        case MetadataQueryKind::Orientation: break;
+        }
+        return MetadataQueryValueShape::Table;
+    }
+
+    static bool has_previous_vendor_semantic_group(
+        const MetadataQueryResult& result, size_t match_index,
+        MetadataQueryKind kind, std::string_view group_key,
+        MetadataQuerySemanticKind semantic) noexcept
+    {
+        if (match_index > result.matches.size()) {
+            return false;
+        }
+        for (size_t i = 0U; i < match_index; ++i) {
+            const MetadataQueryMatch& current = result.matches[i];
+            if (!vendor_match_can_group(current, kind)
+                || current.semantic != semantic) {
+                continue;
+            }
+            const std::string_view current_key
+                = vendor_raw_processing_family_group_key(current.group);
+            if (current_key == group_key) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void
+    append_vendor_grouped_query_candidates(const MetaStore& store,
+                                           MetadataQueryResult* result,
+                                           MetadataQueryKind kind)
+    {
+        if (!result) {
+            return;
+        }
+        for (size_t i = 0U; i < result->matches.size(); ++i) {
+            const MetadataQueryMatch& match = result->matches[i];
+            if (!vendor_match_can_group(match, kind)) {
+                continue;
+            }
+            const std::string_view group_key
+                = vendor_raw_processing_family_group_key(match.group);
+            if (has_previous_vendor_semantic_group(*result, i, kind, group_key,
+                                                   match.semantic)) {
+                continue;
+            }
+
+            MetadataQueryCandidate candidate;
+            candidate.semantic = match.semantic;
+            candidate.normalized_shape
+                = vendor_group_candidate_shape(kind, match.semantic);
+
+            for (size_t j = i; j < result->matches.size(); ++j) {
+                const MetadataQueryMatch& current = result->matches[j];
+                if (!vendor_match_can_group(current, kind)
+                    || current.semantic != match.semantic) {
+                    continue;
+                }
+                const std::string_view current_key
+                    = vendor_raw_processing_family_group_key(current.group);
                 if (current_key != group_key) {
                     continue;
                 }
@@ -2249,6 +2405,7 @@ namespace {
                     / sizeof(kDngForwardMatrixTags[0]),
                 MetadataQuerySemanticKind::ColorMatrix,
                 MetadataQueryValueShape::MatrixSet, 92U);
+            append_vendor_grouped_query_candidates(store, result, kind);
             break;
         case MetadataQueryKind::WhiteBalance:
             append_exif_tag_series_candidates(
@@ -2257,6 +2414,7 @@ namespace {
                     / sizeof(kDngWhiteBalanceVectorTags[0]),
                 MetadataQuerySemanticKind::WhiteBalance,
                 MetadataQueryValueShape::VectorSet, 92U);
+            append_vendor_grouped_query_candidates(store, result, kind);
             break;
         case MetadataQueryKind::LensCorrection:
             append_lens_correction_table_candidates(store, result);
@@ -2283,6 +2441,7 @@ namespace {
                 sizeof(kDngRawStorageTags) / sizeof(kDngRawStorageTags[0]),
                 MetadataQuerySemanticKind::RawStorage,
                 MetadataQueryValueShape::Table, 88U);
+            append_vendor_grouped_query_candidates(store, result, kind);
             break;
         case MetadataQueryKind::Crop:
         case MetadataQueryKind::Orientation: break;

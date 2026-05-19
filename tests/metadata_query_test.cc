@@ -798,6 +798,99 @@ TEST(MetadataQuery, MatchesVendorSourceProcessingFields)
                  "source_processing");
 }
 
+TEST(MetadataQuery, GroupsVendorWhiteBalanceVectorSetByFamily)
+{
+    MetaStore store;
+    const std::array<uint32_t, 4> daylight = { 110U, 256U, 256U, 144U };
+    const std::array<uint32_t, 4> cloudy   = { 120U, 256U, 256U, 136U };
+    const EntryId daylight_id
+        = add_exif_u32_array(&store, "mk_nikon_colorbalancec_0", 0x0114U,
+                             std::span<const uint32_t>(daylight.data(),
+                                                       daylight.size()));
+    const EntryId cloudy_id
+        = add_exif_u32_array(&store, "mk_nikon_colorbalancec_0", 0x0115U,
+                             std::span<const uint32_t>(cloudy.data(),
+                                                       cloudy.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_white_balance_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::WhiteBalance,
+                                    MetadataQueryValueShape::VectorSet, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, daylight_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, cloudy_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 8U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 110.0);
+    EXPECT_DOUBLE_EQ(candidate->values[4], 120.0);
+}
+
+TEST(MetadataQuery, GroupsVendorColorTableByFamily)
+{
+    MetaStore store;
+    const EntryId color_a = add_exif_u32(&store, "mk_minolta_colorcomp_0",
+                                         0x0010U, 12U);
+    const EntryId color_b = add_exif_u32(&store, "mk_minolta_colorcomp_0",
+                                         0x0011U, 24U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_color_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result, MetadataQuerySemanticKind::Color,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, color_a));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, color_b));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 2U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 12.0);
+    EXPECT_DOUBLE_EQ(candidate->values[1], 24.0);
+}
+
+TEST(MetadataQuery, GroupsVendorRawProcessingTablesByFamilyAndSemantic)
+{
+    MetaStore store;
+    const EntryId raw_offset = add_exif_u32(&store, "mk_panasonic_rawinfo_0",
+                                            0x0100U, 128U);
+    const EntryId raw_length = add_exif_u32(&store, "mk_panasonic_rawinfo_0",
+                                            0x0101U, 4096U);
+    const EntryId shot_log_a = add_exif_u32(&store, "mk_google_shotlogdata",
+                                            0x0001U, 1U);
+    const EntryId shot_log_b = add_exif_u32(&store, "mk_google_shotlogdata",
+                                            0x0002U, 2U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_raw_processing_metadata(store);
+
+    const MetadataQueryCandidate* storage
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::RawStorage,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(storage, nullptr);
+    EXPECT_TRUE(contains_entry(storage->source_entries, raw_offset));
+    EXPECT_TRUE(contains_entry(storage->source_entries, raw_length));
+    ASSERT_TRUE(storage->has_values);
+    ASSERT_EQ(storage->values.size(), 2U);
+    EXPECT_DOUBLE_EQ(storage->values[0], 128.0);
+    EXPECT_DOUBLE_EQ(storage->values[1], 4096.0);
+
+    const MetadataQueryCandidate* source_processing
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::SourceProcessing,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(source_processing, nullptr);
+    EXPECT_TRUE(contains_entry(source_processing->source_entries, shot_log_a));
+    EXPECT_TRUE(contains_entry(source_processing->source_entries, shot_log_b));
+    ASSERT_TRUE(source_processing->has_values);
+    ASSERT_EQ(source_processing->values.size(), 2U);
+    EXPECT_DOUBLE_EQ(source_processing->values[0], 1.0);
+    EXPECT_DOUBLE_EQ(source_processing->values[1], 2.0);
+}
+
 TEST(MetadataQuery, GroupsDngBlackLevelAndCfaTables)
 {
     MetaStore store;

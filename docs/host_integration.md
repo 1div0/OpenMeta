@@ -607,6 +607,9 @@ geometry/storage, lens correction, raw-data, sensor-calibration,
 computational, thermal, preview/face geometry, stitch/panorama geometry, or
 vendor-private table metadata. Use it to audit transfer safety decisions and
 host UI, not as a rendered-output write source.
+The same classification feeds semantic query and interpretation records as
+per-family grouped table/vector candidates when multiple related vendor fields
+are present.
 
 ```cpp
 #include "openmeta/vendor_raw_processing.h"

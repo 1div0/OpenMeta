@@ -107,7 +107,8 @@ Host-facing API map
        include ``matrix_set``, ``vector_set``, and ``table`` shapes for related
        non-crop metadata, including RAW black/white levels, linearization,
        CFA/sensor layout, source geometry, raw-storage identifiers, and
-       source-processing buckets.
+       source-processing buckets, and per-family vendor MakerNote/RAW
+       white-balance, color, raw-storage, sensor, and source-processing groups.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
        dictionary-returning wrappers.
    * - Structured metadata interpretation records:
@@ -119,7 +120,8 @@ Host-facing API map
        entry ids, and normalized origin/size/rect/margins/value arrays where
        available. Current scope covers orientation, geometry/crop/border,
        exposure/gain, color/white-balance, lens-correction, and
-       RAW/source-processing records. Python ``Document`` and
+       RAW/source-processing records, and grouped vendor-family table/vector
+       records where classification supports them. Python ``Document`` and
        ``TransferSourceSnapshot`` expose matching dictionary wrappers.
    * - Cross-family concept resolution:
        ``resolve_metadata_concepts(...)`` and

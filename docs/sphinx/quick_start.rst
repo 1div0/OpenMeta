@@ -131,6 +131,12 @@ Every raw query match carries ``exact_match``, ``fuzzy_match``, and
 ``fuzzy_score`` fields, so inspection UI can label near-miss results
 separately from exact tag/name hits.
 
+For vendor MakerNote/RAW fields, the query layer also builds conservative
+per-family grouped candidates for related white-balance, color, raw-storage,
+sensor, and source-processing records. These records are for inspection and
+safe-transfer policy, not for writing source RAW transforms into rendered
+outputs.
+
 Call ``metadata_query_fuzzy_search_available()`` when a UI wants to expose that
 the stronger fuzzy matcher is compiled in.
 

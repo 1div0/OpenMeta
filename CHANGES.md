@@ -1,5 +1,16 @@
 # OpenMeta Changes
 
+## 0.4.13 - 2026-05-18
+
+Changes compared with `0.4.12`.
+
+### Added
+
+- Added per-family grouped semantic query candidates for vendor MakerNote/RAW
+  white-balance, color, raw-storage, sensor, and source-processing fields so
+  structured interpretation and concept resolution can expose table/vector/set
+  records instead of only per-entry bucket matches.
+
 ## 0.4.12 - 2026-05-18
 
 Changes compared with `0.4.11`.

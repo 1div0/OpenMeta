@@ -33,7 +33,7 @@ model should stay compact:
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, color, lens-correction, sensor,
        computational capture state, and vendor-private fields.
-     - Medium-high, about 83%.
+     - Medium-high, about 84%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
@@ -41,7 +41,7 @@ model should stay compact:
        flags for crop/border/active-area, exposure/gain, color/WB,
        orientation, date/time, GPS, lens-correction, and RAW/source-processing
        fields across standard and vendor metadata.
-     - Medium, about 66-72%.
+     - Medium, about 68-74%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -87,8 +87,10 @@ tags, fuzzy XMP paths, canonical border-margin parsing, and vendor
 RAW-processing classification where applicable.
 They also append grouped candidates for related DNG color matrix/calibration/
 reduction/forward matrix tags, DNG white-balance vector tags, and
-lens-correction table groups. RAW-processing queries add conservative groups
-for black/white levels, linearization tables, CFA/sensor layout, source
+lens-correction table groups. Vendor-classified MakerNote/RAW fields can also
+form per-family grouped candidates for white balance, color, raw-storage,
+sensor, and source-processing records. RAW-processing queries add conservative
+groups for black/white levels, linearization tables, CFA/sensor layout, source
 geometry, raw-storage identifiers, and source-private processing buckets.
 Grouped candidates use ``matrix_set``, ``vector_set``, and ``table`` value
 shapes. When

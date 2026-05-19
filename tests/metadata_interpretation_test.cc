@@ -215,5 +215,30 @@ namespace {
         EXPECT_DOUBLE_EQ(record.values[0], 8.0);
     }
 
+    TEST(MetadataInterpretation, PreservesGroupedVendorRawProcessingRecords)
+    {
+        MetaStore store;
+        const EntryId shot_log_a = add_exif_u32(&store, "mk_google_shotlogdata",
+                                                0x0001U, 1U);
+        const EntryId shot_log_b = add_exif_u32(&store, "mk_google_shotlogdata",
+                                                0x0002U, 2U);
+        store.finalize();
+
+        const MetadataInterpretationResult result
+            = interpret_metadata_query(store, MetadataQueryKind::RawProcessing);
+
+        const MetadataInterpretationRecord* record
+            = find_record(result, MetadataQuerySemanticKind::SourceProcessing,
+                          MetadataQueryValueShape::Table);
+        ASSERT_NE(record, nullptr);
+        EXPECT_EQ(record->query_kind, MetadataQueryKind::RawProcessing);
+        EXPECT_TRUE(contains_entry(record->source_entries, shot_log_a));
+        EXPECT_TRUE(contains_entry(record->source_entries, shot_log_b));
+        ASSERT_TRUE(record->has_values);
+        ASSERT_EQ(record->values.size(), 2U);
+        EXPECT_DOUBLE_EQ(record->values[0], 1.0);
+        EXPECT_DOUBLE_EQ(record->values[1], 2.0);
+    }
+
 }  // namespace
 }  // namespace openmeta

@@ -100,18 +100,20 @@ Coverage matrix
    * - Color, white balance, and matrices
      - DNG color/calibration/reduction/forward matrix groups, white-balance
        vector groups, ICC metadata, RAW color/source-processing safety
-       buckets, transfer hints, and cross-family concept candidates with full
-       grouped value vectors are identified.
-     - Medium-high, about 79-87%.
+       buckets, transfer hints, per-family grouped vendor color/WB candidates,
+       and cross-family concept candidates with full grouped value vectors are
+       identified.
+     - Medium-high, about 80-88%.
      - Deeper camera/vendor color science interpretation is intentionally
        conservative, especially for rendered-image transfer.
    * - Lens correction and RAW processing
      - Lens-correction groups, black/white levels, linearization, CFA/sensor
        layout, raw-storage identifiers, vendor RAW/source-processing buckets,
+       per-family vendor raw-storage/sensor/source-processing table candidates,
        transfer hints, transfer diagnostics, and concept candidates with
        grouped table/vector values are classified for query and transfer
        safety.
-     - Medium-high, about 78-85%.
+     - Medium-high, about 80-87%.
      - Long-tail per-model correction tables and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
@@ -121,8 +123,10 @@ Coverage matrix
        pixel-shift, multi-shot, composite, auto-lighting, RAW crop/active-area,
        source color-transform, lens-correction, raw-level processing data, and
        Phase One/Leaf RAW-processing fields handled by direct classification
-       plus dedicated normalized helpers.
-     - Medium-high, about 80-88%.
+       plus dedicated normalized helpers. Classified multi-field vendor groups
+       now surface as grouped query/interpretation candidates where safe to
+       expose structurally.
+     - Medium-high, about 82-89%.
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
@@ -138,16 +142,16 @@ Coverage matrix
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, border
-       margins, source-processing buckets, optional RapidFuzz near-miss
-       matching, structured interpretation records, and bounded cross-family
-       concept resolution for orientation, date/time, color/profile, GPS,
-       geometry, lens-correction, and RAW-processing with parsed date/time
-       fields, timezone/precision classification, combined GPS timestamps, GPS
-       altitude-reference state and display token, canonical geometry
-       origin/size/rect/margins, full grouped value vectors, transfer hints,
-       rendered/compatible safety booleans, and tolerance-aware
+       margins, per-family grouped vendor records, source-processing buckets,
+       optional RapidFuzz near-miss matching, structured interpretation records,
+       and bounded cross-family concept resolution for orientation, date/time,
+       color/profile, GPS, geometry, lens-correction, and RAW-processing with
+       parsed date/time fields, timezone/precision classification, combined GPS
+       timestamps, GPS altitude-reference state and display token, canonical
+       geometry origin/size/rect/margins, full grouped value vectors, transfer
+       hints, rendered/compatible safety booleans, and tolerance-aware
        GPS/color/geometry conflicts.
-     - Medium, about 68-74%.
+     - Medium, about 70-76%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
