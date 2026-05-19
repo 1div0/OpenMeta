@@ -802,6 +802,18 @@ find_transfer_concept_diagnostic(
     return nullptr;
 }
 
+static bool
+contains_entry_id(const std::vector<openmeta::EntryId>& entries,
+                  openmeta::EntryId entry_id) noexcept
+{
+    for (size_t i = 0U; i < entries.size(); ++i) {
+        if (entries[i] == entry_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static std::vector<std::byte>
 ascii_z(const char* s)
 {
@@ -21241,6 +21253,40 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     source_processing.origin.block          = block;
     source_processing.origin.order_in_block = 8U;
     ASSERT_NE(store.add_entry(source_processing), openmeta::kInvalidEntryId);
+
+    const std::array<uint32_t, 2> raf_full_size = { 4032U, 3024U };
+    openmeta::Entry raf_full;
+    raf_full.key = openmeta::make_exif_tag_key(store.arena(), "raf_0", 0x0100U);
+    raf_full.value = openmeta::make_u32_array(
+        store.arena(),
+        std::span<const uint32_t>(raf_full_size.data(), raf_full_size.size()));
+    raf_full.origin.block               = block;
+    raf_full.origin.order_in_block      = 9U;
+    const openmeta::EntryId raf_full_id = store.add_entry(raf_full);
+    ASSERT_NE(raf_full_id, openmeta::kInvalidEntryId);
+
+    const std::array<uint32_t, 2> raf_origin_value = { 16U, 8U };
+    openmeta::Entry raf_origin;
+    raf_origin.key   = openmeta::make_exif_tag_key(store.arena(), "raf_0",
+                                                   0x0110U);
+    raf_origin.value = openmeta::make_u32_array(
+        store.arena(), std::span<const uint32_t>(raf_origin_value.data(),
+                                                 raf_origin_value.size()));
+    raf_origin.origin.block               = block;
+    raf_origin.origin.order_in_block      = 10U;
+    const openmeta::EntryId raf_origin_id = store.add_entry(raf_origin);
+    ASSERT_NE(raf_origin_id, openmeta::kInvalidEntryId);
+
+    const std::array<uint32_t, 2> raf_crop_size = { 4000U, 3000U };
+    openmeta::Entry raf_size;
+    raf_size.key = openmeta::make_exif_tag_key(store.arena(), "raf_0", 0x0111U);
+    raf_size.value = openmeta::make_u32_array(
+        store.arena(),
+        std::span<const uint32_t>(raf_crop_size.data(), raf_crop_size.size()));
+    raf_size.origin.block               = block;
+    raf_size.origin.order_in_block      = 11U;
+    const openmeta::EntryId raf_size_id = store.add_entry(raf_size);
+    ASSERT_NE(raf_size_id, openmeta::kInvalidEntryId);
     store.finalize();
 
     const openmeta::TransferConceptDiagnostics rendered
@@ -21305,6 +21351,25 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         openmeta::transfer_concept_diagnostic_message(*orientation_diag),
         "source value describes target-owned image properties; provide target "
         "image specs or write a target-correct value");
+
+    const openmeta::TransferConceptDiagnostic* active_area_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::Geometry,
+            openmeta::MetadataConceptRole::ActiveArea,
+            openmeta::TransferConceptDiagnosticAction::RequiresTargetImageSpec);
+    ASSERT_NE(active_area_diag, nullptr);
+    EXPECT_EQ(
+        active_area_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::TargetImageSpecRequired);
+    EXPECT_EQ(active_area_diag->severity,
+              openmeta::TransferConceptDiagnosticSeverity::Warning);
+    EXPECT_TRUE(active_area_diag->requires_target_image_spec);
+    EXPECT_TRUE(
+        contains_entry_id(active_area_diag->source_entries, raf_full_id));
+    EXPECT_TRUE(
+        contains_entry_id(active_area_diag->source_entries, raf_origin_id));
+    EXPECT_TRUE(
+        contains_entry_id(active_area_diag->source_entries, raf_size_id));
 
     const openmeta::TransferConceptDiagnostic* color_space_diag
         = find_transfer_concept_diagnostic(

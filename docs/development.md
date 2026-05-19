@@ -39,10 +39,11 @@ It returns both raw matches and normalized candidates for crop/active-area,
 exposure/gain, white balance, color, lens correction, orientation, and
 RAW-processing queries.
 Crop queries include DNG crop tags, `ActiveArea`, Phase One/Leaf raw geometry,
-and fuzzy crop/border-style XMP property paths. The non-crop queries expose
-per-entry value candidates and reuse standard tag names, selected DNG tags,
-fuzzy XMP paths, canonical border-margin parsing, and vendor RAW-processing
-classification where applicable.
+Fujifilm RAF raw crop/zoom rectangles, and fuzzy crop/border-style XMP
+property paths. The non-crop queries expose per-entry value candidates and
+reuse standard tag names, selected DNG tags, fuzzy XMP paths, canonical
+border-margin parsing, and vendor RAW-processing classification where
+applicable.
 They also append grouped candidates for related DNG color matrix/calibration/
 reduction/forward matrix tags, DNG white-balance vector tags, and
 lens-correction table groups. Vendor-classified MakerNote/RAW fields can also

@@ -89,13 +89,18 @@ namespace {
     static constexpr uint16_t kSamsungChromaticAberrationCorrParamsTag = 0x7035U;
     static constexpr uint16_t kSamsungDistortionCorrParamsTag = 0x7037U;
 
-    static constexpr uint16_t kPhaseOneSensorWidthTag      = 0x0108U;
-    static constexpr uint16_t kPhaseOneSensorHeightTag     = 0x0109U;
-    static constexpr uint16_t kPhaseOneSensorLeftMarginTag = 0x010AU;
-    static constexpr uint16_t kPhaseOneSensorTopMarginTag  = 0x010BU;
-    static constexpr uint16_t kPhaseOneImageWidthTag       = 0x010CU;
-    static constexpr uint16_t kPhaseOneImageHeightTag      = 0x010DU;
-    static constexpr std::string_view kPhaseOneMainIfd     = "mk_phaseone0";
+    static constexpr uint16_t kPhaseOneSensorWidthTag        = 0x0108U;
+    static constexpr uint16_t kPhaseOneSensorHeightTag       = 0x0109U;
+    static constexpr uint16_t kPhaseOneSensorLeftMarginTag   = 0x010AU;
+    static constexpr uint16_t kPhaseOneSensorTopMarginTag    = 0x010BU;
+    static constexpr uint16_t kPhaseOneImageWidthTag         = 0x010CU;
+    static constexpr uint16_t kPhaseOneImageHeightTag        = 0x010DU;
+    static constexpr std::string_view kPhaseOneMainIfd       = "mk_phaseone0";
+    static constexpr uint16_t kFujiRafRawImageFullSizeTag    = 0x0100U;
+    static constexpr uint16_t kFujiRafRawImageCropTopLeftTag = 0x0110U;
+    static constexpr uint16_t kFujiRafRawImageCroppedSizeTag = 0x0111U;
+    static constexpr uint16_t kFujiRafRawZoomTopLeftTag      = 0x0118U;
+    static constexpr uint16_t kFujiRafRawZoomSizeTag         = 0x0119U;
 
     static constexpr uint16_t kDngColorMatrixTags[] = {
         kDngColorMatrix1Tag,
@@ -2225,6 +2230,147 @@ namespace {
         result->candidates.push_back(candidate);
     }
 
+    static bool is_fujifilm_raf_data_ifd(std::string_view ifd) noexcept
+    {
+        if (starts_with_ascii_case_insensitive(ifd, "raf_header")) {
+            return false;
+        }
+        if (starts_with_ascii_case_insensitive(ifd, "raf_")) {
+            return true;
+        }
+        return ifd.size() == 3U
+               && starts_with_ascii_case_insensitive(ifd, "raf");
+    }
+
+    static void append_fujifilm_raf_rect_candidate(
+        const MetaStore& store, MetadataQueryResult* result, EntryId origin_id,
+        EntryId size_id, EntryId full_size_id,
+        MetadataQuerySemanticKind semantic, uint8_t confidence)
+    {
+        if (!result || origin_id == kInvalidEntryId
+            || size_id == kInvalidEntryId) {
+            return;
+        }
+
+        double origin_values[4] {};
+        double size_values[4] {};
+        double full_size_values[4] {};
+        uint32_t origin_count    = 0U;
+        uint32_t size_count      = 0U;
+        uint32_t full_size_count = 0U;
+        if (!value_to_double_array(store, store.entry(origin_id).value,
+                                   origin_values, 4U, &origin_count)
+            || !value_to_double_array(store, store.entry(size_id).value,
+                                      size_values, 4U, &size_count)
+            || origin_count < 2U || size_count < 2U) {
+            return;
+        }
+        if (origin_values[0] < 0.0 || origin_values[1] < 0.0
+            || size_values[0] <= 0.0 || size_values[1] <= 0.0) {
+            return;
+        }
+
+        bool has_full_size = false;
+        if (full_size_id != kInvalidEntryId) {
+            has_full_size
+                = value_to_double_array(store, store.entry(full_size_id).value,
+                                        full_size_values, 4U, &full_size_count)
+                  && full_size_count >= 2U && full_size_values[0] > 0.0
+                  && full_size_values[1] > 0.0;
+        }
+
+        MetadataQueryCandidate candidate;
+        candidate.semantic         = semantic;
+        candidate.normalized_shape = MetadataQueryValueShape::Rect;
+        candidate.confidence       = confidence;
+        append_unique_entry(&candidate.source_entries, origin_id);
+        append_unique_entry(&candidate.source_entries, size_id);
+        if (has_full_size) {
+            append_unique_entry(&candidate.source_entries, full_size_id);
+        }
+        candidate.has_origin = true;
+        candidate.origin[0]  = origin_values[0];
+        candidate.origin[1]  = origin_values[1];
+        candidate.has_size   = true;
+        candidate.size[0]    = size_values[0];
+        candidate.size[1]    = size_values[1];
+        candidate.has_rect   = true;
+        candidate.rect[0]    = origin_values[0];
+        candidate.rect[1]    = origin_values[1];
+        candidate.rect[2]    = size_values[0];
+        candidate.rect[3]    = size_values[1];
+        candidate.has_values = true;
+        candidate.values.reserve(has_full_size ? 6U : 4U);
+        candidate.values.push_back(origin_values[0]);
+        candidate.values.push_back(origin_values[1]);
+        candidate.values.push_back(size_values[0]);
+        candidate.values.push_back(size_values[1]);
+        if (has_full_size) {
+            candidate.values.push_back(full_size_values[0]);
+            candidate.values.push_back(full_size_values[1]);
+
+            const double right_margin = full_size_values[0] - origin_values[0]
+                                        - size_values[0];
+            const double bottom_margin = full_size_values[1] - origin_values[1]
+                                         - size_values[1];
+            if (right_margin >= 0.0 && bottom_margin >= 0.0) {
+                candidate.has_margins = true;
+                candidate.margins[0]  = origin_values[0];
+                candidate.margins[1]  = origin_values[1];
+                candidate.margins[2]  = right_margin;
+                candidate.margins[3]  = bottom_margin;
+            }
+        }
+        result->candidates.push_back(candidate);
+    }
+
+    static void append_fujifilm_raf_crop_candidate(const MetaStore& store,
+                                                   MetadataQueryResult* result)
+    {
+        if (!result) {
+            return;
+        }
+
+        const std::span<const Entry> entries = store.entries();
+        for (size_t i = 0U; i < entries.size(); ++i) {
+            const Entry& entry = entries[i];
+            if (entry_is_deleted(entry)
+                || entry.key.kind != MetaKeyKind::ExifTag) {
+                continue;
+            }
+            const uint16_t tag = entry.key.data.exif_tag.tag;
+            if (tag != kFujiRafRawImageCropTopLeftTag
+                && tag != kFujiRafRawZoomTopLeftTag) {
+                continue;
+            }
+
+            const std::string_view ifd
+                = arena_string(store.arena(), entry.key.data.exif_tag.ifd);
+            if (!is_fujifilm_raf_data_ifd(ifd)) {
+                continue;
+            }
+
+            const EntryId origin_id = static_cast<EntryId>(i);
+            const EntryId full_size_id
+                = find_first_exif_entry(store, ifd,
+                                        kFujiRafRawImageFullSizeTag);
+            if (tag == kFujiRafRawImageCropTopLeftTag) {
+                const EntryId size_id
+                    = find_first_exif_entry(store, ifd,
+                                            kFujiRafRawImageCroppedSizeTag);
+                append_fujifilm_raf_rect_candidate(
+                    store, result, origin_id, size_id, full_size_id,
+                    MetadataQuerySemanticKind::ActiveArea, 94U);
+            } else {
+                const EntryId size_id
+                    = find_first_exif_entry(store, ifd, kFujiRafRawZoomSizeTag);
+                append_fujifilm_raf_rect_candidate(
+                    store, result, origin_id, size_id, full_size_id,
+                    MetadataQuerySemanticKind::Crop, 88U);
+            }
+        }
+    }
+
     static void append_masked_areas_candidate(const MetaStore& store,
                                               MetadataQueryResult* result)
     {
@@ -2527,6 +2673,7 @@ query_crop_metadata(const MetaStore& store)
     append_default_crop_candidate(store, &result);
     append_active_area_candidate(store, &result);
     append_phaseone_crop_candidate(store, &result);
+    append_fujifilm_raf_crop_candidate(store, &result);
     append_masked_areas_candidate(store, &result);
     append_crop_match_candidates(store, &result);
     return result;

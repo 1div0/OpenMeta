@@ -1,5 +1,19 @@
 # OpenMeta Changes
 
+## 0.4.14 - 2026-05-19
+
+Changes compared with `0.4.13`.
+
+### Added
+
+- Added normalized Fujifilm RAF raw crop and raw zoom interpretation from
+  full-size, top-left, and cropped-size fields into active-area/crop
+  rectangles with margins when the full sensor size is available.
+- Added concept and transfer-diagnostic coverage showing vendor-derived
+  geometry remains target-owned for rendered transfers while grouped color,
+  white-balance, lens-correction, and source-processing records remain
+  inspection/source-bound data.
+
 ## 0.4.13 - 2026-05-18
 
 Changes compared with `0.4.12`.

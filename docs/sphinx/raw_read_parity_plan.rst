@@ -68,11 +68,12 @@ Family Gap Matrix
    * - Fujifilm RAF
      - Partial native lane: header-declared preview-JPEG EXIF/XMP discovery,
        FujiIFD/TIFF follow path, RAF header fields, RAF directory geometry
-       tags, RAFData geometry projection, and standalone XMP fallback
+       tags, RAFData geometry projection, normalized raw crop/zoom rectangles,
+       and standalone XMP fallback
      - Model-specific RAF tables and less common native sections outside the
        stable carrier/header/directory subset
-     - Extend native RAF section inventory table-by-table, with
-       geometry/color/correction safety buckets before transfer use
+     - Extend native RAF section inventory table-by-table, with broader
+       color/correction safety buckets before transfer use
    * - Sigma X3F
      - Partial native lane: header fields, known PROP properties,
        section-directory JPEG metadata follow path, and legacy embedded-EXIF

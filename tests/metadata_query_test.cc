@@ -333,6 +333,99 @@ TEST(MetadataQuery, NormalizesPhaseOneRawGeometryCandidate)
     EXPECT_DOUBLE_EQ(candidate->margins[3], 128.0);
 }
 
+TEST(MetadataQuery, NormalizesFujifilmRafRawCropCandidate)
+{
+    MetaStore store;
+    const std::array<uint32_t, 2> full_size = { 4032U, 3024U };
+    const std::array<uint32_t, 2> top_left  = { 16U, 8U };
+    const std::array<uint32_t, 2> crop_size = { 4000U, 3000U };
+    const EntryId full_id
+        = add_exif_u32_array(&store, "raf_0", 0x0100U,
+                             std::span<const uint32_t>(full_size.data(),
+                                                       full_size.size()));
+    const EntryId top_left_id
+        = add_exif_u32_array(&store, "raf_0", 0x0110U,
+                             std::span<const uint32_t>(top_left.data(),
+                                                       top_left.size()));
+    const EntryId size_id
+        = add_exif_u32_array(&store, "raf_0", 0x0111U,
+                             std::span<const uint32_t>(crop_size.data(),
+                                                       crop_size.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate(result, MetadataQuerySemanticKind::ActiveArea);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->normalized_shape, MetadataQueryValueShape::Rect);
+    EXPECT_EQ(candidate->confidence, 94U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, full_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, top_left_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, size_id));
+    ASSERT_TRUE(candidate->has_origin);
+    EXPECT_DOUBLE_EQ(candidate->origin[0], 16.0);
+    EXPECT_DOUBLE_EQ(candidate->origin[1], 8.0);
+    ASSERT_TRUE(candidate->has_size);
+    EXPECT_DOUBLE_EQ(candidate->size[0], 4000.0);
+    EXPECT_DOUBLE_EQ(candidate->size[1], 3000.0);
+    ASSERT_TRUE(candidate->has_rect);
+    EXPECT_DOUBLE_EQ(candidate->rect[0], 16.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[1], 8.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[2], 4000.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[3], 3000.0);
+    ASSERT_TRUE(candidate->has_margins);
+    EXPECT_DOUBLE_EQ(candidate->margins[0], 16.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[1], 8.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[2], 16.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[3], 16.0);
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 6U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 16.0);
+    EXPECT_DOUBLE_EQ(candidate->values[2], 4000.0);
+    EXPECT_DOUBLE_EQ(candidate->values[4], 4032.0);
+}
+
+TEST(MetadataQuery, NormalizesFujifilmRafRawZoomCandidate)
+{
+    MetaStore store;
+    const std::array<uint32_t, 2> full_size = { 4032U, 3024U };
+    const std::array<uint32_t, 2> top_left  = { 64U, 48U };
+    const std::array<uint32_t, 2> crop_size = { 3000U, 2000U };
+    const EntryId full_id
+        = add_exif_u32_array(&store, "raf_0", 0x0100U,
+                             std::span<const uint32_t>(full_size.data(),
+                                                       full_size.size()));
+    const EntryId top_left_id
+        = add_exif_u32_array(&store, "raf_0", 0x0118U,
+                             std::span<const uint32_t>(top_left.data(),
+                                                       top_left.size()));
+    const EntryId size_id
+        = add_exif_u32_array(&store, "raf_0", 0x0119U,
+                             std::span<const uint32_t>(crop_size.data(),
+                                                       crop_size.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_crop_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate(result, MetadataQuerySemanticKind::Crop);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->normalized_shape, MetadataQueryValueShape::Rect);
+    EXPECT_EQ(candidate->confidence, 88U);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, full_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, top_left_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, size_id));
+    ASSERT_TRUE(candidate->has_rect);
+    EXPECT_DOUBLE_EQ(candidate->rect[0], 64.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[1], 48.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[2], 3000.0);
+    EXPECT_DOUBLE_EQ(candidate->rect[3], 2000.0);
+    ASSERT_TRUE(candidate->has_margins);
+    EXPECT_DOUBLE_EQ(candidate->margins[2], 968.0);
+    EXPECT_DOUBLE_EQ(candidate->margins[3], 976.0);
+}
+
 TEST(MetadataQuery, MatchesFuzzyXmpCropPath)
 {
     MetaStore store;

@@ -59,7 +59,8 @@ families, use ``metadata_concepts.h``. It reports orientation, date/time,
 color/profile, GPS, geometry, lens-correction, and RAW-processing candidates
 with source families, preferred entries, and same-role conflict flags. Geometry
 candidates expose crop, active-area, border, and sensor-geometry roles with
-canonical origin, size, rect, and margin fields when available. Color/white
+canonical origin, size, rect, and margin fields when available, including
+known DNG, Phase One/Leaf, and Fujifilm RAF raw geometry patterns. Color/white
 balance, lens-correction, and RAW-processing candidates expose full normalized
 value vectors for grouped matrix/vector/table records. Date/time candidates
 include parsed date/time fields when the source value is recognizable, plus

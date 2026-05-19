@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 83%** for the public target scope.
+Current overall status: **medium-high, about 84%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -92,9 +92,10 @@ Coverage matrix
        state remains host-specific.
    * - Geometry, crop, active area, and borders
      - DNG crop/active-area/masked-area tags, Phase One/Leaf geometry,
-       canonical border margins, vendor RAW-processing geometry buckets, and
-       fuzzy crop/border-style paths are queryable.
-     - Medium-high, about 85-90%.
+       Fujifilm RAF raw crop/zoom rectangles, canonical border margins,
+       vendor RAW-processing geometry buckets, and fuzzy crop/border-style
+       paths are queryable.
+     - Medium-high, about 86-91%.
      - More vendor-specific normalized rectangles and stronger output contracts
        for ambiguous multi-tag geometry.
    * - Color, white balance, and matrices
@@ -141,17 +142,18 @@ Coverage matrix
      - Broader resource-specific interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
-       normalized candidates, canonical crop/active-area rectangles, border
-       margins, per-family grouped vendor records, source-processing buckets,
-       optional RapidFuzz near-miss matching, structured interpretation records,
-       and bounded cross-family concept resolution for orientation, date/time,
-       color/profile, GPS, geometry, lens-correction, and RAW-processing with
-       parsed date/time fields, timezone/precision classification, combined GPS
-       timestamps, GPS altitude-reference state and display token, canonical
-       geometry origin/size/rect/margins, full grouped value vectors, transfer
-       hints, rendered/compatible safety booleans, and tolerance-aware
-       GPS/color/geometry conflicts.
-     - Medium, about 70-76%.
+       normalized candidates, canonical crop/active-area rectangles, Fujifilm
+       RAF raw crop/zoom rectangles, border margins, per-family grouped vendor
+       records, source-processing buckets, optional RapidFuzz near-miss
+       matching, structured interpretation records, and bounded cross-family
+       concept resolution for orientation, date/time, color/profile, GPS,
+       geometry, lens-correction, and RAW-processing with parsed date/time
+       fields, timezone/precision classification, combined GPS timestamps, GPS
+       altitude-reference state and display token, canonical geometry
+       origin/size/rect/margins, full grouped value vectors, transfer hints,
+       rendered/compatible safety booleans, and tolerance-aware GPS/color/
+       geometry conflicts.
+     - Medium, about 72-78%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification

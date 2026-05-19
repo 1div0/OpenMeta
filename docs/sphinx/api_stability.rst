@@ -97,9 +97,9 @@ Host-facing API map
      - Query contract for inspection matches plus normalized candidates.
        Current coverage includes crop/active-area/border margins,
        exposure/gain, white balance, color, lens correction, orientation, and
-       RAW/source-processing
-       metadata across standard tags, selected DNG tags, fuzzy XMP paths, and
-       vendor RAW-processing classification. Matches report ``exact_match``,
+       RAW/source-processing metadata across standard tags, selected DNG tags,
+       Fujifilm RAF raw crop/zoom rectangles, fuzzy XMP paths, and vendor
+       RAW-processing classification. Matches report ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
        ``OPENMETA_ENABLE_RAPIDFUZZ=ON`` adds optional near-miss
@@ -118,10 +118,11 @@ Host-facing API map
      - Thin structured projection over semantic query candidates. Records
        carry query class, semantic kind, normalized shape, confidence, source
        entry ids, and normalized origin/size/rect/margins/value arrays where
-       available. Current scope covers orientation, geometry/crop/border,
-       exposure/gain, color/white-balance, lens-correction, and
-       RAW/source-processing records, and grouped vendor-family table/vector
-       records where classification supports them. Python ``Document`` and
+       available. Current scope covers orientation, geometry/crop/border
+       including Fujifilm RAF raw crop/zoom rectangles, exposure/gain,
+       color/white-balance, lens-correction, and RAW/source-processing
+       records, and grouped vendor-family table/vector records where
+       classification supports them. Python ``Document`` and
        ``TransferSourceSnapshot`` expose matching dictionary wrappers.
    * - Cross-family concept resolution:
        ``resolve_metadata_concepts(...)`` and
@@ -138,7 +139,9 @@ Host-facing API map
        and RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
        query-backed interpretation records where applicable. Geometry
        candidates cover crop, active area, border, and sensor geometry with
-       canonical origin, size, rect, and margin fields when available.
+       canonical origin, size, rect, and margin fields when available,
+       including normalized DNG, Phase One/Leaf, and Fujifilm RAF geometry
+       patterns.
        Candidate transfer hints distinguish ``safe``, ``source_bound``,
        ``rendered_unsafe``, and ``requires_target_image_spec`` evidence, with
        compatible-file and rendered-image safety booleans.

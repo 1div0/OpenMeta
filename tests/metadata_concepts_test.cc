@@ -166,6 +166,21 @@ namespace {
         return false;
     }
 
+    static const MetadataConceptCandidate*
+    find_role_entries(const MetadataConceptResolution& resolution,
+                      MetadataConceptRole role, EntryId first, EntryId second)
+    {
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = resolution.candidates[i];
+            if (candidate.role == role
+                && contains_entry(candidate.source_entries, first)
+                && contains_entry(candidate.source_entries, second)) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
     TEST(MetadataConcepts, ResolvesCoreCrossFamilyConcepts)
     {
         MetaStore store;
@@ -512,6 +527,161 @@ namespace {
         ASSERT_TRUE(source->has_values);
         EXPECT_DOUBLE_EQ(source->values[0], 7.0);
         EXPECT_TRUE(contains_entry(source->source_entries, source_processing));
+    }
+
+    TEST(MetadataConcepts, ResolvesFujifilmRafRawCropAsTargetOwnedGeometry)
+    {
+        MetaStore store;
+        const std::array<uint32_t, 2> full_size = { 4032U, 3024U };
+        const std::array<uint32_t, 2> top_left  = { 16U, 8U };
+        const std::array<uint32_t, 2> crop_size = { 4000U, 3000U };
+        const EntryId full_id
+            = add_exif_u32_array(&store, "raf_0", 0x0100U,
+                                 std::span<const uint32_t>(full_size.data(),
+                                                           full_size.size()));
+        const EntryId top_left_id
+            = add_exif_u32_array(&store, "raf_0", 0x0110U,
+                                 std::span<const uint32_t>(top_left.data(),
+                                                           top_left.size()));
+        const EntryId size_id
+            = add_exif_u32_array(&store, "raf_0", 0x0111U,
+                                 std::span<const uint32_t>(crop_size.data(),
+                                                           crop_size.size()));
+        store.finalize();
+
+        const MetadataConceptResult result = resolve_metadata_concepts(store);
+
+        const MetadataConceptResolution* geometry
+            = find_concept(result, MetadataConceptKind::Geometry);
+        ASSERT_NE(geometry, nullptr);
+        EXPECT_TRUE(geometry->found);
+        const MetadataConceptCandidate* active
+            = find_role(*geometry, MetadataConceptRole::ActiveArea);
+        ASSERT_NE(active, nullptr);
+        EXPECT_EQ(active->shape, MetadataQueryValueShape::Rect);
+        EXPECT_EQ(active->transfer_hint,
+                  MetadataConceptTransferHint::RequiresTargetImageSpec);
+        EXPECT_TRUE(active->compatible_file_safe);
+        EXPECT_FALSE(active->rendered_image_safe);
+        EXPECT_TRUE(active->requires_target_image_spec);
+        EXPECT_FALSE(active->source_bound);
+        EXPECT_TRUE(contains_entry(active->source_entries, full_id));
+        EXPECT_TRUE(contains_entry(active->source_entries, top_left_id));
+        EXPECT_TRUE(contains_entry(active->source_entries, size_id));
+        ASSERT_TRUE(active->has_rect);
+        EXPECT_DOUBLE_EQ(active->rect[0], 16.0);
+        EXPECT_DOUBLE_EQ(active->rect[1], 8.0);
+        EXPECT_DOUBLE_EQ(active->rect[2], 4000.0);
+        EXPECT_DOUBLE_EQ(active->rect[3], 3000.0);
+        ASSERT_TRUE(active->has_margins);
+        EXPECT_DOUBLE_EQ(active->margins[0], 16.0);
+        EXPECT_DOUBLE_EQ(active->margins[1], 8.0);
+        EXPECT_DOUBLE_EQ(active->margins[2], 16.0);
+        EXPECT_DOUBLE_EQ(active->margins[3], 16.0);
+    }
+
+    TEST(MetadataConcepts, ResolvesGroupedVendorRecordsForInspectionHints)
+    {
+        MetaStore store;
+        const std::array<uint32_t, 9> color_matrix_a = {
+            1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+        };
+        const std::array<uint32_t, 9> color_matrix_b = {
+            2U, 0U, 0U, 0U, 2U, 0U, 0U, 0U, 2U,
+        };
+        const EntryId matrix_a = add_exif_u32_array(
+            &store, "mk_phaseone0", 0x0106U,
+            std::span<const uint32_t>(color_matrix_a.data(),
+                                      color_matrix_a.size()));
+        const EntryId matrix_b = add_exif_u32_array(
+            &store, "mk_phaseone0", 0x0226U,
+            std::span<const uint32_t>(color_matrix_b.data(),
+                                      color_matrix_b.size()));
+
+        const std::array<uint32_t, 4> daylight = { 110U, 256U, 256U, 144U };
+        const std::array<uint32_t, 4> cloudy   = { 120U, 256U, 256U, 136U };
+        const EntryId daylight_id
+            = add_exif_u32_array(&store, "mk_nikon_colorbalancec_0", 0x0114U,
+                                 std::span<const uint32_t>(daylight.data(),
+                                                           daylight.size()));
+        const EntryId cloudy_id
+            = add_exif_u32_array(&store, "mk_nikon_colorbalancec_0", 0x0115U,
+                                 std::span<const uint32_t>(cloudy.data(),
+                                                           cloudy.size()));
+
+        const EntryId distort_id  = add_exif_u32(&store, "mk_nikon_distortinfo",
+                                                 0x0001U, 7U);
+        const EntryId vignette_id = add_exif_u32(&store, "mk_nikon_vignette",
+                                                 0x0001U, 3U);
+
+        const EntryId source_a = add_exif_u32(&store, "mk_google_shotlogdata",
+                                              0x0001U, 1U);
+        const EntryId source_b = add_exif_u32(&store, "mk_google_shotlogdata",
+                                              0x0002U, 2U);
+        store.finalize();
+
+        const MetadataConceptResult result = resolve_metadata_concepts(store);
+
+        const MetadataConceptResolution* color
+            = find_concept(result, MetadataConceptKind::ColorProfile);
+        ASSERT_NE(color, nullptr);
+        const MetadataConceptCandidate* matrix
+            = find_role_shape(*color, MetadataConceptRole::ColorMatrix,
+                              MetadataQueryValueShape::MatrixSet);
+        ASSERT_NE(matrix, nullptr);
+        EXPECT_EQ(matrix->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(matrix->source_bound);
+        EXPECT_TRUE(contains_entry(matrix->source_entries, matrix_a));
+        EXPECT_TRUE(contains_entry(matrix->source_entries, matrix_b));
+        ASSERT_TRUE(matrix->has_values);
+        ASSERT_EQ(matrix->values.size(), 18U);
+        EXPECT_DOUBLE_EQ(matrix->values[0], 1.0);
+        EXPECT_DOUBLE_EQ(matrix->values[9], 2.0);
+
+        const MetadataConceptCandidate* wb
+            = find_role_shape(*color, MetadataConceptRole::WhiteBalance,
+                              MetadataQueryValueShape::VectorSet);
+        ASSERT_NE(wb, nullptr);
+        EXPECT_EQ(wb->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(wb->source_bound);
+        EXPECT_TRUE(contains_entry(wb->source_entries, daylight_id));
+        EXPECT_TRUE(contains_entry(wb->source_entries, cloudy_id));
+        ASSERT_TRUE(wb->has_values);
+        ASSERT_EQ(wb->values.size(), 8U);
+        EXPECT_DOUBLE_EQ(wb->values[0], 110.0);
+        EXPECT_DOUBLE_EQ(wb->values[4], 120.0);
+
+        const MetadataConceptResolution* lens
+            = find_concept(result, MetadataConceptKind::LensCorrection);
+        ASSERT_NE(lens, nullptr);
+        const MetadataConceptCandidate* lens_table
+            = find_role_shape(*lens, MetadataConceptRole::LensCorrection,
+                              MetadataQueryValueShape::Table);
+        ASSERT_NE(lens_table, nullptr);
+        EXPECT_EQ(lens_table->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(contains_entry(lens_table->source_entries, distort_id));
+        EXPECT_TRUE(contains_entry(lens_table->source_entries, vignette_id));
+
+        const MetadataConceptResolution* raw
+            = find_concept(result, MetadataConceptKind::RawProcessing);
+        ASSERT_NE(raw, nullptr);
+        const MetadataConceptCandidate* source
+            = find_role_entries(*raw, MetadataConceptRole::SourceProcessing,
+                                source_a, source_b);
+        ASSERT_NE(source, nullptr);
+        EXPECT_EQ(source->shape, MetadataQueryValueShape::Table);
+        EXPECT_EQ(source->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(source->source_bound);
+        EXPECT_TRUE(contains_entry(source->source_entries, source_a));
+        EXPECT_TRUE(contains_entry(source->source_entries, source_b));
+        ASSERT_TRUE(source->has_values);
+        ASSERT_EQ(source->values.size(), 2U);
+        EXPECT_DOUBLE_EQ(source->values[0], 1.0);
+        EXPECT_DOUBLE_EQ(source->values[1], 2.0);
     }
 
     TEST(MetadataConcepts, FlagsConflictingCreatedDatesAcrossFamilies)

@@ -158,6 +158,9 @@ per-family grouped candidates for related white-balance, color, raw-storage,
 sensor, and source-processing records. These records are for inspection and
 safe-transfer policy, not for writing source RAW transforms into rendered
 outputs.
+Known geometry patterns can also become normalized rectangles; current public
+coverage includes DNG crop/active-area tags, Phase One/Leaf RAW geometry, and
+Fujifilm RAF raw crop/zoom fields.
 
 Call `metadata_query_fuzzy_search_available()` when a UI wants to expose that
 the stronger fuzzy matcher is compiled in.
