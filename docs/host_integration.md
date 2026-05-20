@@ -57,7 +57,10 @@ canonical origin, size, rect, and margin fields when available, including
 known DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon Capture, and Sony
 panorama geometry patterns. Color/white balance, lens-correction, and
 RAW-processing candidates expose full normalized value vectors for grouped
-matrix/vector/table records. Date/time candidates
+matrix/vector/table records when the source payloads satisfy conservative
+numeric shape checks. Malformed or text-only source records remain visible as
+individual metadata, but they are not promoted into normalized grouped color,
+white-balance, or lens-correction candidates. Date/time candidates
 include parsed date/time fields when the source value is recognizable, plus
 precision and timezone-kind fields. GPS timestamps combine `GPSDateStamp` with
 `GPSTimeStamp` when both are present, and GPS altitude candidates report
@@ -72,8 +75,10 @@ hint: `safe`, `source_bound`, `rendered_unsafe`, or
 previews, `transfer_concept_diagnostics_from_store(...)` converts those hints
 into keep/drop/requires-target-image-spec actions for a selected
 `TransferSafetyMode`, plus stable severity tokens and default message text for
-host UI. Hosts can localize or replace the wording, but they do not need to
-invent the basic safe/drop/rewrite reasons.
+host UI. Rendered-transfer drop messages distinguish source color transforms,
+white balance, lens correction, source-bound RAW processing, and target-owned
+image properties. Hosts can localize or replace the wording, but they do not
+need to invent the basic safe/drop/rewrite reasons.
 
 ## Adapter Classes
 

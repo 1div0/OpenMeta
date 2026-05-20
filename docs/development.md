@@ -18,7 +18,7 @@ model should stay compact:
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
 | Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, color, lens-correction, sensor, computational capture state, and vendor-private fields. | Medium-high, about 85%. |
-| Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB, orientation, date/time, GPS, lens-correction, and RAW/source-processing fields across standard and vendor metadata. | Medium, about 70-76%. |
+| Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB, orientation, date/time, GPS, lens-correction, and RAW/source-processing fields across standard and vendor metadata. | Medium, about 72-78%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
 | Transfer | Move metadata between files using explicit compatible-file or rendered-image safety policies. | Medium-high, about 80-85%. |
@@ -53,6 +53,9 @@ sensor, and source-processing records. RAW-processing queries add conservative
 groups for black/white levels, linearization tables, CFA/sensor layout, source
 geometry, raw-storage identifiers, and source-private processing buckets.
 Grouped candidates use `matrix_set`, `vector_set`, and `table` value shapes.
+Color matrix sets, white-balance vector sets, and lens-correction tables are
+promoted only when the numeric payloads meet conservative minimum shapes; other
+records stay visible as per-entry matches/candidates.
 When
 `OPENMETA_ENABLE_RAPIDFUZZ=ON`, the same query helpers also use RapidFuzz to
 score near-miss XMP/property paths; default builds keep the deterministic

@@ -104,8 +104,9 @@ Coverage matrix
        vector groups, ICC metadata, RAW color/source-processing safety
        buckets, transfer hints, per-family grouped vendor color/WB candidates,
        and cross-family concept candidates with full grouped value vectors are
-       identified.
-     - Medium-high, about 80-88%.
+       identified. Matrix/vector groups require numeric payloads with
+       conservative minimum shapes before promotion.
+     - Medium-high, about 81-89%.
      - Deeper camera/vendor color science interpretation is intentionally
        conservative, especially for rendered-image transfer.
    * - Lens correction and RAW processing
@@ -114,8 +115,9 @@ Coverage matrix
        per-family vendor raw-storage/sensor/source-processing table candidates,
        transfer hints, transfer diagnostics, and concept candidates with
        grouped table/vector values are classified for query and transfer
-       safety.
-     - Medium-high, about 80-87%.
+       safety. Lens-correction grouped tables require numeric payloads before
+       promotion.
+     - Medium-high, about 81-88%.
      - Long-tail per-model correction tables and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
@@ -152,10 +154,10 @@ Coverage matrix
        lens-correction, and RAW-processing with parsed date/time fields,
        timezone/precision classification, combined GPS timestamps, GPS
        altitude-reference state and display token, canonical geometry
-       origin/size/rect/margins, full grouped value vectors, transfer hints,
-       rendered/compatible safety booleans, and tolerance-aware GPS/color/
-       geometry conflicts.
-     - Medium-high, about 74-80%.
+       origin/size/rect/margins, shape-checked grouped value vectors, transfer
+       hints, rendered/compatible safety booleans, and tolerance-aware
+       GPS/color/geometry conflicts.
+     - Medium-high, about 75-81%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
@@ -163,8 +165,8 @@ Coverage matrix
        source-specific image geometry, color/profile, RAW-processing, MakerNote,
        JUMBF/C2PA, and vendor-private data, with concept-level diagnostics that
        report keep/drop/requires-target-image-spec actions, severity, and
-       default message text before prepare.
-     - High, about 88-92%.
+       role-specific default message text before prepare.
+     - High, about 89-93%.
      - More per-family policy tests and optional host localization hooks.
 
 Competitor position

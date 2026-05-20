@@ -13539,6 +13539,20 @@ transfer_concept_diagnostic_message(
     case TransferConceptDiagnosticAction::Drop:
         switch (diagnostic.reason) {
         case TransferConceptDiagnosticReason::RenderedUnsafe:
+            if (diagnostic.kind == MetadataConceptKind::ColorProfile
+                && diagnostic.role == MetadataConceptRole::ColorMatrix) {
+                return "source color transform metadata is unsafe for "
+                       "rendered-image transfer and will be dropped";
+            }
+            if (diagnostic.kind == MetadataConceptKind::ColorProfile
+                && diagnostic.role == MetadataConceptRole::WhiteBalance) {
+                return "source white-balance metadata is unsafe for "
+                       "rendered-image transfer and will be dropped";
+            }
+            if (diagnostic.kind == MetadataConceptKind::LensCorrection) {
+                return "source lens-correction metadata is unsafe for "
+                       "rendered-image transfer and will be dropped";
+            }
             return "source processing metadata is unsafe for rendered-image "
                    "transfer and will be dropped";
         case TransferConceptDiagnosticReason::SourceBound:

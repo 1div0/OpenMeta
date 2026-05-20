@@ -21328,6 +21328,26 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     canon_crop_top.origin.order_in_block = 15U;
     const openmeta::EntryId canon_top_id = store.add_entry(canon_crop_top);
     ASSERT_NE(canon_top_id, openmeta::kInvalidEntryId);
+
+    const std::array<uint32_t, 3> white_balance_neutral = { 1U, 2U, 3U };
+    openmeta::Entry wb_neutral;
+    wb_neutral.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                   0xC628U);
+    wb_neutral.value = openmeta::make_u32_array(
+        store.arena(), std::span<const uint32_t>(white_balance_neutral.data(),
+                                                 white_balance_neutral.size()));
+    wb_neutral.origin.block          = block;
+    wb_neutral.origin.order_in_block = 16U;
+    ASSERT_NE(store.add_entry(wb_neutral), openmeta::kInvalidEntryId);
+
+    openmeta::Entry lens_distort;
+    lens_distort.key          = openmeta::make_exif_tag_key(store.arena(),
+                                                            "mk_nikon_distortinfo",
+                                                            0x0001U);
+    lens_distort.value        = openmeta::make_u32(7U);
+    lens_distort.origin.block = block;
+    lens_distort.origin.order_in_block = 17U;
+    ASSERT_NE(store.add_entry(lens_distort), openmeta::kInvalidEntryId);
     store.finalize();
 
     const openmeta::TransferConceptDiagnostics rendered
@@ -21337,10 +21357,10 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     EXPECT_EQ(rendered.safety, openmeta::TransferSafetyMode::RenderedImage);
     EXPECT_GT(rendered.candidate_count, 0U);
     EXPECT_GE(rendered.kept_count, 2U);
-    EXPECT_GE(rendered.dropped_count, 2U);
+    EXPECT_GE(rendered.dropped_count, 4U);
     EXPECT_GE(rendered.requires_target_image_spec_count, 3U);
-    EXPECT_GE(rendered.rendered_unsafe_count, 1U);
-    EXPECT_GE(rendered.source_bound_count, 2U);
+    EXPECT_GE(rendered.rendered_unsafe_count, 3U);
+    EXPECT_GE(rendered.source_bound_count, 4U);
     EXPECT_GE(rendered.conflict_count, 2U);
 
     const openmeta::TransferConceptDiagnostic* created_diag
@@ -21453,8 +21473,36 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
               openmeta::TransferConceptDiagnosticSeverity::Warning);
     EXPECT_STREQ(
         openmeta::transfer_concept_diagnostic_message(*matrix_diag),
-        "source processing metadata is unsafe for rendered-image transfer and "
-        "will be dropped");
+        "source color transform metadata is unsafe for rendered-image transfer "
+        "and will be dropped");
+
+    const openmeta::TransferConceptDiagnostic* white_balance_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ColorProfile,
+            openmeta::MetadataConceptRole::WhiteBalance,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(white_balance_diag, nullptr);
+    EXPECT_EQ(white_balance_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::RenderedUnsafe);
+    EXPECT_TRUE(white_balance_diag->source_bound);
+    EXPECT_STREQ(
+        openmeta::transfer_concept_diagnostic_message(*white_balance_diag),
+        "source white-balance metadata is unsafe for rendered-image transfer "
+        "and will be dropped");
+
+    const openmeta::TransferConceptDiagnostic* lens_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::LensCorrection,
+            openmeta::MetadataConceptRole::LensCorrection,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(lens_diag, nullptr);
+    EXPECT_EQ(lens_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::RenderedUnsafe);
+    EXPECT_TRUE(lens_diag->source_bound);
+    EXPECT_STREQ(
+        openmeta::transfer_concept_diagnostic_message(*lens_diag),
+        "source lens-correction metadata is unsafe for rendered-image transfer "
+        "and will be dropped");
 
     const openmeta::TransferConceptDiagnostic* source_diag
         = find_transfer_concept_diagnostic(

@@ -1696,31 +1696,39 @@ namespace {
         return false;
     }
 
-    static void append_candidate_numeric_values(const MetaStore& store,
-                                                EntryId entry_id,
-                                                MetadataQueryCandidate* out)
+    static bool append_candidate_numeric_values_min(const MetaStore& store,
+                                                    EntryId entry_id,
+                                                    MetadataQueryCandidate* out,
+                                                    uint32_t min_count)
     {
         if (!out || entry_id == kInvalidEntryId) {
-            return;
+            return false;
         }
         double values[64] {};
         uint32_t count = 0U;
         if (!value_to_double_array(store, store.entry(entry_id).value, values,
                                    64U, &count)) {
-            return;
+            return min_count == 0U;
+        }
+        if (count < min_count) {
+            return false;
+        }
+        if (count == 0U) {
+            return true;
         }
         out->has_values = true;
-        out->values.reserve(out->values.size() + count);
+        out->values.reserve(out->values.size() + static_cast<size_t>(count));
         for (uint32_t i = 0U; i < count; ++i) {
             out->values.push_back(values[i]);
         }
+        return true;
     }
 
     static void append_exif_tag_series_candidates(
         const MetaStore& store, MetadataQueryResult* result,
         const uint16_t* tags, size_t tag_count,
         MetadataQuerySemanticKind semantic, MetadataQueryValueShape shape,
-        uint8_t confidence)
+        uint8_t confidence, uint32_t min_values_per_entry = 0U)
     {
         if (!result || !tags || tag_count == 0U) {
             return;
@@ -1753,8 +1761,11 @@ namespace {
                 if (entry_id == kInvalidEntryId) {
                     continue;
                 }
+                if (!append_candidate_numeric_values_min(
+                        store, entry_id, &candidate, min_values_per_entry)) {
+                    continue;
+                }
                 append_unique_entry(&candidate.source_entries, entry_id);
-                append_candidate_numeric_values(store, entry_id, &candidate);
             }
 
             if (candidate.source_entries.size() >= 2U) {
@@ -1938,10 +1949,13 @@ namespace {
                 if (current_key != group_key) {
                     continue;
                 }
+                if (!append_candidate_numeric_values_min(store,
+                                                         current.entry_id,
+                                                         &candidate, 1U)) {
+                    continue;
+                }
                 append_unique_entry(&candidate.source_entries,
                                     current.entry_id);
-                append_candidate_numeric_values(store, current.entry_id,
-                                                &candidate);
                 if (candidate.confidence < current.confidence) {
                     candidate.confidence = current.confidence;
                 }
@@ -2010,6 +2024,18 @@ namespace {
         return MetadataQueryValueShape::Table;
     }
 
+    static uint32_t
+    grouped_candidate_min_numeric_values(MetadataQueryValueShape shape) noexcept
+    {
+        if (shape == MetadataQueryValueShape::MatrixSet) {
+            return 9U;
+        }
+        if (shape == MetadataQueryValueShape::VectorSet) {
+            return 2U;
+        }
+        return 0U;
+    }
+
     static bool has_previous_vendor_semantic_group(
         const MetadataQueryResult& result, size_t match_index,
         MetadataQueryKind kind, std::string_view group_key,
@@ -2057,6 +2083,8 @@ namespace {
             candidate.semantic = match.semantic;
             candidate.normalized_shape
                 = vendor_group_candidate_shape(kind, match.semantic);
+            const uint32_t min_values = grouped_candidate_min_numeric_values(
+                candidate.normalized_shape);
 
             for (size_t j = i; j < result->matches.size(); ++j) {
                 const MetadataQueryMatch& current = result->matches[j];
@@ -2069,10 +2097,12 @@ namespace {
                 if (current_key != group_key) {
                     continue;
                 }
+                if (!append_candidate_numeric_values_min(
+                        store, current.entry_id, &candidate, min_values)) {
+                    continue;
+                }
                 append_unique_entry(&candidate.source_entries,
                                     current.entry_id);
-                append_candidate_numeric_values(store, current.entry_id,
-                                                &candidate);
                 if (candidate.confidence < current.confidence) {
                     candidate.confidence = current.confidence;
                 }
@@ -2827,25 +2857,25 @@ namespace {
                 store, result, kDngColorMatrixTags,
                 sizeof(kDngColorMatrixTags) / sizeof(kDngColorMatrixTags[0]),
                 MetadataQuerySemanticKind::ColorMatrix,
-                MetadataQueryValueShape::MatrixSet, 96U);
+                MetadataQueryValueShape::MatrixSet, 96U, 9U);
             append_exif_tag_series_candidates(
                 store, result, kDngCameraCalibrationTags,
                 sizeof(kDngCameraCalibrationTags)
                     / sizeof(kDngCameraCalibrationTags[0]),
                 MetadataQuerySemanticKind::ColorMatrix,
-                MetadataQueryValueShape::MatrixSet, 92U);
+                MetadataQueryValueShape::MatrixSet, 92U, 9U);
             append_exif_tag_series_candidates(
                 store, result, kDngReductionMatrixTags,
                 sizeof(kDngReductionMatrixTags)
                     / sizeof(kDngReductionMatrixTags[0]),
                 MetadataQuerySemanticKind::ColorMatrix,
-                MetadataQueryValueShape::MatrixSet, 92U);
+                MetadataQueryValueShape::MatrixSet, 92U, 9U);
             append_exif_tag_series_candidates(
                 store, result, kDngForwardMatrixTags,
                 sizeof(kDngForwardMatrixTags)
                     / sizeof(kDngForwardMatrixTags[0]),
                 MetadataQuerySemanticKind::ColorMatrix,
-                MetadataQueryValueShape::MatrixSet, 92U);
+                MetadataQueryValueShape::MatrixSet, 92U, 9U);
             append_vendor_grouped_query_candidates(store, result, kind);
             break;
         case MetadataQueryKind::WhiteBalance:
@@ -2854,7 +2884,7 @@ namespace {
                 sizeof(kDngWhiteBalanceVectorTags)
                     / sizeof(kDngWhiteBalanceVectorTags[0]),
                 MetadataQuerySemanticKind::WhiteBalance,
-                MetadataQueryValueShape::VectorSet, 92U);
+                MetadataQueryValueShape::VectorSet, 92U, 2U);
             append_vendor_grouped_query_candidates(store, result, kind);
             break;
         case MetadataQueryKind::LensCorrection:

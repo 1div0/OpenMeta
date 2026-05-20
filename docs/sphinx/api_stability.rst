@@ -110,6 +110,10 @@ Host-facing API map
        CFA/sensor layout, source geometry, raw-storage identifiers, and
        source-processing buckets, and per-family vendor MakerNote/RAW
        white-balance, color, raw-storage, sensor, and source-processing groups.
+       Matrix/vector/table groups are promoted only when the available numeric
+       payloads meet conservative minimum shapes, so malformed color matrices,
+       white-balance vectors, and lens-correction records remain per-entry
+       inspection data instead of becoming normalized groups.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
        dictionary-returning wrappers.
    * - Structured metadata interpretation records:
@@ -168,9 +172,11 @@ Host-facing API map
        keep/drop/requires-target-image-spec action, reason token, severity
        token, default message text, conflict flag, source entries,
        compatible/rendered safety booleans, and GPS altitude-reference
-       presentation fields. Intended for UI previews and host policy messages
-       before calling ``prepare_metadata_for_target(...)``; it does not replace
-       the actual transfer filter. Python ``Document`` and
+       presentation fields. Rendered-transfer drop messages distinguish source
+       color transforms, white balance, and lens-correction records from generic
+       source-processing metadata. Intended for UI previews and host policy
+       messages before calling ``prepare_metadata_for_target(...)``; it does not
+       replace the actual transfer filter. Python ``Document`` and
        ``TransferSourceSnapshot`` expose ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name`` and ``message`` fields.
    * - Vendor RAW-processing summaries:

@@ -158,6 +158,10 @@ per-family grouped candidates for related white-balance, color, raw-storage,
 sensor, and source-processing records. These records are for inspection and
 safe-transfer policy, not for writing source RAW transforms into rendered
 outputs.
+Grouped color, white-balance, and lens-correction records require numeric
+payloads with conservative minimum shapes before they become matrix/vector/table
+candidates. Malformed or text-only source records still remain visible as
+per-entry metadata, but they are not promoted into normalized grouped records.
 Known geometry patterns can also become normalized rectangles; current public
 coverage includes DNG crop/active-area tags, Phase One/Leaf RAW geometry, and
 Fujifilm RAF raw crop/zoom fields, plus Canon, Nikon Capture, and Sony
@@ -185,8 +189,10 @@ of guessing silently. Transfer hints use `safe`, `source_bound`,
 from source RAW/correction data and target-owned image facts.
 `transfer_concept_diagnostics_from_store(...)` applies those hints to a
 selected transfer safety mode and returns keep/drop/requires-target-image-spec
-actions, severity tokens, and default message text for transfer-preview UI. GPS
-altitude reference codes can be displayed with
+actions, severity tokens, and default message text for transfer-preview UI.
+Rendered-transfer drop messages distinguish source color transforms, white
+balance, lens correction, source-bound RAW processing, and target-owned image
+properties. GPS altitude reference codes can be displayed with
 `metadata_concept_gps_altitude_reference_name(...)`.
 
 For user-facing orientation display, use `openmeta/orientation.h` instead of

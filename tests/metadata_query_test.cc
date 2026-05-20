@@ -841,6 +841,36 @@ TEST(MetadataQuery, GroupsDngColorMatrixSet)
                  "matrix_set");
 }
 
+TEST(MetadataQuery, SkipsMalformedDngColorMatrixSet)
+{
+    MetaStore store;
+    const std::array<uint32_t, 9> matrix1 = {
+        1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+    };
+    const std::array<uint32_t, 2> malformed_matrix = { 2U, 0U };
+    const EntryId matrix1_id
+        = add_exif_u32_array(&store, "ifd0", 0xC621U,
+                             std::span<const uint32_t>(matrix1.data(),
+                                                       matrix1.size()));
+    (void)add_exif_u32_array(&store, "ifd0", 0xC622U,
+                             std::span<const uint32_t>(malformed_matrix.data(),
+                                                       malformed_matrix.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_color_metadata(store);
+
+    const MetadataQueryCandidate* matrix_candidate
+        = find_candidate_for_entry(result, matrix1_id);
+    ASSERT_NE(matrix_candidate, nullptr);
+    EXPECT_EQ(matrix_candidate->normalized_shape,
+              MetadataQueryValueShape::Matrix3x3);
+    const MetadataQueryCandidate* grouped
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::ColorMatrix,
+                                    MetadataQueryValueShape::MatrixSet, 2U);
+    EXPECT_EQ(grouped, nullptr);
+}
+
 TEST(MetadataQuery, GroupsDngWhiteBalanceVectorSet)
 {
     MetaStore store;
@@ -877,6 +907,34 @@ TEST(MetadataQuery, GroupsDngWhiteBalanceVectorSet)
     EXPECT_STREQ(metadata_query_value_shape_name(
                      MetadataQueryValueShape::VectorSet),
                  "vector_set");
+}
+
+TEST(MetadataQuery, SkipsMalformedDngWhiteBalanceVectorSet)
+{
+    MetaStore store;
+    const std::array<uint32_t, 3> neutral          = { 1U, 2U, 3U };
+    const std::array<uint32_t, 1> malformed_vector = { 10U };
+    const EntryId neutral_id
+        = add_exif_u32_array(&store, "ifd0", 0xC628U,
+                             std::span<const uint32_t>(neutral.data(),
+                                                       neutral.size()));
+    (void)add_exif_u32_array(&store, "ifd0", 0xC627U,
+                             std::span<const uint32_t>(malformed_vector.data(),
+                                                       malformed_vector.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_white_balance_metadata(store);
+
+    const MetadataQueryCandidate* neutral_candidate
+        = find_candidate_for_entry(result, neutral_id);
+    ASSERT_NE(neutral_candidate, nullptr);
+    EXPECT_EQ(neutral_candidate->semantic,
+              MetadataQuerySemanticKind::WhiteBalance);
+    const MetadataQueryCandidate* grouped
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::WhiteBalance,
+                                    MetadataQueryValueShape::VectorSet, 2U);
+    EXPECT_EQ(grouped, nullptr);
 }
 
 TEST(MetadataQuery, ReusesVendorLensCorrectionClassification)
@@ -929,6 +987,22 @@ TEST(MetadataQuery, GroupsVendorLensCorrectionTable)
     EXPECT_DOUBLE_EQ(candidate->values[1], 3.0);
     EXPECT_STREQ(metadata_query_value_shape_name(MetadataQueryValueShape::Table),
                  "table");
+}
+
+TEST(MetadataQuery, SkipsTextOnlyVendorLensCorrectionGroup)
+{
+    MetaStore store;
+    (void)add_exif_text(&store, "mk_nikon_distortinfo", 0x0001U, "distortion");
+    (void)add_exif_text(&store, "mk_nikon_vignette", 0x0001U, "vignette");
+    store.finalize();
+
+    const MetadataQueryResult result = query_lens_correction_metadata(store);
+
+    const MetadataQueryCandidate* grouped
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::LensCorrection,
+                                    MetadataQueryValueShape::Table, 2U);
+    EXPECT_EQ(grouped, nullptr);
 }
 
 TEST(MetadataQuery, MatchesOrientationTags)
@@ -1053,6 +1127,36 @@ TEST(MetadataQuery, GroupsVendorWhiteBalanceVectorSetByFamily)
     ASSERT_EQ(candidate->values.size(), 8U);
     EXPECT_DOUBLE_EQ(candidate->values[0], 110.0);
     EXPECT_DOUBLE_EQ(candidate->values[4], 120.0);
+}
+
+TEST(MetadataQuery, SkipsMalformedVendorColorMatrixSet)
+{
+    MetaStore store;
+    const std::array<uint32_t, 9> color_matrix = {
+        1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+    };
+    const std::array<uint32_t, 4> malformed_matrix = { 2U, 0U, 0U, 2U };
+    const EntryId matrix_id
+        = add_exif_u32_array(&store, "mk_phaseone0", 0x0106U,
+                             std::span<const uint32_t>(color_matrix.data(),
+                                                       color_matrix.size()));
+    (void)add_exif_u32_array(&store, "mk_phaseone0", 0x0226U,
+                             std::span<const uint32_t>(malformed_matrix.data(),
+                                                       malformed_matrix.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_color_metadata(store);
+
+    const MetadataQueryCandidate* matrix_candidate
+        = find_candidate_for_entry(result, matrix_id);
+    ASSERT_NE(matrix_candidate, nullptr);
+    EXPECT_EQ(matrix_candidate->semantic,
+              MetadataQuerySemanticKind::ColorMatrix);
+    const MetadataQueryCandidate* grouped
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::ColorMatrix,
+                                    MetadataQueryValueShape::MatrixSet, 2U);
+    EXPECT_EQ(grouped, nullptr);
 }
 
 TEST(MetadataQuery, GroupsVendorColorTableByFamily)

@@ -41,7 +41,7 @@ model should stay compact:
        flags for crop/border/active-area, exposure/gain, color/WB,
        orientation, date/time, GPS, lens-correction, and RAW/source-processing
        fields across standard and vendor metadata.
-     - Medium, about 70-76%.
+     - Medium, about 72-78%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -95,7 +95,9 @@ sensor, and source-processing records. RAW-processing queries add conservative
 groups for black/white levels, linearization tables, CFA/sensor layout, source
 geometry, raw-storage identifiers, and source-private processing buckets.
 Grouped candidates use ``matrix_set``, ``vector_set``, and ``table`` value
-shapes. When
+shapes. Color matrix sets, white-balance vector sets, and lens-correction
+tables are promoted only when the numeric payloads meet conservative minimum
+shapes; other records stay visible as per-entry matches/candidates. When
 ``OPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
 score near-miss XMP/property paths; default builds keep the deterministic
 substring/tag matcher only. Each raw match reports ``exact_match``,

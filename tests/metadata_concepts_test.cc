@@ -739,6 +739,8 @@ namespace {
         ASSERT_NE(matrix, nullptr);
         EXPECT_EQ(matrix->transfer_hint,
                   MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(matrix->compatible_file_safe);
+        EXPECT_FALSE(matrix->rendered_image_safe);
         EXPECT_TRUE(matrix->source_bound);
         EXPECT_TRUE(contains_entry(matrix->source_entries, matrix_a));
         EXPECT_TRUE(contains_entry(matrix->source_entries, matrix_b));
@@ -753,6 +755,8 @@ namespace {
         ASSERT_NE(wb, nullptr);
         EXPECT_EQ(wb->transfer_hint,
                   MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(wb->compatible_file_safe);
+        EXPECT_FALSE(wb->rendered_image_safe);
         EXPECT_TRUE(wb->source_bound);
         EXPECT_TRUE(contains_entry(wb->source_entries, daylight_id));
         EXPECT_TRUE(contains_entry(wb->source_entries, cloudy_id));
@@ -770,6 +774,9 @@ namespace {
         ASSERT_NE(lens_table, nullptr);
         EXPECT_EQ(lens_table->transfer_hint,
                   MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(lens_table->compatible_file_safe);
+        EXPECT_FALSE(lens_table->rendered_image_safe);
+        EXPECT_TRUE(lens_table->source_bound);
         EXPECT_TRUE(contains_entry(lens_table->source_entries, distort_id));
         EXPECT_TRUE(contains_entry(lens_table->source_entries, vignette_id));
 

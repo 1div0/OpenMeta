@@ -1,5 +1,23 @@
 # OpenMeta Changes
 
+## 0.4.16 - 2026-05-20
+
+Changes compared with `0.4.15`.
+
+### Added
+
+- Added stricter grouped color, white-balance, and lens-correction query
+  candidates so matrix sets, vector sets, and lens-correction tables only form
+  from numeric payloads with safe minimum shapes.
+- Added role-specific rendered-transfer diagnostic messages for source color
+  transforms, white balance, and lens correction.
+
+### Changed
+
+- Updated public interpretation and query documentation to describe grouped
+  color/white-balance/lens records as shape-checked inspection/source-bound
+  data.
+
 ## 0.4.15 - 2026-05-19
 
 Changes compared with `0.4.14`.
