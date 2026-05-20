@@ -396,6 +396,19 @@ Current EXR transfer scope is intentionally conservative:
 - no general file-based EXR metadata rewrite/edit path yet
 - no typed EXR attribute synthesis beyond the current safe string projection
 
+Important user use case to keep visible:
+- A tile/region streaming EXR writer may know some metadata only after all
+  pixel chunks are written, for example `total_compute_time`.
+- The practical fast path for that use case is not a general variable-length
+  header rewrite. It is a fixed-size reservation/patch contract: declare a
+  fixed-width attribute, such as a `double`, before opening the EXR writer,
+  write pixel chunks normally, then patch only the reserved value bytes after
+  close.
+- OpenMeta does not expose that late-bound EXR patch plan yet. If EXR depth is
+  expanded, the first useful scope should be a bounded fixed-size patch API
+  with offset discovery, type/size validation, and a decode-after-patch
+  verification gate.
+
 ## Transfer Policies
 
 The public transfer contract now models five policy subjects:

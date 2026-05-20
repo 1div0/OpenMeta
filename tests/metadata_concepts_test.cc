@@ -1045,6 +1045,8 @@ namespace {
         EXPECT_TRUE(contains_entry(exposure_program->source_entries, program));
         ASSERT_TRUE(exposure_program->has_values);
         EXPECT_DOUBLE_EQ(exposure_program->values[0], 3.0);
+        EXPECT_EQ(exposure_program->text, "Aperture-priority AE");
+        EXPECT_EQ(exposure_program->value_key, "aperturepriorityae");
 
         const MetadataConceptCandidate* gain_value
             = find_role(exposure, MetadataConceptRole::Gain);
@@ -1052,6 +1054,8 @@ namespace {
         EXPECT_TRUE(contains_entry(gain_value->source_entries, gain));
         ASSERT_TRUE(gain_value->has_values);
         EXPECT_DOUBLE_EQ(gain_value->values[0], 1.0);
+        EXPECT_EQ(gain_value->text, "Low gain up");
+        EXPECT_EQ(gain_value->value_key, "lowgainup");
     }
 
     TEST(MetadataConcepts, MarksDngExposureAdjustmentsRenderedUnsafe)

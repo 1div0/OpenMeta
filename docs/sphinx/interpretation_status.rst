@@ -106,12 +106,13 @@ Coverage matrix
      - Standard EXIF exposure time, f-number, exposure program, photographic
        sensitivity, exposure bias, exposure index, gain control, selected DNG
        baseline/raw-preview gain fields, and matching XMP paths are queryable
-       and promoted into cross-family exposure roles. Capture exposure facts
-       are marked safe, while raw/DNG exposure adjustments are marked unsafe
-       for rendered-image transfer.
-     - Medium-high, about 84-90%.
-     - More vendor MakerNote exposure print conversions and richer
-       human-readable exposure-program/gain labels.
+       and promoted into cross-family exposure roles. Standard EXIF exposure
+       program and gain-control values carry human-readable labels in concept
+       candidates. Capture exposure facts are marked safe, while raw/DNG
+       exposure adjustments are marked unsafe for rendered-image transfer.
+     - Medium-high, about 85-90%.
+     - More vendor MakerNote exposure print conversions and richer per-vendor
+       exposure/gain labels.
    * - Color, white balance, and matrices
      - DNG color/calibration/reduction/forward matrix groups, white-balance
        vector groups, ICC metadata, RAW color/source-processing safety

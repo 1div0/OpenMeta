@@ -3,6 +3,7 @@
 #include "openmeta/metadata_concepts.h"
 
 #include "openmeta/byte_arena.h"
+#include "openmeta/exif_value_names.h"
 #include "openmeta/meta_flags.h"
 #include "openmeta/metadata_interpretation.h"
 
@@ -1793,6 +1794,65 @@ namespace {
         return MetadataConceptRole::Primary;
     }
 
+    static bool double_to_u64_enum(double value, uint64_t* out) noexcept
+    {
+        if (!out || value < 0.0 || value > 4294967295.0
+            || std::floor(value) != value) {
+            return false;
+        }
+        *out = static_cast<uint64_t>(value);
+        return true;
+    }
+
+    static const char* exposure_exif_value_label(
+        const MetaStore& store, const Entry& entry,
+        const MetadataConceptCandidate& candidate) noexcept
+    {
+        if (entry.key.kind != MetaKeyKind::ExifTag) {
+            return "";
+        }
+        const uint16_t tag = entry.key.data.exif_tag.tag;
+        if (tag != kExifExposureProgramTag && tag != kExifGainControlTag) {
+            return "";
+        }
+
+        double value = 0.0;
+        if (candidate.has_values && candidate.values.size() == 1U) {
+            value = candidate.values[0];
+        } else {
+            double values[1] {};
+            if (value_to_numeric_array(store.arena(), entry.value, values, 1U)
+                != 1U) {
+                return "";
+            }
+            value = values[0];
+        }
+
+        uint64_t enum_value = 0U;
+        if (!double_to_u64_enum(value, &enum_value)) {
+            return "";
+        }
+        const std::string_view ifd = arena_string(store.arena(),
+                                                  entry.key.data.exif_tag.ifd);
+        return exif_tag_numeric_value_name(ifd, tag, enum_value);
+    }
+
+    static void apply_exposure_display_text(const MetaStore& store,
+                                            EntryId entry_id,
+                                            MetadataConceptCandidate* candidate)
+    {
+        if (!candidate || entry_id == kInvalidEntryId) {
+            return;
+        }
+        const Entry& entry = store.entry(entry_id);
+        const char* label = exposure_exif_value_label(store, entry, *candidate);
+        if (!label || label[0] == '\0') {
+            return;
+        }
+        candidate->text = label;
+        normalize_text_key(candidate->text, &candidate->value_key);
+    }
+
     static void append_exposure_candidates(const MetaStore& store,
                                            MetadataConceptResolution* out)
     {
@@ -1818,6 +1878,7 @@ namespace {
                                  record.source_entries[e]);
             }
             copy_interpretation_values(record, &candidate);
+            apply_exposure_display_text(store, entry_id, &candidate);
             append_candidate(out, candidate);
         }
     }

@@ -1,5 +1,22 @@
 # OpenMeta Changes
 
+## 0.4.19 - 2026-05-21
+
+Changes compared with `0.4.18`.
+
+### Added
+
+- Added a public writer/transfer use case for late-bound EXR metadata, where a
+  streaming writer reserves a fixed-size attribute before pixel writes and
+  patches the value bytes after the image is complete.
+- Exposure concept candidates now attach human-readable labels for standard
+  EXIF exposure program and gain-control values.
+
+### Changed
+
+- Clarified that late-bound EXR metadata should be treated as a future bounded
+  fixed-size patch API, not as a general variable-length EXR header rewrite.
+
 ## 0.4.18 - 2026-05-20
 
 Changes compared with `0.4.17`.

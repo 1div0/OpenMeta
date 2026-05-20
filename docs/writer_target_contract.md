@@ -285,6 +285,15 @@ the EXR attribute batch helpers for host-owned EXR writers. Existing EXR file
 metadata preservation is therefore owned by the host writer, not by an
 OpenMeta file edit helper.
 
+One important pending use case is late-bound EXR metadata. Streaming tile or
+scanline writers sometimes only know a value after pixel data is finished,
+for example `total_compute_time`. The safe fast design is a fixed-size
+reservation/patch contract: reserve a typed attribute, such as a `double`,
+before writer construction, then patch exactly those value bytes after close.
+OpenMeta does not provide this patch API yet; it should remain separate from
+general EXR file rewrite because variable-length header changes would require
+moving later file structures.
+
 ## Non-Goals
 
 The writer contract does not promise:

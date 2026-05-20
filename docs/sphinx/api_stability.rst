@@ -149,9 +149,10 @@ Host-facing API map
        RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
        query-backed interpretation records where applicable. Exposure
        candidates cover exposure time, aperture, ISO sensitivity, exposure
-       bias, exposure program, gain, and raw exposure-adjustment roles; capture
-       exposure facts are safe, while raw/DNG exposure adjustments stay
-       rendered-unsafe. Geometry
+       bias, exposure program, gain, and raw exposure-adjustment roles.
+       Standard EXIF exposure program and gain-control values include
+       human-readable labels. Capture exposure facts are safe, while raw/DNG
+       exposure adjustments stay rendered-unsafe. Geometry
        candidates cover crop, active area, border, and sensor geometry with
        canonical origin, size, rect, and margin fields when available,
        including normalized DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon
