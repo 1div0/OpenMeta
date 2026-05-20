@@ -24,6 +24,7 @@ enum class MetadataConceptKind : uint8_t {
     Geometry,
     LensCorrection,
     RawProcessing,
+    Exposure,
 };
 
 enum class MetadataConceptSourceFamily : uint8_t {
@@ -63,6 +64,13 @@ enum class MetadataConceptRole : uint8_t {
     CfaLayout,
     RawStorage,
     SourceProcessing,
+    ExposureTime,
+    Aperture,
+    IsoSensitivity,
+    ExposureBias,
+    ExposureProgram,
+    Gain,
+    RawExposureAdjustment,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {

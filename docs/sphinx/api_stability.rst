@@ -143,11 +143,15 @@ Host-facing API map
        scope reports candidates, candidate source entries, source families,
        preferred entries, normalized numeric/text keys, full normalized value
        vectors, transfer hints, normalized date/time fields, date/time
-       precision, timezone kind, normalized geometry fields, and same-role
-       conflicts for
-       orientation, date/time, color/profile, GPS, geometry, lens-correction,
-       and RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
-       query-backed interpretation records where applicable. Geometry
+       precision, timezone kind, normalized geometry fields, normalized
+       exposure values, and same-role conflicts for orientation, date/time,
+       exposure/gain, color/profile, GPS, geometry, lens-correction, and
+       RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
+       query-backed interpretation records where applicable. Exposure
+       candidates cover exposure time, aperture, ISO sensitivity, exposure
+       bias, exposure program, gain, and raw exposure-adjustment roles; capture
+       exposure facts are safe, while raw/DNG exposure adjustments stay
+       rendered-unsafe. Geometry
        candidates cover crop, active area, border, and sensor geometry with
        canonical origin, size, rect, and margin fields when available,
        including normalized DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon

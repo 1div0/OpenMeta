@@ -50,17 +50,21 @@ confidence, and normalized geometry/value arrays.
 
 For host code that needs to reconcile duplicated concepts across metadata
 families, use `metadata_concepts.h`. It reports orientation, date/time,
-color/profile, GPS, geometry, lens-correction, and RAW-processing candidates
-with source families, preferred entries, and same-role conflict flags. Geometry
-candidates expose crop, active-area, border, and sensor-geometry roles with
-canonical origin, size, rect, and margin fields when available, including
-known DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon Capture, and Sony
-panorama geometry patterns. Color/white balance, lens-correction, and
-RAW-processing candidates expose full normalized value vectors for grouped
-matrix/vector/table records when the source payloads satisfy conservative
-numeric shape checks. Malformed or text-only source records remain visible as
-individual metadata, but they are not promoted into normalized grouped color,
-white-balance, or lens-correction candidates. Date/time candidates
+exposure/gain, color/profile, GPS, geometry, lens-correction, and
+RAW-processing candidates with source families, preferred entries, and
+same-role conflict flags. Exposure candidates expose capture facts such as
+exposure time, aperture, ISO, exposure bias, exposure program, and gain as
+safe transfer facts, while raw/DNG exposure adjustment fields remain unsafe for
+rendered-image transfer. Geometry candidates expose crop, active-area, border,
+and sensor-geometry roles with canonical origin, size, rect, and margin fields
+when available, including known DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon
+Capture, and Sony panorama geometry patterns. Color/white balance,
+lens-correction, and RAW-processing candidates expose full normalized value
+vectors for grouped matrix/vector/table records when the source payloads
+satisfy conservative numeric shape checks. Malformed or text-only source
+records remain visible as individual metadata, but they are not promoted into
+normalized grouped color, white-balance, or lens-correction candidates.
+Date/time candidates
 include parsed date/time fields when the source value is recognizable, plus
 precision and timezone-kind fields. GPS timestamps combine `GPSDateStamp` with
 `GPSTimeStamp` when both are present, and GPS altitude candidates report
@@ -103,7 +107,8 @@ OpenMeta splits host integration surfaces deliberately:
   `metadata_interpretation.h` for query-backed semantic records
 - concept-resolution utility:
   `metadata_concepts.h` for cross-family orientation, date/time, color/profile,
-  GPS, geometry, lens-correction, and RAW-processing conflict inspection
+  exposure/gain, GPS, geometry, lens-correction, and RAW-processing conflict
+  inspection
 
 ## 1. Read Into `MetaStore`
 

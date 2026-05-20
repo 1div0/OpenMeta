@@ -37,6 +37,30 @@ namespace {
         return id;
     }
 
+    static EntryId add_exif_urational(MetaStore* store, std::string_view ifd,
+                                      uint16_t tag, uint32_t numer,
+                                      uint32_t denom)
+    {
+        Entry entry;
+        entry.key        = make_exif_tag_key(store->arena(), ifd, tag);
+        entry.value      = make_urational(numer, denom);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
+    static EntryId add_exif_srational(MetaStore* store, std::string_view ifd,
+                                      uint16_t tag, int32_t numer,
+                                      int32_t denom)
+    {
+        Entry entry;
+        entry.key        = make_exif_tag_key(store->arena(), ifd, tag);
+        entry.value      = make_srational(numer, denom);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
     static EntryId add_exif_text(MetaStore* store, std::string_view ifd,
                                  uint16_t tag, std::string_view value)
     {
@@ -965,11 +989,117 @@ namespace {
         }
     }
 
+    TEST(MetadataConcepts, ResolvesExposureConceptRoles)
+    {
+        MetaStore store;
+        const EntryId exposure_time = add_exif_urational(&store, "exififd",
+                                                         0x829AU, 1U, 125U);
+        const EntryId aperture = add_exif_urational(&store, "exififd", 0x829DU,
+                                                    56U, 10U);
+        const EntryId iso      = add_exif_u16(&store, "exififd", 0x8827U, 200U);
+        const EntryId bias = add_exif_srational(&store, "exififd", 0x9204U, -1,
+                                                3);
+        const EntryId program = add_exif_u16(&store, "exififd", 0x8822U, 3U);
+        const EntryId gain    = add_exif_u16(&store, "exififd", 0xA407U, 1U);
+        store.finalize();
+
+        const MetadataConceptResolution exposure
+            = resolve_metadata_concept(store, MetadataConceptKind::Exposure);
+
+        EXPECT_TRUE(exposure.found);
+        EXPECT_FALSE(exposure.conflict);
+
+        const MetadataConceptCandidate* time
+            = find_role(exposure, MetadataConceptRole::ExposureTime);
+        ASSERT_NE(time, nullptr);
+        EXPECT_EQ(time->transfer_hint, MetadataConceptTransferHint::Safe);
+        EXPECT_TRUE(time->rendered_image_safe);
+        EXPECT_TRUE(contains_entry(time->source_entries, exposure_time));
+        ASSERT_TRUE(time->has_values);
+        EXPECT_NEAR(time->values[0], 0.008, 0.0000001);
+
+        const MetadataConceptCandidate* f_number
+            = find_role(exposure, MetadataConceptRole::Aperture);
+        ASSERT_NE(f_number, nullptr);
+        EXPECT_TRUE(contains_entry(f_number->source_entries, aperture));
+        ASSERT_TRUE(f_number->has_values);
+        EXPECT_NEAR(f_number->values[0], 5.6, 0.0000001);
+
+        const MetadataConceptCandidate* sensitivity
+            = find_role(exposure, MetadataConceptRole::IsoSensitivity);
+        ASSERT_NE(sensitivity, nullptr);
+        EXPECT_TRUE(contains_entry(sensitivity->source_entries, iso));
+        ASSERT_TRUE(sensitivity->has_values);
+        EXPECT_DOUBLE_EQ(sensitivity->values[0], 200.0);
+
+        const MetadataConceptCandidate* exposure_bias
+            = find_role(exposure, MetadataConceptRole::ExposureBias);
+        ASSERT_NE(exposure_bias, nullptr);
+        EXPECT_TRUE(contains_entry(exposure_bias->source_entries, bias));
+        ASSERT_TRUE(exposure_bias->has_values);
+        EXPECT_NEAR(exposure_bias->values[0], -0.333333333333, 0.0000001);
+
+        const MetadataConceptCandidate* exposure_program
+            = find_role(exposure, MetadataConceptRole::ExposureProgram);
+        ASSERT_NE(exposure_program, nullptr);
+        EXPECT_TRUE(contains_entry(exposure_program->source_entries, program));
+        ASSERT_TRUE(exposure_program->has_values);
+        EXPECT_DOUBLE_EQ(exposure_program->values[0], 3.0);
+
+        const MetadataConceptCandidate* gain_value
+            = find_role(exposure, MetadataConceptRole::Gain);
+        ASSERT_NE(gain_value, nullptr);
+        EXPECT_TRUE(contains_entry(gain_value->source_entries, gain));
+        ASSERT_TRUE(gain_value->has_values);
+        EXPECT_DOUBLE_EQ(gain_value->values[0], 1.0);
+    }
+
+    TEST(MetadataConcepts, MarksDngExposureAdjustmentsRenderedUnsafe)
+    {
+        MetaStore store;
+        const EntryId baseline = add_exif_srational(&store, "ifd0", 0xC62AU, 1,
+                                                    2);
+        const EntryId preview_gain = add_exif_urational(&store, "ifd0", 0xC7A8U,
+                                                        3U, 2U);
+        store.finalize();
+
+        const MetadataConceptResolution exposure
+            = resolve_metadata_concept(store, MetadataConceptKind::Exposure);
+
+        EXPECT_TRUE(exposure.found);
+        uint32_t raw_adjustments = 0U;
+        bool saw_baseline        = false;
+        bool saw_preview_gain    = false;
+        for (size_t i = 0U; i < exposure.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = exposure.candidates[i];
+            if (candidate.role != MetadataConceptRole::RawExposureAdjustment) {
+                continue;
+            }
+            raw_adjustments += 1U;
+            EXPECT_EQ(candidate.transfer_hint,
+                      MetadataConceptTransferHint::RenderedUnsafe);
+            EXPECT_TRUE(candidate.compatible_file_safe);
+            EXPECT_FALSE(candidate.rendered_image_safe);
+            EXPECT_TRUE(candidate.source_bound);
+            saw_baseline = saw_baseline
+                           || contains_entry(candidate.source_entries,
+                                             baseline);
+            saw_preview_gain = saw_preview_gain
+                               || contains_entry(candidate.source_entries,
+                                                 preview_gain);
+        }
+        EXPECT_GE(raw_adjustments, 2U);
+        EXPECT_TRUE(saw_baseline);
+        EXPECT_TRUE(saw_preview_gain);
+    }
+
     TEST(MetadataConcepts, ExposesTransferHintsForHostPolicy)
     {
         MetaStore store;
         (void)add_exif_u16(&store, "ifd0", 0x0112U, 6U);
         (void)add_exif_text(&store, "exififd", 0x9003U, "2024:04:19 12:34:56");
+        (void)add_exif_urational(&store, "exififd", 0x829AU, 1U, 125U);
+        (void)add_exif_srational(&store, "ifd0", 0xC62AU, 1, 2);
         (void)add_exif_text(&store, "gpsifd", 0x0001U, "N");
         const std::array<URational, 3> lat = {
             URational { 41U, 1U },
@@ -1022,6 +1152,22 @@ namespace {
         ASSERT_NE(gps_lat, nullptr);
         EXPECT_EQ(gps_lat->transfer_hint, MetadataConceptTransferHint::Safe);
         EXPECT_TRUE(gps_lat->rendered_image_safe);
+
+        const MetadataConceptResolution* exposure
+            = find_concept(result, MetadataConceptKind::Exposure);
+        ASSERT_NE(exposure, nullptr);
+        const MetadataConceptCandidate* exposure_time
+            = find_role(*exposure, MetadataConceptRole::ExposureTime);
+        ASSERT_NE(exposure_time, nullptr);
+        EXPECT_EQ(exposure_time->transfer_hint,
+                  MetadataConceptTransferHint::Safe);
+        EXPECT_TRUE(exposure_time->rendered_image_safe);
+        const MetadataConceptCandidate* raw_adjustment
+            = find_role(*exposure, MetadataConceptRole::RawExposureAdjustment);
+        ASSERT_NE(raw_adjustment, nullptr);
+        EXPECT_EQ(raw_adjustment->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_FALSE(raw_adjustment->rendered_image_safe);
 
         const MetadataConceptResolution* orientation
             = find_concept(result, MetadataConceptKind::Orientation);

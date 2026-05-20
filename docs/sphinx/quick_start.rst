@@ -156,14 +156,15 @@ available.
 
 For duplicated concepts that may appear in multiple metadata families, use
 ``openmeta/metadata_concepts.h``. The first experimental resolver covers
-orientation, date/time, color/profile, GPS, geometry, lens correction, and
-RAW-processing. It returns candidate source entries, source families, preferred
-entries, normalized date/time fields where available, date/time precision,
-timezone kind, GPS altitude-reference state, canonical geometry
-origin/size/rect/margins, full normalized value vectors for grouped
-matrix/vector/table concepts, transfer hints, compatible/rendered safety
-booleans, and same-role conflict flags so host UI can show ambiguity instead
-of guessing silently. Transfer hints use ``safe``, ``source_bound``,
+orientation, date/time, exposure/gain, color/profile, GPS, geometry, lens
+correction, and RAW-processing. It returns candidate source entries, source
+families, preferred entries, normalized date/time fields where available,
+date/time precision, timezone kind, GPS altitude-reference state, canonical
+geometry origin/size/rect/margins, normalized exposure values, full normalized
+value vectors for grouped matrix/vector/table concepts, transfer hints,
+compatible/rendered safety booleans, and same-role conflict flags so host UI
+can show ambiguity instead of guessing silently. Transfer hints use ``safe``,
+``source_bound``,
 ``rendered_unsafe``, or ``requires_target_image_spec`` to separate portable
 facts from source RAW/correction data and target-owned image facts.
 ``transfer_concept_diagnostics_from_store(...)`` applies those hints to a

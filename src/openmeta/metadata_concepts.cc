@@ -22,22 +22,37 @@
 namespace openmeta {
 namespace {
 
-    static constexpr uint16_t kExifOrientationTag           = 0x0112U;
-    static constexpr uint16_t kExifDateTimeTag              = 0x0132U;
-    static constexpr uint16_t kExifDateTimeOriginalTag      = 0x9003U;
-    static constexpr uint16_t kExifDateTimeDigitizedTag     = 0x9004U;
-    static constexpr uint16_t kExifColorSpaceTag            = 0xA001U;
-    static constexpr uint16_t kGpsLatitudeRefTag            = 0x0001U;
-    static constexpr uint16_t kGpsLatitudeTag               = 0x0002U;
-    static constexpr uint16_t kGpsLongitudeRefTag           = 0x0003U;
-    static constexpr uint16_t kGpsLongitudeTag              = 0x0004U;
-    static constexpr uint16_t kGpsAltitudeRefTag            = 0x0005U;
-    static constexpr uint16_t kGpsAltitudeTag               = 0x0006U;
-    static constexpr uint16_t kGpsTimeStampTag              = 0x0007U;
-    static constexpr uint16_t kGpsDateStampTag              = 0x001DU;
-    static constexpr uint16_t kIptcDateCreatedDataset       = 55U;
-    static constexpr uint16_t kIptcTimeCreatedDataset       = 60U;
-    static constexpr uint32_t kIccHeaderRgbColorSpaceOffset = 16U;
+    static constexpr uint16_t kExifOrientationTag             = 0x0112U;
+    static constexpr uint16_t kExifDateTimeTag                = 0x0132U;
+    static constexpr uint16_t kExifExposureTimeTag            = 0x829AU;
+    static constexpr uint16_t kExifFNumberTag                 = 0x829DU;
+    static constexpr uint16_t kExifExposureProgramTag         = 0x8822U;
+    static constexpr uint16_t kExifPhotographicSensitivityTag = 0x8827U;
+    static constexpr uint16_t kExifDateTimeOriginalTag        = 0x9003U;
+    static constexpr uint16_t kExifDateTimeDigitizedTag       = 0x9004U;
+    static constexpr uint16_t kExifShutterSpeedValueTag       = 0x9201U;
+    static constexpr uint16_t kExifApertureValueTag           = 0x9202U;
+    static constexpr uint16_t kExifExposureBiasValueTag       = 0x9204U;
+    static constexpr uint16_t kExifMaxApertureValueTag        = 0x9205U;
+    static constexpr uint16_t kExifExposureIndexTag           = 0x9215U;
+    static constexpr uint16_t kExifColorSpaceTag              = 0xA001U;
+    static constexpr uint16_t kExifGainControlTag             = 0xA407U;
+    static constexpr uint16_t kDngBaselineExposureTag         = 0xC62AU;
+    static constexpr uint16_t kDngBaselineExposureOffsetTag   = 0xC7A5U;
+    static constexpr uint16_t kDngRawToPreviewGainTag         = 0xC7A8U;
+    static constexpr uint16_t kDngProfileGainTableMapTag      = 0xCD2DU;
+    static constexpr uint16_t kDngProfileGainTableMap2Tag     = 0xCD40U;
+    static constexpr uint16_t kGpsLatitudeRefTag              = 0x0001U;
+    static constexpr uint16_t kGpsLatitudeTag                 = 0x0002U;
+    static constexpr uint16_t kGpsLongitudeRefTag             = 0x0003U;
+    static constexpr uint16_t kGpsLongitudeTag                = 0x0004U;
+    static constexpr uint16_t kGpsAltitudeRefTag              = 0x0005U;
+    static constexpr uint16_t kGpsAltitudeTag                 = 0x0006U;
+    static constexpr uint16_t kGpsTimeStampTag                = 0x0007U;
+    static constexpr uint16_t kGpsDateStampTag                = 0x001DU;
+    static constexpr uint16_t kIptcDateCreatedDataset         = 55U;
+    static constexpr uint16_t kIptcTimeCreatedDataset         = 60U;
+    static constexpr uint32_t kIccHeaderRgbColorSpaceOffset   = 16U;
 
     static std::string_view arena_string(const ByteArena& arena,
                                          ByteSpan span) noexcept
@@ -757,6 +772,16 @@ namespace {
             set_transfer_hint(candidate, MetadataConceptTransferHint::Safe,
                               true, true);
             return;
+        case MetadataConceptKind::Exposure:
+            if (candidate->role == MetadataConceptRole::RawExposureAdjustment) {
+                set_transfer_hint(candidate,
+                                  MetadataConceptTransferHint::RenderedUnsafe,
+                                  true, false);
+                return;
+            }
+            set_transfer_hint(candidate, MetadataConceptTransferHint::Safe,
+                              true, true);
+            return;
         case MetadataConceptKind::Orientation:
             set_transfer_hint(
                 candidate, MetadataConceptTransferHint::RequiresTargetImageSpec,
@@ -785,6 +810,13 @@ namespace {
             case MetadataConceptRole::SensorGeometry:
             case MetadataConceptRole::RawStorage:
             case MetadataConceptRole::SourceProcessing:
+            case MetadataConceptRole::ExposureTime:
+            case MetadataConceptRole::Aperture:
+            case MetadataConceptRole::IsoSensitivity:
+            case MetadataConceptRole::ExposureBias:
+            case MetadataConceptRole::ExposureProgram:
+            case MetadataConceptRole::Gain:
+            case MetadataConceptRole::RawExposureAdjustment:
             case MetadataConceptRole::Primary:
                 set_transfer_hint(candidate,
                                   MetadataConceptTransferHint::SourceBound,
@@ -846,7 +878,14 @@ namespace {
             case MetadataConceptRole::Linearization:
             case MetadataConceptRole::CfaLayout:
             case MetadataConceptRole::RawStorage:
-            case MetadataConceptRole::SourceProcessing: break;
+            case MetadataConceptRole::SourceProcessing:
+            case MetadataConceptRole::ExposureTime:
+            case MetadataConceptRole::Aperture:
+            case MetadataConceptRole::IsoSensitivity:
+            case MetadataConceptRole::ExposureBias:
+            case MetadataConceptRole::ExposureProgram:
+            case MetadataConceptRole::Gain:
+            case MetadataConceptRole::RawExposureAdjustment: break;
             }
             break;
         }
@@ -1620,6 +1659,169 @@ namespace {
         append_iptc_datetime_composite(store, out);
     }
 
+    static void
+    copy_interpretation_values(const MetadataInterpretationRecord& record,
+                               MetadataConceptCandidate* candidate);
+
+    static bool is_dng_exposure_adjustment_tag(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case kDngBaselineExposureTag:
+        case kDngBaselineExposureOffsetTag:
+        case kDngRawToPreviewGainTag:
+        case kDngProfileGainTableMapTag:
+        case kDngProfileGainTableMap2Tag: return true;
+        default: break;
+        }
+        return false;
+    }
+
+    static MetadataConceptRole exposure_role_from_exif_tag(uint16_t tag) noexcept
+    {
+        switch (tag) {
+        case kExifExposureTimeTag:
+        case kExifShutterSpeedValueTag:
+            return MetadataConceptRole::ExposureTime;
+        case kExifFNumberTag:
+        case kExifApertureValueTag:
+        case kExifMaxApertureValueTag: return MetadataConceptRole::Aperture;
+        case kExifPhotographicSensitivityTag:
+        case kExifExposureIndexTag: return MetadataConceptRole::IsoSensitivity;
+        case kExifExposureBiasValueTag:
+            return MetadataConceptRole::ExposureBias;
+        case kExifExposureProgramTag:
+            return MetadataConceptRole::ExposureProgram;
+        case kExifGainControlTag: return MetadataConceptRole::Gain;
+        default: break;
+        }
+        if (is_dng_exposure_adjustment_tag(tag)) {
+            return MetadataConceptRole::RawExposureAdjustment;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static bool is_raw_xmp_namespace(std::string_view ns) noexcept
+    {
+        return ascii_contains_ci(ns, "camera-raw-settings")
+               || ascii_contains_ci(ns, "/crs/")
+               || ascii_contains_ci(ns, "photoshop/camera/raw")
+               || ascii_contains_ci(ns, "crs/1.0");
+    }
+
+    static MetadataConceptRole
+    exposure_role_from_xmp_path(std::string_view ns,
+                                std::string_view path) noexcept
+    {
+        if (ascii_contains_ci(path, "ExposureTime")
+            || ascii_contains_ci(path, "ShutterSpeed")) {
+            return MetadataConceptRole::ExposureTime;
+        }
+        if (ascii_contains_ci(path, "FNumber")
+            || ascii_contains_ci(path, "Aperture")) {
+            return MetadataConceptRole::Aperture;
+        }
+        if (ascii_contains_ci(path, "PhotographicSensitivity")
+            || ascii_contains_ci(path, "ISOSpeed")
+            || xmp_leaf_matches(path, "ISO")) {
+            return MetadataConceptRole::IsoSensitivity;
+        }
+        if (ascii_contains_ci(path, "ExposureBias")
+            || ascii_contains_ci(path, "ExposureCompensation")) {
+            return MetadataConceptRole::ExposureBias;
+        }
+        if (ascii_contains_ci(path, "ExposureProgram")) {
+            return MetadataConceptRole::ExposureProgram;
+        }
+        if (is_raw_xmp_namespace(ns)
+            && (ascii_contains_ci(path, "Exposure")
+                || ascii_contains_ci(path, "Gain"))) {
+            return MetadataConceptRole::RawExposureAdjustment;
+        }
+        if (ascii_contains_ci(path, "Gain")) {
+            return MetadataConceptRole::Gain;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static MetadataConceptRole
+    exposure_role_from_record(const MetaStore& store,
+                              const MetadataInterpretationRecord& record)
+    {
+        if (!record.source_entries.empty()) {
+            const EntryId entry_id = record.source_entries[0];
+            if (entry_id != kInvalidEntryId) {
+                const Entry& entry = store.entry(entry_id);
+                if (entry.key.kind == MetaKeyKind::ExifTag) {
+                    return exposure_role_from_exif_tag(
+                        entry.key.data.exif_tag.tag);
+                }
+                if (entry.key.kind == MetaKeyKind::XmpProperty) {
+                    const std::string_view ns
+                        = arena_string(store.arena(),
+                                       entry.key.data.xmp_property.schema_ns);
+                    const std::string_view path = arena_string(
+                        store.arena(),
+                        entry.key.data.xmp_property.property_path);
+                    return exposure_role_from_xmp_path(ns, path);
+                }
+            }
+        }
+
+        switch (record.semantic) {
+        case MetadataQuerySemanticKind::Gain: return MetadataConceptRole::Gain;
+        case MetadataQuerySemanticKind::ExposureGain:
+            return MetadataConceptRole::RawExposureAdjustment;
+        case MetadataQuerySemanticKind::Exposure:
+            return MetadataConceptRole::Primary;
+        case MetadataQuerySemanticKind::Unknown:
+        case MetadataQuerySemanticKind::Crop:
+        case MetadataQuerySemanticKind::Border:
+        case MetadataQuerySemanticKind::ActiveArea:
+        case MetadataQuerySemanticKind::Color:
+        case MetadataQuerySemanticKind::WhiteBalance:
+        case MetadataQuerySemanticKind::ColorMatrix:
+        case MetadataQuerySemanticKind::LensCorrection:
+        case MetadataQuerySemanticKind::Orientation:
+        case MetadataQuerySemanticKind::BlackLevel:
+        case MetadataQuerySemanticKind::WhiteLevel:
+        case MetadataQuerySemanticKind::Linearization:
+        case MetadataQuerySemanticKind::CfaLayout:
+        case MetadataQuerySemanticKind::SensorGeometry:
+        case MetadataQuerySemanticKind::RawStorage:
+        case MetadataQuerySemanticKind::SourceProcessing: break;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static void append_exposure_candidates(const MetaStore& store,
+                                           MetadataConceptResolution* out)
+    {
+        MetadataInterpretationResult result
+            = interpret_metadata_query(store, MetadataQueryKind::ExposureGain);
+        for (size_t i = 0U; i < result.records.size(); ++i) {
+            const MetadataInterpretationRecord& record = result.records[i];
+            if (record.source_entries.empty()) {
+                continue;
+            }
+            const EntryId entry_id = record.source_entries[0];
+            if (entry_id == kInvalidEntryId) {
+                continue;
+            }
+            const MetadataConceptRole role = exposure_role_from_record(store,
+                                                                       record);
+            MetadataConceptCandidate candidate = make_entry_candidate(
+                store, entry_id, MetadataConceptKind::Exposure, role,
+                record.semantic, record.shape, record.confidence);
+            candidate.source_entries.clear();
+            for (size_t e = 0U; e < record.source_entries.size(); ++e) {
+                add_unique_entry(&candidate.source_entries,
+                                 record.source_entries[e]);
+            }
+            copy_interpretation_values(record, &candidate);
+            append_candidate(out, candidate);
+        }
+    }
+
     static MetadataConceptRole
     color_role_from_semantic(MetadataQuerySemanticKind semantic) noexcept
     {
@@ -2341,7 +2543,14 @@ namespace {
         case MetadataConceptRole::Linearization:
         case MetadataConceptRole::CfaLayout:
         case MetadataConceptRole::RawStorage:
-        case MetadataConceptRole::SourceProcessing: break;
+        case MetadataConceptRole::SourceProcessing:
+        case MetadataConceptRole::ExposureTime:
+        case MetadataConceptRole::Aperture:
+        case MetadataConceptRole::IsoSensitivity:
+        case MetadataConceptRole::ExposureBias:
+        case MetadataConceptRole::ExposureProgram:
+        case MetadataConceptRole::Gain:
+        case MetadataConceptRole::RawExposureAdjustment: break;
         }
         return 0.0;
     }
@@ -2507,6 +2716,13 @@ namespace {
             MetadataConceptRole::CfaLayout,
             MetadataConceptRole::RawStorage,
             MetadataConceptRole::SourceProcessing,
+            MetadataConceptRole::ExposureTime,
+            MetadataConceptRole::Aperture,
+            MetadataConceptRole::IsoSensitivity,
+            MetadataConceptRole::ExposureBias,
+            MetadataConceptRole::ExposureProgram,
+            MetadataConceptRole::Gain,
+            MetadataConceptRole::RawExposureAdjustment,
         };
         for (size_t i = 0U; i < std::size(roles); ++i) {
             mark_role_preferred(resolution, roles[i]);
@@ -2555,6 +2771,9 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind)
     case MetadataConceptKind::RawProcessing:
         append_raw_processing_candidates(store, &out);
         break;
+    case MetadataConceptKind::Exposure:
+        append_exposure_candidates(store, &out);
+        break;
     }
     finalize_resolution(&out);
     return out;
@@ -2564,11 +2783,13 @@ MetadataConceptResult
 resolve_metadata_concepts(const MetaStore& store)
 {
     MetadataConceptResult out;
-    out.concepts.reserve(7U);
+    out.concepts.reserve(8U);
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Orientation));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::DateTime));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::Exposure));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::ColorProfile));
     out.concepts.push_back(
@@ -2593,6 +2814,7 @@ metadata_concept_kind_name(MetadataConceptKind kind) noexcept
     case MetadataConceptKind::Geometry: return "geometry";
     case MetadataConceptKind::LensCorrection: return "lens_correction";
     case MetadataConceptKind::RawProcessing: return "raw_processing";
+    case MetadataConceptKind::Exposure: return "exposure";
     }
     return "unknown";
 }
@@ -2643,6 +2865,14 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::CfaLayout: return "cfa_layout";
     case MetadataConceptRole::RawStorage: return "raw_storage";
     case MetadataConceptRole::SourceProcessing: return "source_processing";
+    case MetadataConceptRole::ExposureTime: return "exposure_time";
+    case MetadataConceptRole::Aperture: return "aperture";
+    case MetadataConceptRole::IsoSensitivity: return "iso_sensitivity";
+    case MetadataConceptRole::ExposureBias: return "exposure_bias";
+    case MetadataConceptRole::ExposureProgram: return "exposure_program";
+    case MetadataConceptRole::Gain: return "gain";
+    case MetadataConceptRole::RawExposureAdjustment:
+        return "raw_exposure_adjustment";
     }
     return "unknown";
 }

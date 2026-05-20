@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.18 - 2026-05-20
+
+Changes compared with `0.4.17`.
+
+### Added
+
+- Added an experimental exposure/gain concept resolver that maps
+  query-backed exposure records into exposure time, aperture, ISO sensitivity,
+  exposure bias, exposure program, gain, and raw exposure-adjustment roles.
+- Added conservative transfer hints for exposure concepts: capture exposure
+  facts remain safe, while raw/DNG exposure adjustment fields are marked
+  unsafe for rendered-image transfer.
+- Exposed the new exposure concept and roles through the Python bindings.
+
+### Changed
+
+- Updated public interpretation and host-integration documentation for
+  exposure/gain concept coverage and rendered-transfer safety behavior.
+
 ## 0.4.17 - 2026-05-20
 
 Changes compared with `0.4.16`.

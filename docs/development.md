@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, color, lens-correction, sensor, computational capture state, and vendor-private fields. | Medium-high, about 85%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color, lens-correction, sensor, computational capture state, and vendor-private fields. | Medium-high, about 86%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB, orientation, date/time, GPS, lens-correction, and RAW/source-processing fields across standard and vendor metadata. | Medium, about 73-79%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -52,6 +52,10 @@ form per-family grouped candidates for white balance, color, raw-storage,
 sensor, and source-processing records. RAW-processing queries add conservative
 groups for black/white levels, linearization tables, CFA/sensor layout, source
 geometry, raw-storage identifiers, and source-private processing buckets.
+Exposure/gain concept resolution promotes exposure time, aperture, ISO,
+exposure bias, exposure program, gain, and raw exposure-adjustment records into
+host-visible roles, with raw exposure adjustments kept unsafe for rendered
+targets.
 Current source-private aliases include camera-to-XYZ/RGB matrices, creative and
 picture styles, film simulation, dynamic-range processing, optical/lens
 correction, white-balance gains, and raw-development terms.
@@ -74,15 +78,16 @@ into records with query class, semantic kind, normalized shape, confidence,
 source entries, and normalized geometry/value arrays where available.
 
 For cross-family duplicated concepts, use `openmeta/metadata_concepts.h`.
-It currently resolves orientation, date/time, color/profile, GPS, geometry,
-lens-correction, and RAW-processing into candidate lists with candidate source
-entries, source families, preferred entries, normalized compare keys, parsed
-date/time fields, date/time precision, timezone kind, GPS altitude-reference
-state, canonical geometry origin/size/rect/margins, full normalized value
-vectors for grouped matrix/vector/table records, transfer hints, compatible and
-rendered safety booleans, and same-role conflict flags. This is deliberately
-an inspection/policy surface; host code still decides whether a conflict should
-be shown, ignored, or corrected during editing/transfer.
+It currently resolves orientation, date/time, exposure/gain, color/profile,
+GPS, geometry, lens-correction, and RAW-processing into candidate lists with
+candidate source entries, source families, preferred entries, normalized
+compare keys, parsed date/time fields, date/time precision, timezone kind, GPS
+altitude-reference state, canonical geometry origin/size/rect/margins,
+normalized exposure values, full normalized value vectors for grouped
+matrix/vector/table records, transfer hints, compatible and rendered safety
+booleans, and same-role conflict flags. This is deliberately an
+inspection/policy surface; host code still decides whether a conflict should be
+shown, ignored, or corrected during editing/transfer.
 
 ## Build Prerequisites
 

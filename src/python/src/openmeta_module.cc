@@ -6075,7 +6075,8 @@ NB_MODULE(_openmeta, m)
         .value("Gps", MetadataConceptKind::Gps)
         .value("Geometry", MetadataConceptKind::Geometry)
         .value("LensCorrection", MetadataConceptKind::LensCorrection)
-        .value("RawProcessing", MetadataConceptKind::RawProcessing);
+        .value("RawProcessing", MetadataConceptKind::RawProcessing)
+        .value("Exposure", MetadataConceptKind::Exposure);
 
     nb::enum_<MetadataConceptSourceFamily>(m, "MetadataConceptSourceFamily")
         .value("Unknown", MetadataConceptSourceFamily::Unknown)
@@ -6113,7 +6114,15 @@ NB_MODULE(_openmeta, m)
         .value("Linearization", MetadataConceptRole::Linearization)
         .value("CfaLayout", MetadataConceptRole::CfaLayout)
         .value("RawStorage", MetadataConceptRole::RawStorage)
-        .value("SourceProcessing", MetadataConceptRole::SourceProcessing);
+        .value("SourceProcessing", MetadataConceptRole::SourceProcessing)
+        .value("ExposureTime", MetadataConceptRole::ExposureTime)
+        .value("Aperture", MetadataConceptRole::Aperture)
+        .value("IsoSensitivity", MetadataConceptRole::IsoSensitivity)
+        .value("ExposureBias", MetadataConceptRole::ExposureBias)
+        .value("ExposureProgram", MetadataConceptRole::ExposureProgram)
+        .value("Gain", MetadataConceptRole::Gain)
+        .value("RawExposureAdjustment",
+               MetadataConceptRole::RawExposureAdjustment);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

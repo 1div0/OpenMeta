@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 85%** for the public target scope.
+Current overall status: **medium-high, about 86%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -33,9 +33,10 @@ explicit outcome:
      - The raw value shape is preserved as scalar, vector, matrix, table, bytes,
        text, or opaque blob.
    * - Interpreted
-     - Known enum-like values, orientation states, geometry, color,
-       white-balance, lens-correction, RAW-processing, and source-private
-       meanings are projected into public helpers or query candidates.
+     - Known enum-like values, orientation states, geometry, exposure/gain,
+       color, white-balance, lens-correction, RAW-processing, and
+       source-private meanings are projected into public helpers or query
+       candidates.
    * - Classified
      - Source-bound data is classified as portable, target-owned, source
        RAW-specific, vendor-private, computational, thermal, preview/face/
@@ -64,9 +65,11 @@ Coverage matrix
      - Main remaining gap
    * - Standard EXIF/TIFF/DNG tag names and typed values
      - Standard tag names, common scalar/vector values, DNG crop/color/
-       RAW-processing fields, GeoTIFF key names, and common EXIF/TIFF/DNG
-       numeric value-name helpers are available.
-     - High, about 90-95%.
+       exposure/RAW-processing fields, GeoTIFF key names, and common
+       EXIF/TIFF/DNG numeric value-name helpers are available. Exposure time,
+       aperture, ISO sensitivity, exposure bias, exposure program, gain, and
+       raw exposure-adjustment records now flow into concept candidates.
+     - High, about 91-95%.
      - More enum-style human-readable values and richer conflict handling
        between duplicated families.
    * - ICC profiles
@@ -99,6 +102,16 @@ Coverage matrix
      - High, about 88-92%.
      - More vendor-specific normalized rectangles and stronger output contracts
        for ambiguous multi-tag geometry.
+   * - Exposure and gain
+     - Standard EXIF exposure time, f-number, exposure program, photographic
+       sensitivity, exposure bias, exposure index, gain control, selected DNG
+       baseline/raw-preview gain fields, and matching XMP paths are queryable
+       and promoted into cross-family exposure roles. Capture exposure facts
+       are marked safe, while raw/DNG exposure adjustments are marked unsafe
+       for rendered-image transfer.
+     - Medium-high, about 84-90%.
+     - More vendor MakerNote exposure print conversions and richer
+       human-readable exposure-program/gain labels.
    * - Color, white balance, and matrices
      - DNG color/calibration/reduction/forward matrix groups, white-balance
        vector groups, ICC metadata, RAW color/source-processing safety
@@ -149,18 +162,19 @@ Coverage matrix
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm
        RAF raw crop/zoom rectangles, Canon/Nikon/Sony crop and border
-       patterns, border margins, per-family grouped vendor records, expanded
-       source color/style/lens/source-processing aliases, source-processing
-       buckets, optional RapidFuzz near-miss matching, structured interpretation
-       records, and bounded cross-family concept resolution for orientation,
-       date/time, color/profile, GPS, geometry, lens-correction, and
-       RAW-processing with parsed date/time fields,
+       patterns, border margins, exposure/gain roles, per-family grouped
+       vendor records, expanded source color/style/lens/source-processing
+       aliases, source-processing buckets, optional RapidFuzz near-miss
+       matching, structured interpretation records, and bounded cross-family
+       concept resolution for orientation, date/time, exposure/gain,
+       color/profile, GPS, geometry, lens-correction, and RAW-processing with
+       parsed date/time fields,
        timezone/precision classification, combined GPS timestamps, GPS
        altitude-reference state and display token, canonical geometry
-       origin/size/rect/margins, shape-checked grouped value vectors, transfer
-       hints, rendered/compatible safety booleans, and tolerance-aware
-       GPS/color/geometry conflicts.
-     - Medium-high, about 76-82%.
+       origin/size/rect/margins, normalized exposure values, shape-checked
+       grouped value vectors, transfer hints, rendered/compatible safety
+       booleans, and tolerance-aware GPS/exposure/color/geometry conflicts.
+     - Medium-high, about 77-83%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
