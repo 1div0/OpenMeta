@@ -113,7 +113,11 @@ Host-facing API map
        Matrix/vector/table groups are promoted only when the available numeric
        payloads meet conservative minimum shapes, so malformed color matrices,
        white-balance vectors, and lens-correction records remain per-entry
-       inspection data instead of becoming normalized groups.
+       inspection data instead of becoming normalized groups. Long-tail source
+       color/style aliases such as camera-to-XYZ/RGB matrices, creative/picture
+       style, film simulation, dynamic-range, optical-correction, and
+       raw-development terms are classified for query and transfer-policy
+       inspection.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
        dictionary-returning wrappers.
    * - Structured metadata interpretation records:
@@ -191,12 +195,14 @@ Host-facing API map
        MakerNotes, including vendor-private, computational, thermal, preview,
        face-geometry, stitch/panorama, Apple computational capture/HDR/motion,
        DJI pose/thermal, Google HDR+/shot-log, pixel-shift/multi-shot/
-       composite/auto-lighting source processing, and FLIR
-       radiometric/raw-value buckets. Intended for audit/UI and
-       rendered-transfer safety decisions. Direct field classification also
-       recognizes decoded Phase One/Leaf RAW-processing tags; use the dedicated
-       Phase One/Leaf helpers for normalized geometry and processing summaries.
-       Do not write vendor RAW/source-processing values into rendered targets.
+       composite/auto-lighting/source-style processing, and FLIR
+       radiometric/raw-value buckets. Long-tail aliases cover source color/style,
+       camera-to-XYZ/RGB matrix, white-balance gain, optical/lens correction,
+       dynamic-range, and raw-development terms. Direct field classification
+       also recognizes decoded Phase One/Leaf RAW-processing tags; use the
+       dedicated Phase One/Leaf helpers for normalized geometry and processing
+       summaries. Intended for audit/UI and rendered-transfer safety decisions,
+       not for writing vendor RAW/source-processing values into rendered targets.
    * - Transfer safety audit:
        ``transfer_safety_audit_from_store(...)``
      - ``openmeta/metadata_transfer.h``

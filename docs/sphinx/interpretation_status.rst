@@ -103,21 +103,23 @@ Coverage matrix
      - DNG color/calibration/reduction/forward matrix groups, white-balance
        vector groups, ICC metadata, RAW color/source-processing safety
        buckets, transfer hints, per-family grouped vendor color/WB candidates,
+       long-tail camera-to-XYZ/RGB, style/color, and white-balance gain aliases,
        and cross-family concept candidates with full grouped value vectors are
        identified. Matrix/vector groups require numeric payloads with
        conservative minimum shapes before promotion.
-     - Medium-high, about 81-89%.
+     - Medium-high, about 82-90%.
      - Deeper camera/vendor color science interpretation is intentionally
        conservative, especially for rendered-image transfer.
    * - Lens correction and RAW processing
      - Lens-correction groups, black/white levels, linearization, CFA/sensor
        layout, raw-storage identifiers, vendor RAW/source-processing buckets,
-       per-family vendor raw-storage/sensor/source-processing table candidates,
-       transfer hints, transfer diagnostics, and concept candidates with
-       grouped table/vector values are classified for query and transfer
-       safety. Lens-correction grouped tables require numeric payloads before
-       promotion.
-     - Medium-high, about 81-88%.
+       creative/picture style, film simulation, dynamic-range, optical
+       correction, and raw-development aliases, per-family vendor raw-storage/
+       sensor/source-processing table candidates, transfer hints, transfer
+       diagnostics, and concept candidates with grouped table/vector values are
+       classified for query and transfer safety. Lens-correction grouped tables
+       require numeric payloads before promotion.
+     - Medium-high, about 82-89%.
      - Long-tail per-model correction tables and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
@@ -125,12 +127,12 @@ Coverage matrix
        entries remain lossless and source-private subgroups distinguish
        preview, face geometry, computational, thermal, stitch/panorama,
        pixel-shift, multi-shot, composite, auto-lighting, RAW crop/active-area,
-       source color-transform, lens-correction, raw-level processing data, and
-       Phase One/Leaf RAW-processing fields handled by direct classification
-       plus dedicated normalized helpers. Classified multi-field vendor groups
-       now surface as grouped query/interpretation candidates where safe to
-       expose structurally.
-     - Medium-high, about 82-89%.
+       source color-transform, source style/rendering aliases, lens-correction,
+       raw-level processing data, and Phase One/Leaf RAW-processing fields
+       handled by direct classification plus dedicated normalized helpers.
+       Classified multi-field vendor groups now surface as grouped
+       query/interpretation candidates where safe to expose structurally.
+     - Medium-high, about 83-90%.
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
@@ -147,17 +149,18 @@ Coverage matrix
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm
        RAF raw crop/zoom rectangles, Canon/Nikon/Sony crop and border
-       patterns, border margins, per-family grouped vendor records,
-       source-processing buckets, optional RapidFuzz near-miss matching,
-       structured interpretation records, and bounded cross-family concept
-       resolution for orientation, date/time, color/profile, GPS, geometry,
-       lens-correction, and RAW-processing with parsed date/time fields,
+       patterns, border margins, per-family grouped vendor records, expanded
+       source color/style/lens/source-processing aliases, source-processing
+       buckets, optional RapidFuzz near-miss matching, structured interpretation
+       records, and bounded cross-family concept resolution for orientation,
+       date/time, color/profile, GPS, geometry, lens-correction, and
+       RAW-processing with parsed date/time fields,
        timezone/precision classification, combined GPS timestamps, GPS
        altitude-reference state and display token, canonical geometry
        origin/size/rect/margins, shape-checked grouped value vectors, transfer
        hints, rendered/compatible safety booleans, and tolerance-aware
        GPS/color/geometry conflicts.
-     - Medium-high, about 75-81%.
+     - Medium-high, about 76-82%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification

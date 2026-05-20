@@ -1129,6 +1129,70 @@ TEST(MetadataQuery, GroupsVendorWhiteBalanceVectorSetByFamily)
     EXPECT_DOUBLE_EQ(candidate->values[4], 120.0);
 }
 
+TEST(MetadataQuery, GroupsSamsungColorMatrixSetByAlias)
+{
+    MetaStore store;
+    const std::array<uint32_t, 9> matrix_a = {
+        1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+    };
+    const std::array<uint32_t, 9> matrix_b = {
+        2U, 0U, 0U, 0U, 2U, 0U, 0U, 0U, 2U,
+    };
+    const EntryId matrix_a_id
+        = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA030U,
+                             std::span<const uint32_t>(matrix_a.data(),
+                                                       matrix_a.size()));
+    const EntryId matrix_b_id
+        = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA031U,
+                             std::span<const uint32_t>(matrix_b.data(),
+                                                       matrix_b.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_color_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::ColorMatrix,
+                                    MetadataQueryValueShape::MatrixSet, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, matrix_a_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, matrix_b_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 18U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[9], 2.0);
+}
+
+TEST(MetadataQuery, GroupsSamsungWhiteBalanceVectorSetByAlias)
+{
+    MetaStore store;
+    const std::array<uint32_t, 4> uncorrected = { 110U, 256U, 256U, 144U };
+    const std::array<uint32_t, 4> automatic   = { 120U, 256U, 256U, 136U };
+    const EntryId uncorrected_id
+        = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA021U,
+                             std::span<const uint32_t>(uncorrected.data(),
+                                                       uncorrected.size()));
+    const EntryId automatic_id
+        = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA022U,
+                             std::span<const uint32_t>(automatic.data(),
+                                                       automatic.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_white_balance_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::WhiteBalance,
+                                    MetadataQueryValueShape::VectorSet, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, uncorrected_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, automatic_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 8U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 110.0);
+    EXPECT_DOUBLE_EQ(candidate->values[4], 120.0);
+}
+
 TEST(MetadataQuery, SkipsMalformedVendorColorMatrixSet)
 {
     MetaStore store;
@@ -1159,6 +1223,30 @@ TEST(MetadataQuery, SkipsMalformedVendorColorMatrixSet)
     EXPECT_EQ(grouped, nullptr);
 }
 
+TEST(MetadataQuery, GroupsSamsungLensCorrectionTableByAlias)
+{
+    MetaStore store;
+    const EntryId vignette_id   = add_exif_u32(&store, "mk_samsung_type2_0",
+                                               0xA052U, 7U);
+    const EntryId correction_id = add_exif_u32(&store, "mk_samsung_type2_0",
+                                               0xA053U, 3U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_lens_correction_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::LensCorrection,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, vignette_id));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, correction_id));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 2U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 7.0);
+    EXPECT_DOUBLE_EQ(candidate->values[1], 3.0);
+}
+
 TEST(MetadataQuery, GroupsVendorColorTableByFamily)
 {
     MetaStore store;
@@ -1180,6 +1268,29 @@ TEST(MetadataQuery, GroupsVendorColorTableByFamily)
     ASSERT_EQ(candidate->values.size(), 2U);
     EXPECT_DOUBLE_EQ(candidate->values[0], 12.0);
     EXPECT_DOUBLE_EQ(candidate->values[1], 24.0);
+}
+
+TEST(MetadataQuery, GroupsSonyStyleSourceProcessingByAlias)
+{
+    MetaStore store;
+    const EntryId style_a = add_exif_u32(&store, "mk_sony0", 0xB020U, 1U);
+    const EntryId style_b = add_exif_u32(&store, "mk_sony_camerasettings_0",
+                                         0x001AU, 2U);
+    store.finalize();
+
+    const MetadataQueryResult result = query_raw_processing_metadata(store);
+
+    const MetadataQueryCandidate* candidate
+        = find_candidate_with_shape(result,
+                                    MetadataQuerySemanticKind::SourceProcessing,
+                                    MetadataQueryValueShape::Table, 2U);
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_TRUE(contains_entry(candidate->source_entries, style_a));
+    EXPECT_TRUE(contains_entry(candidate->source_entries, style_b));
+    ASSERT_TRUE(candidate->has_values);
+    ASSERT_EQ(candidate->values.size(), 2U);
+    EXPECT_DOUBLE_EQ(candidate->values[0], 1.0);
+    EXPECT_DOUBLE_EQ(candidate->values[1], 2.0);
 }
 
 TEST(MetadataQuery, GroupsVendorRawProcessingTablesByFamilyAndSemantic)

@@ -799,6 +799,99 @@ namespace {
         EXPECT_DOUBLE_EQ(source->values[1], 2.0);
     }
 
+    TEST(MetadataConcepts, ResolvesLongTailVendorAliasGroupsForSafetyHints)
+    {
+        MetaStore store;
+        const std::array<uint32_t, 9> matrix_a = {
+            1U, 0U, 0U, 0U, 1U, 0U, 0U, 0U, 1U,
+        };
+        const std::array<uint32_t, 9> matrix_b = {
+            2U, 0U, 0U, 0U, 2U, 0U, 0U, 0U, 2U,
+        };
+        const EntryId matrix_a_id
+            = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA030U,
+                                 std::span<const uint32_t>(matrix_a.data(),
+                                                           matrix_a.size()));
+        const EntryId matrix_b_id
+            = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA031U,
+                                 std::span<const uint32_t>(matrix_b.data(),
+                                                           matrix_b.size()));
+
+        const std::array<uint32_t, 4> wb_a = { 110U, 256U, 256U, 144U };
+        const std::array<uint32_t, 4> wb_b = { 120U, 256U, 256U, 136U };
+        const EntryId wb_a_id
+            = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA021U,
+                                 std::span<const uint32_t>(wb_a.data(),
+                                                           wb_a.size()));
+        const EntryId wb_b_id
+            = add_exif_u32_array(&store, "mk_samsung_type2_0", 0xA022U,
+                                 std::span<const uint32_t>(wb_b.data(),
+                                                           wb_b.size()));
+
+        const EntryId lens_a  = add_exif_u32(&store, "mk_samsung_type2_0",
+                                             0xA052U, 7U);
+        const EntryId lens_b  = add_exif_u32(&store, "mk_samsung_type2_0",
+                                             0xA053U, 3U);
+        const EntryId style_a = add_exif_u32(&store, "mk_sony0", 0xB020U, 1U);
+        const EntryId style_b = add_exif_u32(&store, "mk_sony_camerasettings_0",
+                                             0x001AU, 2U);
+        store.finalize();
+
+        const MetadataConceptResult result = resolve_metadata_concepts(store);
+
+        const MetadataConceptResolution* color
+            = find_concept(result, MetadataConceptKind::ColorProfile);
+        ASSERT_NE(color, nullptr);
+        const MetadataConceptCandidate* matrix
+            = find_role_shape(*color, MetadataConceptRole::ColorMatrix,
+                              MetadataQueryValueShape::MatrixSet);
+        ASSERT_NE(matrix, nullptr);
+        EXPECT_EQ(matrix->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(matrix->source_bound);
+        EXPECT_FALSE(matrix->rendered_image_safe);
+        EXPECT_TRUE(contains_entry(matrix->source_entries, matrix_a_id));
+        EXPECT_TRUE(contains_entry(matrix->source_entries, matrix_b_id));
+
+        const MetadataConceptCandidate* wb
+            = find_role_shape(*color, MetadataConceptRole::WhiteBalance,
+                              MetadataQueryValueShape::VectorSet);
+        ASSERT_NE(wb, nullptr);
+        EXPECT_EQ(wb->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(wb->source_bound);
+        EXPECT_FALSE(wb->rendered_image_safe);
+        EXPECT_TRUE(contains_entry(wb->source_entries, wb_a_id));
+        EXPECT_TRUE(contains_entry(wb->source_entries, wb_b_id));
+
+        const MetadataConceptResolution* lens
+            = find_concept(result, MetadataConceptKind::LensCorrection);
+        ASSERT_NE(lens, nullptr);
+        const MetadataConceptCandidate* lens_table
+            = find_role_shape(*lens, MetadataConceptRole::LensCorrection,
+                              MetadataQueryValueShape::Table);
+        ASSERT_NE(lens_table, nullptr);
+        EXPECT_EQ(lens_table->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(lens_table->source_bound);
+        EXPECT_FALSE(lens_table->rendered_image_safe);
+        EXPECT_TRUE(contains_entry(lens_table->source_entries, lens_a));
+        EXPECT_TRUE(contains_entry(lens_table->source_entries, lens_b));
+
+        const MetadataConceptResolution* raw
+            = find_concept(result, MetadataConceptKind::RawProcessing);
+        ASSERT_NE(raw, nullptr);
+        const MetadataConceptCandidate* source
+            = find_role_entries(*raw, MetadataConceptRole::SourceProcessing,
+                                style_a, style_b);
+        ASSERT_NE(source, nullptr);
+        EXPECT_EQ(source->shape, MetadataQueryValueShape::Table);
+        EXPECT_EQ(source->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(source->source_bound);
+        EXPECT_FALSE(source->rendered_image_safe);
+    }
+
     TEST(MetadataConcepts, FlagsConflictingCreatedDatesAcrossFamilies)
     {
         MetaStore store;

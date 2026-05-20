@@ -41,7 +41,7 @@ model should stay compact:
        flags for crop/border/active-area, exposure/gain, color/WB,
        orientation, date/time, GPS, lens-correction, and RAW/source-processing
        fields across standard and vendor metadata.
-     - Medium, about 72-78%.
+     - Medium, about 73-79%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -94,6 +94,9 @@ form per-family grouped candidates for white balance, color, raw-storage,
 sensor, and source-processing records. RAW-processing queries add conservative
 groups for black/white levels, linearization tables, CFA/sensor layout, source
 geometry, raw-storage identifiers, and source-private processing buckets.
+Current source-private aliases include camera-to-XYZ/RGB matrices, creative and
+picture styles, film simulation, dynamic-range processing, optical/lens
+correction, white-balance gains, and raw-development terms.
 Grouped candidates use ``matrix_set``, ``vector_set``, and ``table`` value
 shapes. Color matrix sets, white-balance vector sets, and lens-correction
 tables are promoted only when the numeric payloads meet conservative minimum

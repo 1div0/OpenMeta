@@ -988,12 +988,19 @@ namespace {
             || contains(name, "CbCrMatrix") || contains(name, "CbCrGain")
             || contains(name, "ToneCurve") || contains(name, "ForwardMatrix")
             || contains(name, "ReductionMatrix")
+            || contains(name, "CameraToXYZ") || contains(name, "CameraToRGB")
             || contains(name, "ColorTransform")
             || contains(name, "ColorCorrection")
             || contains(name, "ColorCorrectionMatrix") || contains(name, "CCM")
             || contains(name, "LookTable") || contains(name, "HueSat")
             || contains(name, "ProfileHue")
-            || contains(name, "ProfileToneCurve")) {
+            || contains(name, "ProfileToneCurve")
+            || contains(name, "ColorLookup") || contains(name, "ColorMap")
+            || contains(name, "ColorTable") || contains(name, "RGBTable")
+            || contains(name, "CreativeStyle") || contains(name, "PictureStyle")
+            || contains(name, "FilmSimulation")
+            || contains(name, "DynamicRangeOptimizer")
+            || contains(name, "DLighting")) {
             groups |= kVendorRawColor;
         }
         if (contains(name, "WB_") || contains(name, "WhiteBalance")
@@ -1004,9 +1011,14 @@ namespace {
             || contains(name, "WBMode") || contains(name, "WBScale")
             || contains(name, "WB_RGBMul") || contains(name, "WB_RGBCoeffs")
             || contains(name, "WB_Red") || contains(name, "WB_Blue")
-            || contains(name, "WBLevels") || contains(name, "AsShotNeutral")
+            || contains(name, "WBLevels") || contains(name, "WBGain")
+            || contains(name, "WBGRB") || contains(name, "WB_GRB")
+            || contains(name, "KelvinWB") || contains(name, "AsShotNeutral")
             || contains(name, "AsShotWhiteXY") || contains(name, "WhitePoint")
-            || contains(name, "NeutralColor")) {
+            || contains(name, "NeutralColor")
+            || contains(name, "WhiteBalanceGain")
+            || contains(name, "WhiteBalanceBias")
+            || contains(name, "WhiteBalanceFineTune")) {
             groups |= kVendorRawColor | kVendorRawWhiteBalance;
         }
         if (contains(name, "PhaseOne") || contains(name, "Leaf")) {
@@ -1049,8 +1061,10 @@ namespace {
             || contains(name, "ChromaticAberration")
             || contains(name, "PeripheralIllumination")
             || contains(name, "GeometricDistortion")
-            || contains(name, "LateralChromatic")
-            || contains(name, "CACorrection") || contains(name, "Warp")) {
+            || contains(name, "LateralChromatic") || contains(name, "LateralCA")
+            || contains(name, "CACorrection")
+            || contains(name, "OpticalCorrection")
+            || contains(name, "RadialCorrection") || contains(name, "Warp")) {
             groups |= kVendorRawLensCorrection;
         }
         if (contains(name, "BlackLevel") || contains(name, "WhiteLevel")
@@ -1088,7 +1102,14 @@ namespace {
             || contains(name, "ImageFusion") || contains(name, "FrameFusion")
             || contains(name, "MultiFrame") || contains(name, "Bracket")
             || contains(name, "MotionPhoto") || contains(name, "LivePhoto")
-            || contains(name, "HDRMerge")) {
+            || contains(name, "HDRMerge") || contains(name, "CreativeStyle")
+            || contains(name, "PictureStyle")
+            || contains(name, "FilmSimulation")
+            || contains(name, "DynamicRangeOptimizer")
+            || contains(name, "DLighting") || contains(name, "RawDevelopment")
+            || contains(name, "RawDevelop") || contains(name, "RawDev")
+            || contains(name, "HighISONR") || contains(name, "LongExposureNR")
+            || contains(name, "NoiseReduction")) {
             groups |= kVendorRawComputational | kVendorRawPrivateTable;
         }
         if (contains(name, "Thermal") || contains(name, "Radiometric")

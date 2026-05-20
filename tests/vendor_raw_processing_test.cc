@@ -887,6 +887,46 @@ TEST(VendorRawProcessing, ClassifiesTransferCriticalMakerNoteTerms)
         has_group(fusion_groups, VendorRawProcessingGroup::PrivateTable));
 }
 
+TEST(VendorRawProcessing, ClassifiesLongTailStyleAndCorrectionAliases)
+{
+    const VendorRawProcessingGroup camera_matrix_groups
+        = classify_vendor_raw_processing_field("mk_sony0", "CameraToXYZMatrix",
+                                               0x0100U);
+    EXPECT_TRUE(
+        has_group(camera_matrix_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup wb_gain_groups
+        = classify_vendor_raw_processing_field("mk_sony0", "WBGainCloudy",
+                                               0x0101U);
+    EXPECT_TRUE(
+        has_group(wb_gain_groups, VendorRawProcessingGroup::WhiteBalance));
+    EXPECT_TRUE(has_group(wb_gain_groups, VendorRawProcessingGroup::Color));
+
+    const VendorRawProcessingGroup optical_groups
+        = classify_vendor_raw_processing_field("mk_sony0", "OpticalCorrection",
+                                               0x0102U);
+    EXPECT_TRUE(
+        has_group(optical_groups, VendorRawProcessingGroup::LensCorrection));
+
+    const VendorRawProcessingGroup style_groups
+        = classify_vendor_raw_processing_field("mk_sony0", "CreativeStyle",
+                                               0xB020U);
+    EXPECT_TRUE(has_group(style_groups, VendorRawProcessingGroup::Color));
+    EXPECT_TRUE(
+        has_group(style_groups, VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(
+        has_group(style_groups, VendorRawProcessingGroup::PrivateTable));
+
+    const VendorRawProcessingGroup raw_development_groups
+        = classify_vendor_raw_processing_field("mk_olympus_rawdevelopment2_0",
+                                               "RawDevelopmentProcess",
+                                               0x0114U);
+    EXPECT_TRUE(has_group(raw_development_groups,
+                          VendorRawProcessingGroup::Computational));
+    EXPECT_TRUE(has_group(raw_development_groups,
+                          VendorRawProcessingGroup::PrivateTable));
+}
+
 TEST(VendorRawProcessing, ClassifiesCasioSourceProcessingFields)
 {
     const VendorRawProcessingGroup wb_groups

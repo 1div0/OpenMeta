@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.17 - 2026-05-20
+
+Changes compared with `0.4.16`.
+
+### Added
+
+- Expanded public vendor RAW/source-processing aliases for long-tail source
+  color transforms, white-balance gains, lens/optical correction, creative
+  style, picture style, film simulation, dynamic-range, and raw-development
+  records.
+- Added query and concept coverage showing Samsung color matrix, white-balance,
+  lens-correction, and Sony style/source-processing records flow into grouped
+  interpretation candidates with conservative transfer hints.
+
+### Changed
+
+- Updated public interpretation/query status to reflect the broader grouped
+  alias coverage while keeping rendered-transfer behavior conservative.
+
 ## 0.4.16 - 2026-05-20
 
 Changes compared with `0.4.15`.

@@ -895,7 +895,17 @@ namespace {
             || term_matches(name, "illuminant", enable_fuzzy, provenance)
             || term_matches(name, "profile", enable_fuzzy, provenance)
             || term_matches(name, "tonecurve", enable_fuzzy, provenance)
-            || term_matches(name, "tone curve", enable_fuzzy, provenance)) {
+            || term_matches(name, "tone curve", enable_fuzzy, provenance)
+            || term_matches(name, "creative style", enable_fuzzy, provenance)
+            || term_matches(name, "creativestyle", enable_fuzzy, provenance)
+            || term_matches(name, "picture style", enable_fuzzy, provenance)
+            || term_matches(name, "picturestyle", enable_fuzzy, provenance)
+            || term_matches(name, "film simulation", enable_fuzzy, provenance)
+            || term_matches(name, "filmsimulation", enable_fuzzy, provenance)
+            || term_matches(name, "dynamic range optimizer", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "dynamicrangeoptimizer", enable_fuzzy,
+                            provenance)) {
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
         }
         if (term_matches(name, "matrix", enable_fuzzy, provenance)
@@ -903,6 +913,10 @@ namespace {
             || term_matches(name, "forward matrix", enable_fuzzy, provenance)
             || term_matches(name, "reductionmatrix", enable_fuzzy, provenance)
             || term_matches(name, "reduction matrix", enable_fuzzy, provenance)
+            || term_matches(name, "cameratoxyz", enable_fuzzy, provenance)
+            || term_matches(name, "camera to xyz", enable_fuzzy, provenance)
+            || term_matches(name, "cameratorgb", enable_fuzzy, provenance)
+            || term_matches(name, "camera to rgb", enable_fuzzy, provenance)
             || term_matches(name, "ccm", enable_fuzzy, provenance)
             || term_matches(name, "colorcorrectionmatrix", enable_fuzzy,
                             provenance)
@@ -941,6 +955,10 @@ namespace {
                             provenance)
             || term_matches(name, "geometric distortion", enable_fuzzy,
                             provenance)
+            || term_matches(name, "radial correction", enable_fuzzy, provenance)
+            || term_matches(name, "radialcorrection", enable_fuzzy, provenance)
+            || term_matches(name, "optical correction", enable_fuzzy, provenance)
+            || term_matches(name, "opticalcorrection", enable_fuzzy, provenance)
             || term_matches(name, "peripheralillumination", enable_fuzzy,
                             provenance)
             || term_matches(name, "peripheral illumination", enable_fuzzy,
@@ -1053,6 +1071,25 @@ namespace {
             || term_matches(name, "smart hdr", enable_fuzzy, provenance)
             || term_matches(name, "imagefusion", enable_fuzzy, provenance)
             || term_matches(name, "image fusion", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(
+                MetadataQueryMatchTerm::SourceProcessing);
+        }
+        if (term_matches(name, "creative style", enable_fuzzy, provenance)
+            || term_matches(name, "creativestyle", enable_fuzzy, provenance)
+            || term_matches(name, "picture style", enable_fuzzy, provenance)
+            || term_matches(name, "picturestyle", enable_fuzzy, provenance)
+            || term_matches(name, "film simulation", enable_fuzzy, provenance)
+            || term_matches(name, "filmsimulation", enable_fuzzy, provenance)
+            || term_matches(name, "dynamic range optimizer", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "dynamicrangeoptimizer", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "active dlighting", enable_fuzzy, provenance)
+            || term_matches(name, "activedlighting", enable_fuzzy, provenance)
+            || term_matches(name, "raw development", enable_fuzzy, provenance)
+            || term_matches(name, "rawdevelopment", enable_fuzzy, provenance)
+            || term_matches(name, "raw develop", enable_fuzzy, provenance)
+            || term_matches(name, "rawdevelop", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::SourceProcessing);
         }
