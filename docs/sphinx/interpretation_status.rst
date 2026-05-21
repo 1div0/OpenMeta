@@ -80,11 +80,14 @@ Coverage matrix
      - Full color-management policy remains host-owned; OpenMeta interprets
        profile metadata, not rendered color transforms.
    * - IPTC-IIM and portable XMP
-     - IPTC datasets and XMP properties decode into typed entries, and bounded
-       EXIF/IPTC-to-XMP projection exists for transfer/writeback.
-     - Medium-high, about 75-85%.
-     - Full MWG-style reconciliation of duplicated EXIF/XMP/IPTC concepts is
-       still bounded.
+     - IPTC datasets and XMP properties decode into typed entries, bounded
+       EXIF/IPTC-to-XMP projection exists for transfer/writeback, and common
+       descriptive EXIF/IPTC/XMP concepts such as title/headline,
+       description/caption, creator/author, and keywords/subject are queryable
+       with source-entry provenance.
+     - Medium-high, about 78-86%.
+     - Full MWG-style reconciliation of duplicated EXIF/XMP/IPTC concepts
+       remains bounded.
    * - Orientation
      - EXIF/TIFF orientation query, LibRaw flip mapping, and generic
        orientation helpers for index, rotation degrees, mirrored state,
@@ -166,8 +169,9 @@ Coverage matrix
        RAF raw crop/zoom rectangles, Canon/Nikon/Sony crop and border
        patterns, border margins, exposure/gain roles, selected
        vendor/MakerNote exposure-name aliases, per-family grouped vendor
-       records, expanded source color/style/lens/source-processing aliases,
-       source-processing buckets, optional RapidFuzz near-miss matching,
+       records, descriptive EXIF/IPTC/XMP concepts, expanded source
+       color/style/lens/source-processing aliases, source-processing buckets,
+       optional RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,
        color/profile, GPS, geometry, lens-correction, and RAW-processing with
@@ -177,7 +181,7 @@ Coverage matrix
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, rendered/compatible safety
        booleans, and tolerance-aware GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 78-84%.
+     - Medium-high, about 79-85%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification

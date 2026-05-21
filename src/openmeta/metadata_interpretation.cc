@@ -111,6 +111,7 @@ interpret_metadata(const MetaStore& store)
     append_kind_records(store, MetadataQueryKind::Color, &out);
     append_kind_records(store, MetadataQueryKind::LensCorrection, &out);
     append_kind_records(store, MetadataQueryKind::RawProcessing, &out);
+    append_kind_records(store, MetadataQueryKind::Descriptive, &out);
     return out;
 }
 

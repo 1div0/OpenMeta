@@ -24,6 +24,7 @@ enum class MetadataQueryKind : uint8_t {
     LensCorrection,
     Orientation,
     RawProcessing,
+    Descriptive,
 };
 
 enum class MetadataQuerySemanticKind : uint8_t {
@@ -46,6 +47,10 @@ enum class MetadataQuerySemanticKind : uint8_t {
     SensorGeometry,
     RawStorage,
     SourceProcessing,
+    Title,
+    Description,
+    Creator,
+    Keywords,
 };
 
 enum class MetadataQueryValueShape : uint8_t {
@@ -94,6 +99,10 @@ enum class MetadataQueryMatchTerm : uint32_t {
     Raw              = 1U << 25U,
     Storage          = 1U << 26U,
     SourceProcessing = 1U << 27U,
+    Title            = 1U << 28U,
+    Description      = 1U << 29U,
+    Creator          = 1U << 30U,
+    Keywords         = 1U << 31U,
 };
 
 struct MetadataQueryMatch final {
@@ -164,6 +173,9 @@ query_orientation_metadata(const MetaStore& store);
 
 MetadataQueryResult
 query_raw_processing_metadata(const MetaStore& store);
+
+MetadataQueryResult
+query_descriptive_metadata(const MetaStore& store);
 
 bool
 metadata_query_fuzzy_search_available() noexcept;

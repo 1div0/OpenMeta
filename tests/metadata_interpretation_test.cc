@@ -73,6 +73,20 @@ namespace {
         return id;
     }
 
+    static EntryId add_iptc_text(MetaStore* store, uint16_t record,
+                                 uint16_t dataset, std::string_view value)
+    {
+        if (!store) {
+            return kInvalidEntryId;
+        }
+        Entry entry;
+        entry.key        = make_iptc_dataset_key(record, dataset);
+        entry.value      = make_text(store->arena(), value, TextEncoding::Utf8);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
     static bool contains_entry(const std::vector<EntryId>& entries,
                                EntryId entry_id) noexcept
     {
@@ -125,9 +139,11 @@ namespace {
             = add_exif_u32_array(&store, "ifd0", 0xC621U,
                                  std::span<const uint32_t>(matrix.data(),
                                                            matrix.size()));
-        const EntryId raw    = add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
-        const EntryId source = add_exif_u32(&store, "mk_google_shotlogdata",
-                                            0x0001U, 7U);
+        const EntryId raw     = add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+        const EntryId source  = add_exif_u32(&store, "mk_google_shotlogdata",
+                                             0x0001U, 7U);
+        const EntryId caption = add_iptc_text(&store, 2U, 120U,
+                                              "Street after rain");
         store.finalize();
 
         const MetadataInterpretationResult result = interpret_metadata(store);
@@ -194,6 +210,13 @@ namespace {
         EXPECT_TRUE(contains_entry(source_processing->source_entries, source));
         ASSERT_TRUE(source_processing->has_values);
         EXPECT_DOUBLE_EQ(source_processing->values[0], 7.0);
+
+        const MetadataInterpretationRecord* description
+            = find_record(result, MetadataQuerySemanticKind::Description,
+                          MetadataQueryValueShape::Text);
+        ASSERT_NE(description, nullptr);
+        EXPECT_EQ(description->query_kind, MetadataQueryKind::Descriptive);
+        EXPECT_TRUE(contains_entry(description->source_entries, caption));
     }
 
     TEST(MetadataInterpretation, CanInterpretSingleQueryClass)

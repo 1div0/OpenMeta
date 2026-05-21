@@ -1867,7 +1867,11 @@ namespace {
         case MetadataQuerySemanticKind::CfaLayout:
         case MetadataQuerySemanticKind::SensorGeometry:
         case MetadataQuerySemanticKind::RawStorage:
-        case MetadataQuerySemanticKind::SourceProcessing: break;
+        case MetadataQuerySemanticKind::SourceProcessing:
+        case MetadataQuerySemanticKind::Title:
+        case MetadataQuerySemanticKind::Description:
+        case MetadataQuerySemanticKind::Creator:
+        case MetadataQuerySemanticKind::Keywords: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -1986,7 +1990,11 @@ namespace {
         case MetadataQuerySemanticKind::CfaLayout:
         case MetadataQuerySemanticKind::SensorGeometry:
         case MetadataQuerySemanticKind::RawStorage:
-        case MetadataQuerySemanticKind::SourceProcessing: break;
+        case MetadataQuerySemanticKind::SourceProcessing:
+        case MetadataQuerySemanticKind::Title:
+        case MetadataQuerySemanticKind::Description:
+        case MetadataQuerySemanticKind::Creator:
+        case MetadataQuerySemanticKind::Keywords: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -2029,7 +2037,11 @@ namespace {
         case MetadataQuerySemanticKind::ColorMatrix:
         case MetadataQuerySemanticKind::LensCorrection:
         case MetadataQuerySemanticKind::Orientation:
-        case MetadataQuerySemanticKind::ExposureGain: break;
+        case MetadataQuerySemanticKind::ExposureGain:
+        case MetadataQuerySemanticKind::Title:
+        case MetadataQuerySemanticKind::Description:
+        case MetadataQuerySemanticKind::Creator:
+        case MetadataQuerySemanticKind::Keywords: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -2255,7 +2267,11 @@ namespace {
         case MetadataQuerySemanticKind::Linearization:
         case MetadataQuerySemanticKind::CfaLayout:
         case MetadataQuerySemanticKind::RawStorage:
-        case MetadataQuerySemanticKind::SourceProcessing: break;
+        case MetadataQuerySemanticKind::SourceProcessing:
+        case MetadataQuerySemanticKind::Title:
+        case MetadataQuerySemanticKind::Description:
+        case MetadataQuerySemanticKind::Creator:
+        case MetadataQuerySemanticKind::Keywords: break;
         }
         return MetadataConceptRole::Primary;
     }

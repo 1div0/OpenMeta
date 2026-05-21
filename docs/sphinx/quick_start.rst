@@ -123,7 +123,10 @@ the metadata family and key:
 For semantic inspection UI, use ``openmeta/metadata_query.h``. It reports raw
 matches plus normalized candidates for areas such as crop/active-area,
 exposure/gain, white balance, color, lens correction, orientation, and
-RAW-processing metadata. These helpers use deterministic built-in name/tag
+RAW-processing metadata. ``query_descriptive_metadata(...)`` also exposes a
+bounded EXIF/IPTC/XMP reconciliation view for common descriptive fields:
+title/headline, description/caption, creator/author, and keywords/subject.
+These helpers use deterministic built-in name/tag
 matching by default. If OpenMeta is configured with
 ``-DOPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
 match near-miss property names such as misspelled crop/border/padding paths.

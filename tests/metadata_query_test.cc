@@ -94,6 +94,20 @@ namespace {
         return id;
     }
 
+    static EntryId add_iptc_text(MetaStore* store, uint16_t record,
+                                 uint16_t dataset, std::string_view value)
+    {
+        if (!store) {
+            return kInvalidEntryId;
+        }
+        Entry entry;
+        entry.key        = make_iptc_dataset_key(record, dataset);
+        entry.value      = make_text(store->arena(), value, TextEncoding::Utf8);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
     static const MetadataQueryCandidate*
     find_candidate(const MetadataQueryResult& result,
                    MetadataQuerySemanticKind semantic)
@@ -200,6 +214,69 @@ TEST(MetadataQuery, BuildsDngDefaultCropCandidate)
     EXPECT_DOUBLE_EQ(candidate->rect[3], 3000.0);
     EXPECT_TRUE(contains_entry(candidate->source_entries, origin_id));
     EXPECT_TRUE(contains_entry(candidate->source_entries, size_id));
+}
+
+TEST(MetadataQuery, ReconcilesDescriptiveExifIptcXmpEntries)
+{
+    MetaStore store;
+    const EntryId exif_title    = add_exif_text(&store, "ifd0", 0x9C9BU,
+                                                "Evening frame");
+    const EntryId iptc_caption  = add_iptc_text(&store, 2U, 120U,
+                                                "Street after rain");
+    const EntryId iptc_keywords = add_iptc_text(&store, 2U, 25U,
+                                                "night,street");
+    const EntryId xmp_creator   = add_xmp_text(&store,
+                                               "http://purl.org/dc/elements/1.1/",
+                                               "dc:creator", "Alice");
+    const EntryId xmp_contact_city
+        = add_xmp_text(&store, "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+                       "CreatorContactInfo/CiAdrCity", "Tokyo");
+    store.finalize();
+
+    const MetadataQueryResult result = query_descriptive_metadata(store);
+
+    EXPECT_EQ(result.kind, MetadataQueryKind::Descriptive);
+    EXPECT_STREQ(metadata_query_kind_name(MetadataQueryKind::Descriptive),
+                 "descriptive");
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::Description),
+                 "description");
+    const MetadataQueryMatch* title_match = find_match_for_entry(result,
+                                                                 exif_title);
+    ASSERT_NE(title_match, nullptr);
+    EXPECT_EQ(title_match->semantic, MetadataQuerySemanticKind::Title);
+    EXPECT_TRUE(title_match->exact_match);
+
+    const MetadataQueryMatch* caption_match
+        = find_match_for_entry(result, iptc_caption);
+    ASSERT_NE(caption_match, nullptr);
+    EXPECT_EQ(caption_match->semantic, MetadataQuerySemanticKind::Description);
+    EXPECT_EQ(caption_match->key_kind, MetaKeyKind::IptcDataset);
+
+    const MetadataQueryMatch* keyword_match
+        = find_match_for_entry(result, iptc_keywords);
+    ASSERT_NE(keyword_match, nullptr);
+    EXPECT_EQ(keyword_match->semantic, MetadataQuerySemanticKind::Keywords);
+
+    const MetadataQueryMatch* creator_match = find_match_for_entry(result,
+                                                                   xmp_creator);
+    ASSERT_NE(creator_match, nullptr);
+    EXPECT_EQ(creator_match->semantic, MetadataQuerySemanticKind::Creator);
+    EXPECT_EQ(creator_match->key_kind, MetaKeyKind::XmpProperty);
+
+    const MetadataQueryCandidate* creator_candidate
+        = find_candidate_for_entry(result, xmp_creator);
+    ASSERT_NE(creator_candidate, nullptr);
+    EXPECT_EQ(creator_candidate->semantic, MetadataQuerySemanticKind::Creator);
+    EXPECT_EQ(creator_candidate->normalized_shape,
+              MetadataQueryValueShape::Text);
+
+    EXPECT_EQ(find_match_for_entry(result, xmp_contact_city), nullptr);
+
+    const MetadataQueryResult dispatched
+        = query_metadata(store, MetadataQueryKind::Descriptive);
+    EXPECT_EQ(dispatched.kind, MetadataQueryKind::Descriptive);
+    EXPECT_EQ(dispatched.matches.size(), result.matches.size());
 }
 
 TEST(MetadataQuery, DoesNotPairDngCropAcrossIfds)

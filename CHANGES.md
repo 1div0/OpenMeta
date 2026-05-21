@@ -1,5 +1,17 @@
 # OpenMeta Changes
 
+## 0.4.21 - 2026-05-21
+
+Changes compared with `0.4.20`.
+
+### Added
+
+- Added `query_descriptive_metadata(...)` for bounded descriptive
+  EXIF/IPTC/XMP reconciliation across title/headline,
+  description/caption, creator/author, and keywords/subject metadata.
+- Structured interpretation now includes descriptive query records, preserving
+  source entry provenance for UI and host reconciliation workflows.
+
 ## 0.4.20 - 2026-05-21
 
 Changes compared with `0.4.19`.

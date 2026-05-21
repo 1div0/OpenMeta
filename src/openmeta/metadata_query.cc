@@ -26,7 +26,10 @@ namespace {
     static constexpr uint16_t kDngDefaultCropSizeTag          = 0xC620U;
     static constexpr uint16_t kDngActiveAreaTag               = 0xC68DU;
     static constexpr uint16_t kDngMaskedAreasTag              = 0xC68EU;
+    static constexpr uint16_t kExifDocumentNameTag            = 0x010DU;
+    static constexpr uint16_t kExifImageDescriptionTag        = 0x010EU;
     static constexpr uint16_t kExifOrientationTag             = 0x0112U;
+    static constexpr uint16_t kExifArtistTag                  = 0x013BU;
     static constexpr uint16_t kExifThumbnailOrientationTag    = 0x5029U;
     static constexpr uint16_t kExifExposureTimeTag            = 0x829AU;
     static constexpr uint16_t kExifFNumberTag                 = 0x829DU;
@@ -44,6 +47,10 @@ namespace {
     static constexpr uint16_t kExifCfaRepeatPatternDimTag     = 0x828DU;
     static constexpr uint16_t kExifCfaPatternTag              = 0x828EU;
     static constexpr uint16_t kExifCfaPattern2Tag             = 0xA302U;
+    static constexpr uint16_t kExifXpTitleTag                 = 0x9C9BU;
+    static constexpr uint16_t kExifXpCommentTag               = 0x9C9CU;
+    static constexpr uint16_t kExifXpAuthorTag                = 0x9C9DU;
+    static constexpr uint16_t kExifXpKeywordsTag              = 0x9C9EU;
     static constexpr uint16_t kDngCfaPlaneColorTag            = 0xC616U;
     static constexpr uint16_t kDngCfaLayoutTag                = 0xC617U;
     static constexpr uint16_t kDngLinearizationTableTag       = 0xC618U;
@@ -231,6 +238,20 @@ namespace {
         }
         for (size_t i = 0U; i < prefix.size(); ++i) {
             if (ascii_lower(text[i]) != ascii_lower(prefix[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool equals_ascii_case_insensitive(std::string_view a,
+                                              std::string_view b) noexcept
+    {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (size_t i = 0U; i < a.size(); ++i) {
+            if (ascii_lower(a[i]) != ascii_lower(b[i])) {
                 return false;
             }
         }
@@ -1109,6 +1130,123 @@ namespace {
         return 0U;
     }
 
+    static uint32_t
+    descriptive_match_terms(std::string_view name, bool enable_fuzzy,
+                            MatchProvenanceState* provenance) noexcept
+    {
+        uint32_t terms = 0U;
+        if (term_matches(name, "title", enable_fuzzy, provenance)
+            || term_matches(name, "objectname", enable_fuzzy, provenance)
+            || term_matches(name, "object name", enable_fuzzy, provenance)
+            || term_matches(name, "headline", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Title);
+        }
+        if (term_matches(name, "description", enable_fuzzy, provenance)
+            || term_matches(name, "caption", enable_fuzzy, provenance)
+            || term_matches(name, "abstract", enable_fuzzy, provenance)
+            || term_matches(name, "comment", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Description);
+        }
+        if (term_matches(name, "creator", enable_fuzzy, provenance)
+            || term_matches(name, "author", enable_fuzzy, provenance)
+            || term_matches(name, "byline", enable_fuzzy, provenance)
+            || term_matches(name, "by-line", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Creator);
+        }
+        if (term_matches(name, "keyword", enable_fuzzy, provenance)
+            || term_matches(name, "keywords", enable_fuzzy, provenance)
+            || term_matches(name, "subject", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Keywords);
+        }
+        return terms;
+    }
+
+    static const char* iptc_descriptive_dataset_name(uint16_t record,
+                                                     uint16_t dataset) noexcept
+    {
+        if (record != 2U) {
+            return "";
+        }
+        switch (dataset) {
+        case 5U: return "ObjectName";
+        case 25U: return "Keywords";
+        case 80U: return "By-line";
+        case 105U: return "Headline";
+        case 120U: return "Caption-Abstract";
+        default: break;
+        }
+        return "";
+    }
+
+    static uint32_t exact_iptc_terms_for_kind(uint16_t record, uint16_t dataset,
+                                              MetadataQueryKind kind) noexcept
+    {
+        if (kind != MetadataQueryKind::Descriptive || record != 2U) {
+            return 0U;
+        }
+        switch (dataset) {
+        case 5U:
+        case 105U: return static_cast<uint32_t>(MetadataQueryMatchTerm::Title);
+        case 25U:
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Keywords);
+        case 80U: return static_cast<uint32_t>(MetadataQueryMatchTerm::Creator);
+        case 120U:
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Description);
+        default: break;
+        }
+        return 0U;
+    }
+
+    static std::string_view xmp_leaf_property(std::string_view path) noexcept
+    {
+        size_t start = 0U;
+        for (size_t i = 0U; i < path.size(); ++i) {
+            if (path[i] == '/' || path[i] == ':') {
+                start = i + 1U;
+            }
+        }
+        size_t end = path.size();
+        for (size_t i = start; i < path.size(); ++i) {
+            if (path[i] == '[') {
+                end = i;
+                break;
+            }
+        }
+        return path.substr(start, end - start);
+    }
+
+    static uint32_t
+    xmp_descriptive_terms(std::string_view path,
+                          MatchProvenanceState* provenance) noexcept
+    {
+        const std::string_view leaf = xmp_leaf_property(path);
+        if (equals_ascii_case_insensitive(leaf, "title")
+            || equals_ascii_case_insensitive(leaf, "headline")
+            || equals_ascii_case_insensitive(leaf, "objectname")) {
+            note_exact_match(provenance);
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Title);
+        }
+        if (equals_ascii_case_insensitive(leaf, "description")
+            || equals_ascii_case_insensitive(leaf, "caption")
+            || equals_ascii_case_insensitive(leaf, "abstract")) {
+            note_exact_match(provenance);
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Description);
+        }
+        if (equals_ascii_case_insensitive(leaf, "creator")
+            || equals_ascii_case_insensitive(leaf, "author")
+            || equals_ascii_case_insensitive(leaf, "byline")) {
+            note_exact_match(provenance);
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Creator);
+        }
+        if (equals_ascii_case_insensitive(leaf, "subject")
+            || equals_ascii_case_insensitive(leaf, "keyword")
+            || equals_ascii_case_insensitive(leaf, "keywords")) {
+            note_exact_match(provenance);
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Keywords);
+        }
+        return 0U;
+    }
+
     static uint32_t exact_exif_terms_for_kind(uint16_t tag,
                                               MetadataQueryKind kind) noexcept
     {
@@ -1257,6 +1395,23 @@ namespace {
             default: break;
             }
             return 0U;
+        case MetadataQueryKind::Descriptive:
+            switch (tag) {
+            case kExifDocumentNameTag:
+            case kExifXpTitleTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Title);
+            case kExifImageDescriptionTag:
+            case kExifXpCommentTag:
+                return static_cast<uint32_t>(
+                    MetadataQueryMatchTerm::Description);
+            case kExifArtistTag:
+            case kExifXpAuthorTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Creator);
+            case kExifXpKeywordsTag:
+                return static_cast<uint32_t>(MetadataQueryMatchTerm::Keywords);
+            default: break;
+            }
+            return 0U;
         }
         return 0U;
     }
@@ -1326,6 +1481,7 @@ namespace {
                     MetadataQueryMatchTerm::SourceProcessing);
             }
             break;
+        case MetadataQueryKind::Descriptive: break;
         }
         return terms;
     }
@@ -1351,6 +1507,8 @@ namespace {
         case MetadataQueryKind::RawProcessing:
             return raw_processing_match_terms(name, group, enable_fuzzy,
                                               provenance);
+        case MetadataQueryKind::Descriptive:
+            return descriptive_match_terms(name, enable_fuzzy, provenance);
         }
         return 0U;
     }
@@ -1468,6 +1626,25 @@ namespace {
             if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor))
                 != 0U) {
                 return MetadataQuerySemanticKind::SensorGeometry;
+            }
+            break;
+        case MetadataQueryKind::Descriptive:
+            if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Title))
+                != 0U) {
+                return MetadataQuerySemanticKind::Title;
+            }
+            if ((terms
+                 & static_cast<uint32_t>(MetadataQueryMatchTerm::Description))
+                != 0U) {
+                return MetadataQuerySemanticKind::Description;
+            }
+            if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Creator))
+                != 0U) {
+                return MetadataQuerySemanticKind::Creator;
+            }
+            if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Keywords))
+                != 0U) {
+                return MetadataQuerySemanticKind::Keywords;
             }
             break;
         }
@@ -1589,6 +1766,16 @@ namespace {
                 return 78U;
             }
             break;
+        case MetadataQueryKind::Descriptive:
+            if ((terms
+                 & (static_cast<uint32_t>(MetadataQueryMatchTerm::Title)
+                    | static_cast<uint32_t>(MetadataQueryMatchTerm::Description)
+                    | static_cast<uint32_t>(MetadataQueryMatchTerm::Creator)
+                    | static_cast<uint32_t>(MetadataQueryMatchTerm::Keywords)))
+                != 0U) {
+                return 90U;
+            }
+            break;
         }
         return 0U;
     }
@@ -1664,10 +1851,32 @@ namespace {
             = arena_string(store.arena(),
                            entry.key.data.xmp_property.property_path);
         MatchProvenanceState provenance;
-        const uint32_t terms = match_terms_for_kind(path, ns, kind, true,
-                                                    &provenance);
+        uint32_t terms = 0U;
+        if (kind == MetadataQueryKind::Descriptive) {
+            terms = xmp_descriptive_terms(path, &provenance);
+        } else {
+            terms = match_terms_for_kind(path, ns, kind, true, &provenance);
+        }
         append_match(result, entry_id, entry, ns, path, kind, terms,
                      provenance);
+    }
+
+    static void append_iptc_match_if_relevant(MetadataQueryResult* result,
+                                              EntryId entry_id,
+                                              const Entry& entry,
+                                              MetadataQueryKind kind)
+    {
+        const uint16_t record  = entry.key.data.iptc_dataset.record;
+        const uint16_t dataset = entry.key.data.iptc_dataset.dataset;
+        const uint32_t terms = exact_iptc_terms_for_kind(record, dataset, kind);
+        if (terms == 0U) {
+            return;
+        }
+        MatchProvenanceState provenance;
+        note_exact_match(&provenance);
+        append_match(result, entry_id, entry, "iptc",
+                     iptc_descriptive_dataset_name(record, dataset), kind,
+                     terms, provenance);
     }
 
     static bool exif_entry_is(const MetaStore& store, const Entry& entry,
@@ -2037,7 +2246,8 @@ namespace {
         case MetadataQueryKind::Crop:
         case MetadataQueryKind::ExposureGain:
         case MetadataQueryKind::LensCorrection:
-        case MetadataQueryKind::Orientation: break;
+        case MetadataQueryKind::Orientation:
+        case MetadataQueryKind::Descriptive: break;
         }
         return false;
     }
@@ -2059,7 +2269,8 @@ namespace {
         case MetadataQueryKind::Crop:
         case MetadataQueryKind::ExposureGain:
         case MetadataQueryKind::LensCorrection:
-        case MetadataQueryKind::Orientation: break;
+        case MetadataQueryKind::Orientation:
+        case MetadataQueryKind::Descriptive: break;
         }
         return MetadataQueryValueShape::Table;
     }
@@ -2955,7 +3166,8 @@ namespace {
             append_vendor_grouped_query_candidates(store, result, kind);
             break;
         case MetadataQueryKind::Crop:
-        case MetadataQueryKind::Orientation: break;
+        case MetadataQueryKind::Orientation:
+        case MetadataQueryKind::Descriptive: break;
         }
     }
 
@@ -2980,6 +3192,9 @@ namespace {
                 append_xmp_match_if_relevant(store, &result,
                                              static_cast<EntryId>(i), entry,
                                              kind);
+            } else if (entry.key.kind == MetaKeyKind::IptcDataset) {
+                append_iptc_match_if_relevant(&result, static_cast<EntryId>(i),
+                                              entry, kind);
             }
         }
         append_query_value_candidates(store, &result);
@@ -3005,6 +3220,8 @@ query_metadata(const MetaStore& store, MetadataQueryKind kind)
         return query_orientation_metadata(store);
     case MetadataQueryKind::RawProcessing:
         return query_raw_processing_metadata(store);
+    case MetadataQueryKind::Descriptive:
+        return query_descriptive_metadata(store);
     }
     MetadataQueryResult result;
     result.kind = kind;
@@ -3084,6 +3301,12 @@ query_raw_processing_metadata(const MetaStore& store)
     return query_semantic_metadata(store, MetadataQueryKind::RawProcessing);
 }
 
+MetadataQueryResult
+query_descriptive_metadata(const MetaStore& store)
+{
+    return query_semantic_metadata(store, MetadataQueryKind::Descriptive);
+}
+
 bool
 metadata_query_fuzzy_search_available() noexcept
 {
@@ -3105,6 +3328,7 @@ metadata_query_kind_name(MetadataQueryKind kind) noexcept
     case MetadataQueryKind::LensCorrection: return "lens_correction";
     case MetadataQueryKind::Orientation: return "orientation";
     case MetadataQueryKind::RawProcessing: return "raw_processing";
+    case MetadataQueryKind::Descriptive: return "descriptive";
     }
     return "unknown";
 }
@@ -3133,6 +3357,10 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
     case MetadataQuerySemanticKind::RawStorage: return "raw_storage";
     case MetadataQuerySemanticKind::SourceProcessing:
         return "source_processing";
+    case MetadataQuerySemanticKind::Title: return "title";
+    case MetadataQuerySemanticKind::Description: return "description";
+    case MetadataQuerySemanticKind::Creator: return "creator";
+    case MetadataQuerySemanticKind::Keywords: return "keywords";
     }
     return "unknown";
 }
