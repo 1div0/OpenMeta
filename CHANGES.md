@@ -1,5 +1,22 @@
 # OpenMeta Changes
 
+## 0.4.20 - 2026-05-21
+
+Changes compared with `0.4.19`.
+
+### Added
+
+- Promoted selected decoded vendor/MakerNote exposure names such as
+  exposure time, aperture/f-number, ISO, exposure compensation, and exposure
+  program into the same cross-family exposure concept roles used by standard
+  EXIF fields.
+
+### Changed
+
+- Exposure/gain query matching now treats public `FNumber` names as aperture
+  evidence, so decoded vendor records can be found without depending on the
+  standard EXIF tag id.
+
 ## 0.4.19 - 2026-05-21
 
 Changes compared with `0.4.18`.

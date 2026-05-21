@@ -1058,6 +1058,63 @@ namespace {
         EXPECT_EQ(gain_value->value_key, "lowgainup");
     }
 
+    TEST(MetadataConcepts, ResolvesVendorExposureNamesIntoRoles)
+    {
+        MetaStore store;
+        const EntryId exposure_time = add_exif_urational(&store,
+                                                         "mk_canon_shotinfo_0",
+                                                         0x0005U, 1U, 125U);
+        const EntryId aperture      = add_exif_urational(&store,
+                                                         "mk_canon_shotinfo_0",
+                                                         0x0004U, 56U, 10U);
+        const EntryId bias = add_exif_srational(&store, "mk_canon_shotinfo_0",
+                                                0x0006U, -2, 3);
+        const EntryId iso  = add_exif_u16(&store, "mk_ricoh_imageinfo_0",
+                                          0x0027U, 400U);
+        const EntryId program = add_exif_u16(&store, "mk_ricoh0", 0x1001U, 3U);
+        store.finalize();
+
+        const MetadataConceptResolution exposure
+            = resolve_metadata_concept(store, MetadataConceptKind::Exposure);
+
+        EXPECT_TRUE(exposure.found);
+
+        const MetadataConceptCandidate* time
+            = find_role(exposure, MetadataConceptRole::ExposureTime);
+        ASSERT_NE(time, nullptr);
+        EXPECT_TRUE(contains_entry(time->source_entries, exposure_time));
+        ASSERT_TRUE(time->has_values);
+        EXPECT_NEAR(time->values[0], 0.008, 0.0000001);
+
+        const MetadataConceptCandidate* f_number
+            = find_role(exposure, MetadataConceptRole::Aperture);
+        ASSERT_NE(f_number, nullptr);
+        EXPECT_TRUE(contains_entry(f_number->source_entries, aperture));
+        ASSERT_TRUE(f_number->has_values);
+        EXPECT_NEAR(f_number->values[0], 5.6, 0.0000001);
+
+        const MetadataConceptCandidate* exposure_bias
+            = find_role(exposure, MetadataConceptRole::ExposureBias);
+        ASSERT_NE(exposure_bias, nullptr);
+        EXPECT_TRUE(contains_entry(exposure_bias->source_entries, bias));
+        ASSERT_TRUE(exposure_bias->has_values);
+        EXPECT_NEAR(exposure_bias->values[0], -0.666666666666, 0.0000001);
+
+        const MetadataConceptCandidate* sensitivity
+            = find_role(exposure, MetadataConceptRole::IsoSensitivity);
+        ASSERT_NE(sensitivity, nullptr);
+        EXPECT_TRUE(contains_entry(sensitivity->source_entries, iso));
+        ASSERT_TRUE(sensitivity->has_values);
+        EXPECT_DOUBLE_EQ(sensitivity->values[0], 400.0);
+
+        const MetadataConceptCandidate* exposure_program
+            = find_role(exposure, MetadataConceptRole::ExposureProgram);
+        ASSERT_NE(exposure_program, nullptr);
+        EXPECT_TRUE(contains_entry(exposure_program->source_entries, program));
+        ASSERT_TRUE(exposure_program->has_values);
+        EXPECT_DOUBLE_EQ(exposure_program->values[0], 3.0);
+    }
+
     TEST(MetadataConcepts, MarksDngExposureAdjustmentsRenderedUnsafe)
     {
         MetaStore store;

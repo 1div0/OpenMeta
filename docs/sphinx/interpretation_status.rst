@@ -105,12 +105,13 @@ Coverage matrix
    * - Exposure and gain
      - Standard EXIF exposure time, f-number, exposure program, photographic
        sensitivity, exposure bias, exposure index, gain control, selected DNG
-       baseline/raw-preview gain fields, and matching XMP paths are queryable
-       and promoted into cross-family exposure roles. Standard EXIF exposure
-       program and gain-control values carry human-readable labels in concept
-       candidates. Capture exposure facts are marked safe, while raw/DNG
-       exposure adjustments are marked unsafe for rendered-image transfer.
-     - Medium-high, about 85-90%.
+       baseline/raw-preview gain fields, matching XMP paths, and selected
+       decoded vendor/MakerNote exposure names are queryable and promoted into
+       cross-family exposure roles. Standard EXIF exposure program and
+       gain-control values carry human-readable labels in concept candidates.
+       Capture exposure facts are marked safe, while raw/DNG exposure
+       adjustments are marked unsafe for rendered-image transfer.
+     - Medium-high, about 87-91%.
      - More vendor MakerNote exposure print conversions and richer per-vendor
        exposure/gain labels.
    * - Color, white balance, and matrices
@@ -163,11 +164,12 @@ Coverage matrix
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm
        RAF raw crop/zoom rectangles, Canon/Nikon/Sony crop and border
-       patterns, border margins, exposure/gain roles, per-family grouped
-       vendor records, expanded source color/style/lens/source-processing
-       aliases, source-processing buckets, optional RapidFuzz near-miss
-       matching, structured interpretation records, and bounded cross-family
-       concept resolution for orientation, date/time, exposure/gain,
+       patterns, border margins, exposure/gain roles, selected
+       vendor/MakerNote exposure-name aliases, per-family grouped vendor
+       records, expanded source color/style/lens/source-processing aliases,
+       source-processing buckets, optional RapidFuzz near-miss matching,
+       structured interpretation records, and bounded cross-family concept
+       resolution for orientation, date/time, exposure/gain,
        color/profile, GPS, geometry, lens-correction, and RAW-processing with
        parsed date/time fields,
        timezone/precision classification, combined GPS timestamps, GPS
@@ -175,7 +177,7 @@ Coverage matrix
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, rendered/compatible safety
        booleans, and tolerance-aware GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 77-83%.
+     - Medium-high, about 78-84%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification

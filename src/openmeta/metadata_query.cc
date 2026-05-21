@@ -844,6 +844,9 @@ namespace {
         if (term_matches(name, "exposure", enable_fuzzy, provenance)
             || term_matches(name, "shutter", enable_fuzzy, provenance)
             || term_matches(name, "aperture", enable_fuzzy, provenance)
+            || term_matches(name, "fnumber", enable_fuzzy, provenance)
+            || term_matches(name, "f-number", enable_fuzzy, provenance)
+            || term_matches(name, "f number", enable_fuzzy, provenance)
             || term_matches(name, "brightness", enable_fuzzy, provenance)
             || contains_ascii_case_insensitive(name, "iso")) {
             if (contains_ascii_case_insensitive(name, "iso")) {

@@ -99,8 +99,9 @@ Host-facing API map
        exposure/gain, white balance, color, lens correction, orientation, and
        RAW/source-processing metadata across standard tags, selected DNG tags,
        Fujifilm RAF raw crop/zoom rectangles, Canon aspect/crop metadata,
-       Nikon Capture crop bounds, Sony panorama crop margins, fuzzy XMP paths,
-       and vendor RAW-processing classification. Matches report ``exact_match``,
+       Nikon Capture crop bounds, Sony panorama crop margins, selected decoded
+       vendor/MakerNote exposure names, fuzzy XMP paths, and vendor
+       RAW-processing classification. Matches report ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
        ``OPENMETA_ENABLE_RAPIDFUZZ=ON`` adds optional near-miss
@@ -149,10 +150,11 @@ Host-facing API map
        RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
        query-backed interpretation records where applicable. Exposure
        candidates cover exposure time, aperture, ISO sensitivity, exposure
-       bias, exposure program, gain, and raw exposure-adjustment roles.
-       Standard EXIF exposure program and gain-control values include
-       human-readable labels. Capture exposure facts are safe, while raw/DNG
-       exposure adjustments stay rendered-unsafe. Geometry
+       bias, exposure program, gain, and raw exposure-adjustment roles across
+       standard EXIF/DNG/XMP evidence and selected decoded vendor/MakerNote
+       exposure names. Standard EXIF exposure program and gain-control values
+       include human-readable labels. Capture exposure facts are safe, while
+       raw/DNG exposure adjustments stay rendered-unsafe. Geometry
        candidates cover crop, active area, border, and sensor geometry with
        canonical origin, size, rect, and margin fields when available,
        including normalized DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon

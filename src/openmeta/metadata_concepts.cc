@@ -3,6 +3,7 @@
 #include "openmeta/metadata_concepts.h"
 
 #include "openmeta/byte_arena.h"
+#include "openmeta/exif_tag_names.h"
 #include "openmeta/exif_value_names.h"
 #include "openmeta/meta_flags.h"
 #include "openmeta/metadata_interpretation.h"
@@ -1701,6 +1702,76 @@ namespace {
         return MetadataConceptRole::Primary;
     }
 
+    static bool name_in_list_ci(std::string_view name,
+                                const std::string_view* names,
+                                size_t count) noexcept
+    {
+        for (size_t i = 0U; i < count; ++i) {
+            if (ascii_equal_ci(name, names[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static MetadataConceptRole
+    exposure_role_from_exif_name(std::string_view name) noexcept
+    {
+        static constexpr std::string_view kExposureTimeNames[] = {
+            "ExposureTime",        "TargetExposureTime", "ShutterSpeed",
+            "ShutterSpeedSetting", "ShutterSpeedValue",
+        };
+        static constexpr std::string_view kApertureNames[] = {
+            "Aperture",        "ApertureSetting",      "ApertureValue",
+            "DisplayAperture", "EffectiveMaxAperture", "FNumber",
+            "MaxAperture",     "MaxApertureValue",     "MinAperture",
+            "TargetAperture",
+        };
+        static constexpr std::string_view kIsoNames[] = {
+            "BaseISO",  "ISO",      "ISOSetting",
+            "ISOSpeed", "ISOValue", "PhotographicSensitivity",
+        };
+        static constexpr std::string_view kExposureBiasNames[] = {
+            "BaseExposureCompensation",    "CMExposureCompensation",
+            "EasyExposureCompensation",    "ExposureBias",
+            "ExposureBiasValue",           "ExposureCompensation",
+            "ExposureCompensation2",       "ExposureCompensationSet",
+            "ExposureCompensationSetting", "NetExposureCompensation",
+            "RawDevExposureBiasValue",
+        };
+        static constexpr std::string_view kExposureProgramNames[] = {
+            "CanonExposureMode",
+            "ExposureMode",
+            "ExposureProgram",
+        };
+        static constexpr std::string_view kGainNames[] = {
+            "GainControl",
+        };
+
+        if (name_in_list_ci(name, kExposureTimeNames,
+                            std::size(kExposureTimeNames))) {
+            return MetadataConceptRole::ExposureTime;
+        }
+        if (name_in_list_ci(name, kApertureNames, std::size(kApertureNames))) {
+            return MetadataConceptRole::Aperture;
+        }
+        if (name_in_list_ci(name, kIsoNames, std::size(kIsoNames))) {
+            return MetadataConceptRole::IsoSensitivity;
+        }
+        if (name_in_list_ci(name, kExposureBiasNames,
+                            std::size(kExposureBiasNames))) {
+            return MetadataConceptRole::ExposureBias;
+        }
+        if (name_in_list_ci(name, kExposureProgramNames,
+                            std::size(kExposureProgramNames))) {
+            return MetadataConceptRole::ExposureProgram;
+        }
+        if (name_in_list_ci(name, kGainNames, std::size(kGainNames))) {
+            return MetadataConceptRole::Gain;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
     static bool is_raw_xmp_namespace(std::string_view ns) noexcept
     {
         return ascii_contains_ci(ns, "camera-raw-settings")
@@ -1753,8 +1824,15 @@ namespace {
             if (entry_id != kInvalidEntryId) {
                 const Entry& entry = store.entry(entry_id);
                 if (entry.key.kind == MetaKeyKind::ExifTag) {
-                    return exposure_role_from_exif_tag(
-                        entry.key.data.exif_tag.tag);
+                    const MetadataConceptRole tag_role
+                        = exposure_role_from_exif_tag(
+                            entry.key.data.exif_tag.tag);
+                    if (tag_role != MetadataConceptRole::Primary) {
+                        return tag_role;
+                    }
+                    return exposure_role_from_exif_name(
+                        exif_entry_name(store, entry,
+                                        ExifTagNamePolicy::ExifToolCompat));
                 }
                 if (entry.key.kind == MetaKeyKind::XmpProperty) {
                     const std::string_view ns
