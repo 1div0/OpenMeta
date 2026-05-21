@@ -848,18 +848,20 @@ Internal helper conventions (used by vendor decoders):
   Add interpreted IRB fields only for fixed-layout resources and emit them as
   separate `PhotoshopIrbField` entries instead of weakening the raw payload
   surface. The current bounded interpreted subset includes `ResolutionInfo`,
-  `VersionInfo`, `PrintFlags`, `EffectiveBW`, `TargetLayerID`,
-  `LayersGroupInfo`, `JPEG_Quality`, `CopyrightFlag`, `URL`,
-  `GlobalAngle`, `Watermark`, `ICC_Untagged`, `EffectsVisible`,
-  `IDsBaseValue`,
+  `AlphaChannelsNames`, `PStringCaption`, `VersionInfo`, `PrintFlags`,
+  `EffectiveBW`, `QuickMaskInfo`, `TargetLayerID`, `LayersGroupInfo`,
+  `JPEG_Quality`, `CopyrightFlag`, `URL`, `GlobalAngle`, `Watermark`,
+  `ICC_Untagged`, `EffectsVisible`, `IDsBaseValue`, `UnicodeAlphaNames`,
   `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
-  `SliceInfo`, `WorkflowURL`, `URL_List`, `IPTCDigest`, `PrintScaleInfo`,
-  `PixelInfo`, `LayerSelectionIDs`, `LayerGroupsEnabledID`,
-  `ChannelOptions`, `PrintFlagsInfo`, and `ClippingPathName`.
+  `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`, `IPTCDigest`,
+  `PrintScaleInfo`, `PixelInfo`, `LayerSelectionIDs`,
+  `LayerGroupsEnabledID`, `ChannelOptions`, `PrintFlagsInfo`, and
+  `ClippingPathName`.
 - Legacy 8-bit Photoshop text stays opt-in and explicit. The IRB decoder
   exposes a bounded `PhotoshopIrbStringCharset` policy and currently uses it
-  only for `ClippingPathName`, defaulting to Latin for ExifTool-compatible
-  behavior instead of guessing from bytes.
+  only for `AlphaChannelsNames`, `PStringCaption`, and `ClippingPathName`,
+  defaulting to Latin for ExifTool-compatible behavior instead of guessing
+  from bytes.
 - `ChannelOptions` stays bounded and explicit: emit one count row, then one
   `ChannelIndex` row plus the channel fields in stable order for each 13-byte
   record instead of inventing dynamic field names.

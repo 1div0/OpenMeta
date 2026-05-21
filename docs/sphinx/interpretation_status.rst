@@ -160,8 +160,10 @@ Coverage matrix
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
-       for fixed-layout resources.
-     - Medium, about 60-70%.
+       for fixed-layout resources, including resolution/version/print data,
+       alpha names/identifiers, captions, QuickMask info, URL/list data,
+       channel options, and clipping-path names.
+     - Medium, about 62-72%.
      - Broader resource-specific interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,

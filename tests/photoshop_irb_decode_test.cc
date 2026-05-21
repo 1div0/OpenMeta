@@ -344,6 +344,39 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     append_u16be(1U, &resolution);           // height unit (unused here)
     append_irb_resource(0x03EDU, resolution, &irb);
 
+    std::vector<std::byte> alpha_names;
+    const std::array<std::byte, 4> alpha_name_a = {
+        std::byte { 'M' },
+        std::byte { 'a' },
+        std::byte { 's' },
+        std::byte { 'k' },
+    };
+    const std::array<std::byte, 4> alpha_name_b = {
+        std::byte { 'S' },
+        std::byte { 'o' },
+        std::byte { 'f' },
+        std::byte { 't' },
+    };
+    append_pascal_string(alpha_name_a, &alpha_names);
+    alpha_names.push_back(std::byte { 0x00 });
+    append_pascal_string(alpha_name_b, &alpha_names);
+    alpha_names.push_back(std::byte { 0x00 });
+    append_irb_resource(0x03EEU, alpha_names, &irb);
+
+    std::vector<std::byte> caption;
+    const std::array<std::byte, 7> caption_text = {
+        std::byte { 'C' }, std::byte { 'a' }, std::byte { 'p' },
+        std::byte { 't' }, std::byte { 'i' }, std::byte { 'o' },
+        std::byte { 'n' },
+    };
+    append_pascal_string(caption_text, &caption);
+    append_irb_resource(0x03F0U, caption, &irb);
+
+    std::vector<std::byte> quick_mask;
+    append_u16be(5U, &quick_mask);
+    quick_mask.push_back(std::byte { 0x01 });
+    append_irb_resource(0x03FEU, quick_mask, &irb);
+
     const std::array<std::byte, 16> digest = {
         std::byte { 0x00 }, std::byte { 0x01 }, std::byte { 0x02 },
         std::byte { 0x03 }, std::byte { 0x04 }, std::byte { 0x05 },
@@ -434,6 +467,11 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     append_u32be(1234U, &ids_base_value);
     append_irb_resource(0x0414U, ids_base_value, &irb);
 
+    std::vector<std::byte> unicode_alpha_names;
+    append_utf16be_string32("Matte", &unicode_alpha_names);
+    append_utf16be_string32("Depth", &unicode_alpha_names);
+    append_irb_resource(0x0415U, unicode_alpha_names, &irb);
+
     std::vector<std::byte> print_scale_info;
     append_u16be(2U, &print_scale_info);
     append_u32be(f32_bits(10.0f), &print_scale_info);
@@ -479,6 +517,11 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     append_u32be(99U, &global_altitude);
     append_irb_resource(0x0419U, global_altitude, &irb);
 
+    std::vector<std::byte> alpha_identifiers;
+    append_u32be(101U, &alpha_identifiers);
+    append_u32be(202U, &alpha_identifiers);
+    append_irb_resource(0x041DU, alpha_identifiers, &irb);
+
     const std::array<std::byte, 1> layer_groups_enabled_id = {
         std::byte { 0x01 },
     };
@@ -487,8 +530,8 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 25U);
-    EXPECT_EQ(r.entries_decoded, 69U);
+    EXPECT_EQ(r.resources_decoded, 30U);
+    EXPECT_EQ(r.entries_decoded, 86U);
 
     const Entry* x_resolution = find_photoshop_irb_field(store, 0x03EDU,
                                                          "XResolution");
@@ -498,6 +541,40 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_DOUBLE_EQ(std::bit_cast<double>(x_resolution->value.data.f64_bits),
                      72.5);
     EXPECT_TRUE(any(x_resolution->flags, EntryFlags::Derived));
+
+    const Entry* alpha_name_count
+        = find_photoshop_irb_field(store, 0x03EEU, "AlphaChannelNameCount");
+    ASSERT_NE(alpha_name_count, nullptr);
+    EXPECT_EQ(alpha_name_count->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(alpha_name_count->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(alpha_name_count->value.data.u64, 2U);
+
+    const std::vector<std::string_view> alpha_name_values
+        = collect_photoshop_irb_text_fields(store, 0x03EEU, "AlphaChannelName");
+    ASSERT_EQ(alpha_name_values.size(), 2U);
+    EXPECT_EQ(alpha_name_values[0], "Mask");
+    EXPECT_EQ(alpha_name_values[1], "Soft");
+
+    const Entry* caption_field = find_photoshop_irb_field(store, 0x03F0U,
+                                                          "Caption");
+    ASSERT_NE(caption_field, nullptr);
+    EXPECT_EQ(caption_field->value.kind, MetaValueKind::Text);
+    EXPECT_EQ(caption_field->value.text_encoding, TextEncoding::Utf8);
+    EXPECT_EQ(arena_string(store, caption_field->value.data.span), "Caption");
+
+    const Entry* quick_mask_channel_id
+        = find_photoshop_irb_field(store, 0x03FEU, "QuickMaskChannelID");
+    ASSERT_NE(quick_mask_channel_id, nullptr);
+    EXPECT_EQ(quick_mask_channel_id->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(quick_mask_channel_id->value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(quick_mask_channel_id->value.data.u64, 5U);
+
+    const Entry* quick_mask_was_empty
+        = find_photoshop_irb_field(store, 0x03FEU, "QuickMaskWasEmpty");
+    ASSERT_NE(quick_mask_was_empty, nullptr);
+    EXPECT_EQ(quick_mask_was_empty->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(quick_mask_was_empty->value.elem_type, MetaElementType::U8);
+    EXPECT_EQ(quick_mask_was_empty->value.data.u64, 1U);
 
     const Entry* units_x = find_photoshop_irb_field(store, 0x03EDU,
                                                     "DisplayedUnitsX");
@@ -659,6 +736,19 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_EQ(ids_base_value_field->value.elem_type, MetaElementType::U32);
     EXPECT_EQ(ids_base_value_field->value.data.u64, 1234U);
 
+    const Entry* unicode_alpha_name_count
+        = find_photoshop_irb_field(store, 0x0415U, "UnicodeAlphaNameCount");
+    ASSERT_NE(unicode_alpha_name_count, nullptr);
+    EXPECT_EQ(unicode_alpha_name_count->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(unicode_alpha_name_count->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(unicode_alpha_name_count->value.data.u64, 2U);
+
+    const std::vector<std::string_view> unicode_alpha_name_values
+        = collect_photoshop_irb_text_fields(store, 0x0415U, "UnicodeAlphaName");
+    ASSERT_EQ(unicode_alpha_name_values.size(), 2U);
+    EXPECT_EQ(unicode_alpha_name_values[0], "Matte");
+    EXPECT_EQ(unicode_alpha_name_values[1], "Depth");
+
     const Entry* print_style_field = find_photoshop_irb_field(store, 0x0426U,
                                                               "PrintStyle");
     ASSERT_NE(print_style_field, nullptr);
@@ -759,6 +849,19 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_EQ(global_altitude_field->value.elem_type, MetaElementType::U32);
     EXPECT_EQ(global_altitude_field->value.data.u64, 99U);
 
+    const Entry* alpha_identifier_count
+        = find_photoshop_irb_field(store, 0x041DU, "AlphaIdentifierCount");
+    ASSERT_NE(alpha_identifier_count, nullptr);
+    EXPECT_EQ(alpha_identifier_count->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(alpha_identifier_count->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(alpha_identifier_count->value.data.u64, 2U);
+
+    const std::vector<uint32_t> alpha_identifier_values
+        = collect_photoshop_irb_u32_fields(store, 0x041DU, "AlphaIdentifier");
+    ASSERT_EQ(alpha_identifier_values.size(), 2U);
+    EXPECT_EQ(alpha_identifier_values[0], 101U);
+    EXPECT_EQ(alpha_identifier_values[1], 202U);
+
     const Entry* layer_groups_enabled_id_field
         = find_photoshop_irb_field(store, 0x0430U, "LayerGroupsEnabledID");
     ASSERT_NE(layer_groups_enabled_id_field, nullptr);
@@ -774,6 +877,16 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
         std::byte { 0x00 },
         std::byte { 0x01 },
         std::byte { 0x02 },
+    };
+    const std::array<std::byte, 4> short_alpha_names = {
+        std::byte { 0x01 },
+        std::byte { 'A' },
+        std::byte { 0x03 },
+        std::byte { 'B' },
+    };
+    const std::array<std::byte, 2> short_caption = {
+        std::byte { 0x05 },
+        std::byte { 'x' },
     };
     const std::array<std::byte, 10> short_pixel_info = {
         std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
@@ -802,6 +915,10 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
     const std::array<std::byte, 1> short_layers_group_info = {
         std::byte { 0x00 },
     };
+    const std::array<std::byte, 2> short_quick_mask = {
+        std::byte { 0x00 },
+        std::byte { 0x05 },
+    };
     const std::array<std::byte, 5> short_jpeg_quality = {
         std::byte { 0x00 }, std::byte { 0x02 }, std::byte { 0x01 },
         std::byte { 0x01 }, std::byte { 0x00 },
@@ -809,6 +926,11 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
     const std::array<std::byte, 0> empty_watermark      = {};
     const std::array<std::byte, 0> empty_icc_untagged   = {};
     const std::array<std::byte, 3> short_ids_base_value = {
+        std::byte { 0x00 },
+        std::byte { 0x00 },
+        std::byte { 0x00 },
+    };
+    const std::array<std::byte, 3> short_unicode_alpha_names = {
         std::byte { 0x00 },
         std::byte { 0x00 },
         std::byte { 0x00 },
@@ -841,12 +963,18 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
         std::byte { 0x01 }, std::byte { 0x00 }, std::byte { 0x00 },
         std::byte { 0x00 },
     };
+    const std::array<std::byte, 5> short_alpha_identifiers = {
+        std::byte { 0x00 }, std::byte { 0x00 }, std::byte { 0x00 },
+        std::byte { 0x01 }, std::byte { 0xFF },
+    };
     const std::array<std::byte, 1> short_layer_selection_ids = {
         std::byte { 0x00 },
     };
     const std::array<std::byte, 0> empty_layer_groups_enabled_id = {};
     std::vector<std::byte> irb;
     append_irb_resource(0x03EDU, short_resolution, &irb);
+    append_irb_resource(0x03EEU, short_alpha_names, &irb);
+    append_irb_resource(0x03F0U, short_caption, &irb);
     append_irb_resource(0x0428U, short_pixel_info, &irb);
     append_irb_resource(0x0421U, short_version_info, &irb);
     append_irb_resource(0x040AU, empty_copyright, &irb);
@@ -857,14 +985,17 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
     append_irb_resource(0x03FBU, empty_effective_bw, &irb);
     append_irb_resource(0x0400U, short_target_layer_id, &irb);
     append_irb_resource(0x0402U, short_layers_group_info, &irb);
+    append_irb_resource(0x03FEU, short_quick_mask, &irb);
     append_irb_resource(0x0406U, short_jpeg_quality, &irb);
     append_irb_resource(0x0410U, empty_watermark, &irb);
     append_irb_resource(0x0411U, empty_icc_untagged, &irb);
     append_irb_resource(0x0414U, short_ids_base_value, &irb);
+    append_irb_resource(0x0415U, short_unicode_alpha_names, &irb);
     append_irb_resource(0x0426U, short_print_scale_info, &irb);
     append_irb_resource(0x041AU, short_slice_info, &irb);
     append_irb_resource(0x041BU, short_workflow_url, &irb);
     append_irb_resource(0x041EU, short_url_list, &irb);
+    append_irb_resource(0x041DU, short_alpha_identifiers, &irb);
     append_irb_resource(0x042DU, short_layer_selection_ids, &irb);
     append_irb_resource(0x0416U, short_indexed_color_table_count, &irb);
     append_irb_resource(0x0417U, short_transparent_index, &irb);
@@ -874,9 +1005,14 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 24U);
-    EXPECT_EQ(r.entries_decoded, 27U);
+    EXPECT_EQ(r.resources_decoded, 29U);
+    EXPECT_EQ(r.entries_decoded, 32U);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x03EDU, "XResolution"), nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03EEU, "AlphaChannelNameCount"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03EEU, "AlphaChannelName"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03F0U, "Caption"), nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0428U, "PixelAspectRatio"),
               nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0421U, "HasRealMergedData"),
@@ -896,6 +1032,10 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0402U, "LayersGroupInfoCount"),
               nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0402U, "LayersGroupInfo"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03FEU, "QuickMaskChannelID"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03FEU, "QuickMaskWasEmpty"),
               nullptr);
     const Entry* short_photoshop_quality
         = find_photoshop_irb_field(store, 0x0406U, "PhotoshopQuality");
@@ -917,6 +1057,10 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
               nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0414U, "IDsBaseValue"),
               nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0415U, "UnicodeAlphaNameCount"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0415U, "UnicodeAlphaName"),
+              nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0426U, "PrintStyle"), nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0426U, "PrintPositionX"),
               nullptr);
@@ -934,6 +1078,10 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
     EXPECT_EQ(short_url_list_count->value.elem_type, MetaElementType::U32);
     EXPECT_EQ(short_url_list_count->value.data.u64, 0U);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x041EU, "URL"), nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x041DU, "AlphaIdentifierCount"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x041DU, "AlphaIdentifier"),
+              nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x042DU, "LayerSelectionIDCount"),
               nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x042DU, "LayerSelectionID"),

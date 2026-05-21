@@ -1,5 +1,15 @@
 # OpenMeta Changes
 
+## 0.4.22 - 2026-05-21
+
+Changes compared with `0.4.21`.
+
+### Added
+
+- Expanded Photoshop IRB fixed-layout interpretation for alpha channel names,
+  Unicode alpha names, alpha identifiers, Pascal captions, and QuickMask info
+  while keeping raw resource preservation unchanged.
+
 ## 0.4.21 - 2026-05-21
 
 Changes compared with `0.4.20`.

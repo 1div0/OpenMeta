@@ -118,9 +118,14 @@ promoted when fields can be typed, named, and safety-classified.
 OpenMeta preserves raw IRB resources and also decodes a bounded interpreted
 subset. That subset includes common fixed-layout resources such as:
 - `ResolutionInfo`
+- `AlphaChannelsNames`
+- `PStringCaption`
 - `VersionInfo`
 - `PrintFlags`
+- `QuickMaskInfo`
 - `JPEG_Quality`
+- `UnicodeAlphaNames`
+- `AlphaIdentifiers`
 - `PrintScaleInfo`
 - `PixelInfo`
 - `ChannelOptions`

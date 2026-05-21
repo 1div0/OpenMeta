@@ -487,6 +487,133 @@ namespace {
                            make_text(store.arena(), text, encoding), result);
     }
 
+    static void decode_pascal_text_list_resource(
+        std::span<const std::byte> payload, uint16_t resource_id,
+        std::string_view count_field, std::string_view item_field,
+        PhotoshopIrbStringCharset string_charset, MetaStore& store,
+        BlockId block, uint32_t order, PhotoshopIrbDecodeResult* result)
+    {
+        uint64_t offset = 0U;
+        uint32_t count  = 0U;
+        while (offset < payload.size()) {
+            const std::span<const std::byte> remaining = payload.subspan(
+                static_cast<size_t>(offset));
+            std::string text;
+            TextEncoding encoding = TextEncoding::Unknown;
+            if (!decode_pascal_string_text(remaining, string_charset, &text,
+                                           &encoding)) {
+                return;
+            }
+            const uint64_t consumed = pad2(
+                static_cast<uint64_t>(u8(remaining[0])) + 1U);
+            if (consumed == 0U || consumed > remaining.size()) {
+                return;
+            }
+            offset += consumed;
+            count += 1U;
+        }
+        if (count == 0U) {
+            return;
+        }
+        emit_derived_field(store, block, order, resource_id, count_field,
+                           make_u32(count), result);
+        offset = 0U;
+        while (offset < payload.size()) {
+            const std::span<const std::byte> remaining = payload.subspan(
+                static_cast<size_t>(offset));
+            std::string text;
+            TextEncoding encoding = TextEncoding::Unknown;
+            if (!decode_pascal_string_text(remaining, string_charset, &text,
+                                           &encoding)) {
+                return;
+            }
+            emit_derived_field(store, block, order, resource_id, item_field,
+                               make_text(store.arena(), text, encoding),
+                               result);
+            offset += pad2(static_cast<uint64_t>(u8(remaining[0])) + 1U);
+        }
+    }
+
+    static void decode_unicode_text_list_resource(
+        std::span<const std::byte> payload, uint16_t resource_id,
+        std::string_view count_field, std::string_view item_field,
+        MetaStore& store, BlockId block, uint32_t order,
+        PhotoshopIrbDecodeResult* result)
+    {
+        uint64_t offset = 0U;
+        uint32_t count  = 0U;
+        while (offset < payload.size()) {
+            std::string text;
+            if (!read_var_ustr32_utf8(payload, &offset, &text)) {
+                return;
+            }
+            if (text.empty()) {
+                continue;
+            }
+            count += 1U;
+        }
+        if (count == 0U) {
+            return;
+        }
+        emit_derived_field(store, block, order, resource_id, count_field,
+                           make_u32(count), result);
+        offset = 0U;
+        while (offset < payload.size()) {
+            std::string text;
+            if (!read_var_ustr32_utf8(payload, &offset, &text)) {
+                return;
+            }
+            if (text.empty()) {
+                continue;
+            }
+            emit_derived_field(store, block, order, resource_id, item_field,
+                               make_text(store.arena(), text,
+                                         TextEncoding::Utf8),
+                               result);
+        }
+    }
+
+    static void decode_u32_list_resource(std::span<const std::byte> payload,
+                                         uint16_t resource_id,
+                                         std::string_view count_field,
+                                         std::string_view item_field,
+                                         MetaStore& store, BlockId block,
+                                         uint32_t order,
+                                         PhotoshopIrbDecodeResult* result)
+    {
+        const uint32_t count = static_cast<uint32_t>(payload.size() / 4U);
+        if (count == 0U
+            || static_cast<uint64_t>(count) * 4U
+                   != static_cast<uint64_t>(payload.size())) {
+            return;
+        }
+        emit_derived_field(store, block, order, resource_id, count_field,
+                           make_u32(count), result);
+        for (uint32_t i = 0; i < count; ++i) {
+            uint32_t value = 0;
+            if (!read_u32be(payload, static_cast<uint64_t>(i) * 4U, &value)) {
+                return;
+            }
+            emit_derived_field(store, block, order, resource_id, item_field,
+                               make_u32(value), result);
+        }
+    }
+
+    static void decode_quick_mask_info(std::span<const std::byte> payload,
+                                       MetaStore& store, BlockId block,
+                                       uint32_t order,
+                                       PhotoshopIrbDecodeResult* result)
+    {
+        uint16_t channel_id = 0U;
+        if (!read_u16be(payload, 0U, &channel_id) || payload.size() < 3U) {
+            return;
+        }
+        emit_derived_field(store, block, order, 0x03FEU, "QuickMaskChannelID",
+                           make_u16(channel_id), result);
+        emit_derived_field(store, block, order, 0x03FEU, "QuickMaskWasEmpty",
+                           make_u8(u8(payload[2U])), result);
+    }
+
     static void decode_channel_options(std::span<const std::byte> payload,
                                        MetaStore& store, BlockId block,
                                        uint32_t order,
@@ -748,8 +875,20 @@ namespace {
         case 0x03EDU:
             decode_resolution_info(payload, store, block, order, result);
             break;
+        case 0x03EEU:
+            decode_pascal_text_list_resource(payload, resource_id,
+                                             "AlphaChannelNameCount",
+                                             "AlphaChannelName",
+                                             options.string_charset, store,
+                                             block, order, result);
+            break;
         case 0x0421U:
             decode_version_info(payload, store, block, order, result);
+            break;
+        case 0x03F0U:
+            decode_pascal_text_resource(payload, resource_id, "Caption",
+                                        options.string_charset, store, block,
+                                        order, result);
             break;
         case 0x03F3U:
             decode_u8_scalar_resource(payload, resource_id, "PrintFlags", store,
@@ -767,6 +906,9 @@ namespace {
             decode_u16_list_resource(payload, resource_id,
                                      "LayersGroupInfoCount", "LayersGroupInfo",
                                      store, block, order, result);
+            break;
+        case 0x03FEU:
+            decode_quick_mask_info(payload, store, block, order, result);
             break;
         case 0x0406U:
             decode_jpeg_quality(payload, store, block, order, result);
@@ -827,6 +969,12 @@ namespace {
             decode_u32_scalar_resource(payload, resource_id, "IDsBaseValue",
                                        store, block, order, result);
             break;
+        case 0x0415U:
+            decode_unicode_text_list_resource(payload, resource_id,
+                                              "UnicodeAlphaNameCount",
+                                              "UnicodeAlphaName", store, block,
+                                              order, result);
+            break;
         case 0x0416U:
             decode_u16_scalar_resource(payload, resource_id,
                                        "IndexedColorTableCount", store, block,
@@ -839,6 +987,11 @@ namespace {
         case 0x0419U:
             decode_u32_scalar_resource(payload, resource_id, "GlobalAltitude",
                                        store, block, order, result);
+            break;
+        case 0x041DU:
+            decode_u32_list_resource(payload, resource_id,
+                                     "AlphaIdentifierCount", "AlphaIdentifier",
+                                     store, block, order, result);
             break;
         case 0x0430U:
             decode_u8_scalar_resource(payload, resource_id,
