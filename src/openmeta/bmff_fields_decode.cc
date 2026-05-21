@@ -506,6 +506,18 @@ namespace {
         uint8_t value  = 0;
     };
 
+    struct ColrProp final {
+        uint32_t index                    = 0;  // 1-based ipco index
+        uint32_t color_type               = 0;
+        bool have_nclx                    = false;
+        uint16_t colour_primaries         = 0;
+        uint16_t transfer_characteristics = 0;
+        uint16_t matrix_coefficients      = 0;
+        bool have_full_range_flag         = false;
+        uint8_t full_range_flag           = 0;
+        uint32_t profile_bytes            = 0;
+    };
+
     enum class AuxSemantic : uint8_t {
         Unknown   = 0,
         Alpha     = 1,
@@ -523,6 +535,22 @@ namespace {
         DerivedImage       = 5,
         Thumbnail          = 6,
         ContentDescription = 7,
+    };
+
+    enum class ItemSemantic : uint8_t {
+        Unknown            = 0,
+        Image              = 1,
+        Exif               = 2,
+        Xmp                = 3,
+        Jumbf              = 4,
+        C2pa               = 5,
+        IccProfile         = 6,
+        Auxiliary          = 7,
+        DerivedImage       = 8,
+        Thumbnail          = 9,
+        ContentDescription = 10,
+        Uri                = 11,
+        Json               = 12,
     };
 
     struct AuxCProp final {
@@ -582,6 +610,16 @@ namespace {
 
         bool have_mirror = false;
         uint8_t mirror   = 0;
+
+        bool have_color                   = false;
+        uint32_t color_type               = 0;
+        bool have_nclx                    = false;
+        uint16_t colour_primaries         = 0;
+        uint16_t transfer_characteristics = 0;
+        uint16_t matrix_coefficients      = 0;
+        bool have_full_range_flag         = false;
+        uint8_t full_range_flag           = 0;
+        uint32_t color_profile_bytes      = 0;
 
         std::array<ItemRefEdge, 512> iref_edges {};
         uint32_t iref_edge_count = 0;
@@ -775,6 +813,123 @@ namespace {
         return false;
     }
 
+    static std::string_view item_semantic_name(ItemSemantic semantic) noexcept
+    {
+        switch (semantic) {
+        case ItemSemantic::Unknown: return "unknown";
+        case ItemSemantic::Image: return "image";
+        case ItemSemantic::Exif: return "exif";
+        case ItemSemantic::Xmp: return "xmp";
+        case ItemSemantic::Jumbf: return "jumbf";
+        case ItemSemantic::C2pa: return "c2pa";
+        case ItemSemantic::IccProfile: return "icc_profile";
+        case ItemSemantic::Auxiliary: return "auxiliary";
+        case ItemSemantic::DerivedImage: return "derived";
+        case ItemSemantic::Thumbnail: return "thumbnail";
+        case ItemSemantic::ContentDescription: return "content_description";
+        case ItemSemantic::Uri: return "uri";
+        case ItemSemantic::Json: return "json";
+        }
+        return "unknown";
+    }
+
+    static bool item_semantic_is_known(ItemSemantic semantic) noexcept
+    {
+        return semantic != ItemSemantic::Unknown;
+    }
+
+    static bool item_content_type_matches(const ItemInfo& info,
+                                          std::string_view needle) noexcept
+    {
+        if (info.content_type_len == 0U) {
+            return false;
+        }
+        return ascii_ieq(std::string_view(info.content_type.data(),
+                                          info.content_type_len),
+                         needle);
+    }
+
+    static bool item_content_type_contains(const ItemInfo& info,
+                                           std::string_view needle) noexcept
+    {
+        if (info.content_type_len == 0U) {
+            return false;
+        }
+        return ascii_icontains(std::string_view(info.content_type.data(),
+                                                info.content_type_len),
+                               needle);
+    }
+
+    static bool item_content_type_starts_with(const ItemInfo& info,
+                                              std::string_view prefix) noexcept
+    {
+        if (info.content_type_len < prefix.size()) {
+            return false;
+        }
+        return ascii_ieq(std::string_view(info.content_type.data(),
+                                          prefix.size()),
+                         prefix);
+    }
+
+    static ItemSemantic classify_item_semantic(const ItemInfo& info) noexcept
+    {
+        if (info.have_type) {
+            if (info.item_type == fourcc('E', 'x', 'i', 'f')) {
+                return ItemSemantic::Exif;
+            }
+            if (info.item_type == fourcc('j', 'u', 'm', 'b')) {
+                return ItemSemantic::Jumbf;
+            }
+            if (info.item_type == fourcc('a', 'u', 'x', 'l')) {
+                return ItemSemantic::Auxiliary;
+            }
+            if (info.item_type == fourcc('d', 'e', 'r', 'v')) {
+                return ItemSemantic::DerivedImage;
+            }
+            if (info.item_type == fourcc('t', 'h', 'm', 'b')) {
+                return ItemSemantic::Thumbnail;
+            }
+            if (info.item_type == fourcc('c', 'd', 's', 'c')) {
+                return ItemSemantic::ContentDescription;
+            }
+            if (info.item_type == fourcc('u', 'r', 'i', ' ')) {
+                return ItemSemantic::Uri;
+            }
+            if (info.item_type == fourcc('h', 'v', 'c', '1')
+                || info.item_type == fourcc('a', 'v', '0', '1')
+                || info.item_type == fourcc('j', 'p', 'e', 'g')
+                || info.item_type == fourcc('g', 'r', 'i', 'd')
+                || info.item_type == fourcc('i', 'd', 'e', 'n')) {
+                return ItemSemantic::Image;
+            }
+        }
+
+        if (item_content_type_matches(info, "application/c2pa")
+            || item_content_type_matches(info, "application/c2pa+jumbf")) {
+            return ItemSemantic::C2pa;
+        }
+        if (item_content_type_matches(info, "application/jumbf")) {
+            return ItemSemantic::Jumbf;
+        }
+        if (item_content_type_matches(info, "application/rdf+xml")
+            || item_content_type_matches(info, "application/xmp+xml")
+            || item_content_type_contains(info, "xmp")) {
+            return ItemSemantic::Xmp;
+        }
+        if (item_content_type_matches(info, "application/vnd.iccprofile")
+            || item_content_type_matches(info, "application/vnd.icc.profile")
+            || item_content_type_contains(info, "icc")) {
+            return ItemSemantic::IccProfile;
+        }
+        if (item_content_type_matches(info, "application/json")) {
+            return ItemSemantic::Json;
+        }
+        if (item_content_type_starts_with(info, "image/")) {
+            return ItemSemantic::Image;
+        }
+        return ItemSemantic::Unknown;
+    }
+
     static AuxSemantic classify_auxc_type(std::string_view aux_type) noexcept
     {
         if (aux_type.empty()) {
@@ -924,12 +1079,21 @@ namespace {
                 if (info->have_type) {
                     emit_u32_field(store, block, (*io_order)++,
                                    "primary.linked_item_type", info->item_type);
+                    emit_text_field(store, block, (*io_order)++,
+                                    "primary.linked_item_type_name",
+                                    bmff_fourcc_display_name(info->item_type));
                 }
                 if (info->name_len != 0U) {
                     emit_text_field(store, block, (*io_order)++,
                                     "primary.linked_item_name",
                                     std::string_view(info->name.data(),
                                                      info->name_len));
+                }
+                const ItemSemantic semantic = classify_item_semantic(*info);
+                if (item_semantic_is_known(semantic)) {
+                    emit_text_field(store, block, (*io_order)++,
+                                    "primary.linked_item_semantic",
+                                    item_semantic_name(semantic));
                 }
             }
             emit_text_field(store, block, (*io_order)++,
@@ -1607,16 +1771,19 @@ namespace {
         std::array<IspeProp, 64>* out_ispe, uint32_t* out_ispe_count,
         std::array<U8Prop, 64>* out_irot, uint32_t* out_irot_count,
         std::array<U8Prop, 64>* out_imir, uint32_t* out_imir_count,
+        std::array<ColrProp, 64>* out_colr, uint32_t* out_colr_count,
         std::array<AuxCProp, 64>* out_auxc, uint32_t* out_auxc_count) noexcept
     {
         if (!out_ispe || !out_ispe_count || !out_irot || !out_irot_count
-            || !out_imir || !out_imir_count || !out_auxc || !out_auxc_count) {
+            || !out_imir || !out_imir_count || !out_colr || !out_colr_count
+            || !out_auxc || !out_auxc_count) {
             return;
         }
 
         *out_ispe_count = 0;
         *out_irot_count = 0;
         *out_imir_count = 0;
+        *out_colr_count = 0;
         *out_auxc_count = 0;
 
         const uint64_t payload_off = ipco.offset + ipco.header_size;
@@ -1674,6 +1841,57 @@ namespace {
                             (*out_imir)[*out_imir_count] = U8Prop { prop_index,
                                                                     dir };
                             *out_imir_count += 1;
+                        }
+                    }
+                } else if (child.type == fourcc('c', 'o', 'l', 'r')) {
+                    if (child_payload_size >= 4
+                        && *out_colr_count < out_colr->size()) {
+                        uint32_t color_type = 0;
+                        if (read_u32be(bytes, child_payload_off, &color_type)) {
+                            ColrProp prop {};
+                            prop.index      = prop_index;
+                            prop.color_type = color_type;
+                            if (((color_type == fourcc('n', 'c', 'l', 'x'))
+                                 && child_payload_size >= 11U)
+                                || ((color_type == fourcc('n', 'c', 'l', 'c'))
+                                    && child_payload_size >= 10U)) {
+                                uint16_t primaries = 0;
+                                uint16_t transfer  = 0;
+                                uint16_t matrix    = 0;
+                                if (read_u16be(bytes, child_payload_off + 4U,
+                                               &primaries)
+                                    && read_u16be(bytes, child_payload_off + 6U,
+                                                  &transfer)
+                                    && read_u16be(bytes, child_payload_off + 8U,
+                                                  &matrix)) {
+                                    prop.have_nclx                = true;
+                                    prop.colour_primaries         = primaries;
+                                    prop.transfer_characteristics = transfer;
+                                    prop.matrix_coefficients      = matrix;
+                                    if (color_type
+                                        == fourcc('n', 'c', 'l', 'x')) {
+                                        prop.have_full_range_flag = true;
+                                        prop.full_range_flag      = static_cast<
+                                                 uint8_t>(
+                                            (u8(bytes[child_payload_off + 10U])
+                                             & 0x80U)
+                                                ? 1U
+                                                : 0U);
+                                    }
+                                }
+                            } else if (color_type == fourcc('r', 'I', 'C', 'C')
+                                       || color_type
+                                              == fourcc('p', 'r', 'o', 'f')) {
+                                const uint64_t profile_bytes
+                                    = child_payload_size - 4U;
+                                prop.profile_bytes
+                                    = (profile_bytes > UINT32_MAX)
+                                          ? UINT32_MAX
+                                          : static_cast<uint32_t>(
+                                                profile_bytes);
+                            }
+                            (*out_colr)[*out_colr_count] = prop;
+                            *out_colr_count += 1;
                         }
                     }
                 } else if (child.type == fourcc('a', 'u', 'x', 'C')) {
@@ -1781,6 +1999,17 @@ namespace {
         return nullptr;
     }
 
+    static const ColrProp* find_colr(std::span<const ColrProp> props,
+                                     uint32_t index) noexcept
+    {
+        for (size_t i = 0; i < props.size(); ++i) {
+            if (props[i].index == index) {
+                return &props[i];
+            }
+        }
+        return nullptr;
+    }
+
     static const AuxCProp* find_auxc(std::span<const AuxCProp> props,
                                      uint32_t index) noexcept
     {
@@ -1790,6 +2019,23 @@ namespace {
             }
         }
         return nullptr;
+    }
+
+    static void set_primary_color(PrimaryProps* out,
+                                  const ColrProp& prop) noexcept
+    {
+        if (!out || out->have_color) {
+            return;
+        }
+        out->have_color               = true;
+        out->color_type               = prop.color_type;
+        out->have_nclx                = prop.have_nclx;
+        out->colour_primaries         = prop.colour_primaries;
+        out->transfer_characteristics = prop.transfer_characteristics;
+        out->matrix_coefficients      = prop.matrix_coefficients;
+        out->have_full_range_flag     = prop.have_full_range_flag;
+        out->full_range_flag          = prop.full_range_flag;
+        out->color_profile_bytes      = prop.profile_bytes;
     }
 
     static bool is_primary_auxl_item(const PrimaryProps& out,
@@ -1803,7 +2049,8 @@ namespace {
         std::span<const std::byte> bytes, const BmffBox& ipma,
         uint32_t primary_item_id, std::span<const IspeProp> ispe,
         std::span<const U8Prop> irot, std::span<const U8Prop> imir,
-        std::span<const AuxCProp> auxc, PrimaryProps* out) noexcept
+        std::span<const ColrProp> colr, std::span<const AuxCProp> auxc,
+        PrimaryProps* out) noexcept
     {
         if (!out) {
             return;
@@ -1887,6 +2134,10 @@ namespace {
                                 out->have_mirror = true;
                                 out->mirror      = p->value;
                             }
+                            if (const ColrProp* p = find_colr(colr,
+                                                              prop_index)) {
+                                set_primary_color(out, *p);
+                            }
                         }
                         if (is_primary_aux) {
                             if (const AuxCProp* p = find_auxc(auxc,
@@ -1961,6 +2212,10 @@ namespace {
                             if (const U8Prop* p = find_u8(imir, prop_index)) {
                                 out->have_mirror = true;
                                 out->mirror      = p->value;
+                            }
+                            if (const ColrProp* p = find_colr(colr,
+                                                              prop_index)) {
+                                set_primary_color(out, *p);
                             }
                         }
                         if (is_primary_aux) {
@@ -2243,15 +2498,17 @@ namespace {
         std::array<IspeProp, 64> ispe {};
         std::array<U8Prop, 64> irot {};
         std::array<U8Prop, 64> imir {};
+        std::array<ColrProp, 64> colr {};
         std::array<AuxCProp, 64> auxc {};
         uint32_t ispe_count = 0;
         uint32_t irot_count = 0;
         uint32_t imir_count = 0;
+        uint32_t colr_count = 0;
         uint32_t auxc_count = 0;
         if (has_ipco) {
             bmff_collect_ipco_props(bytes, ipco, &ispe, &ispe_count, &irot,
-                                    &irot_count, &imir, &imir_count, &auxc,
-                                    &auxc_count);
+                                    &irot_count, &imir, &imir_count, &colr,
+                                    &colr_count, &auxc, &auxc_count);
         }
 
         bmff_apply_ipma_primary(
@@ -2259,6 +2516,7 @@ namespace {
             std::span<const IspeProp>(ispe.data(), ispe_count),
             std::span<const U8Prop>(irot.data(), irot_count),
             std::span<const U8Prop>(imir.data(), imir_count),
+            std::span<const ColrProp>(colr.data(), colr_count),
             std::span<const AuxCProp>(auxc.data(), auxc_count), out);
         return true;
     }
@@ -2319,6 +2577,11 @@ namespace {
                                 emit_u32_field(*ctx->store, ctx->block,
                                                (*ctx->order)++, "item.type",
                                                info.item_type);
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "item.type_name",
+                                                bmff_fourcc_display_name(
+                                                    info.item_type));
                             }
                             if (info.name_len != 0U) {
                                 emit_text_field(
@@ -2349,6 +2612,14 @@ namespace {
                                     std::string_view(info.uri_type.data(),
                                                      info.uri_type_len));
                             }
+                            const ItemSemantic semantic
+                                = classify_item_semantic(info);
+                            if (item_semantic_is_known(semantic)) {
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "item.semantic",
+                                                item_semantic_name(semantic));
+                            }
                         }
                     }
                     if (p.have_item_id) {
@@ -2365,6 +2636,11 @@ namespace {
                                                (*ctx->order)++,
                                                "primary.item_type",
                                                primary->item_type);
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "primary.item_type_name",
+                                                bmff_fourcc_display_name(
+                                                    primary->item_type));
                             }
                             if (primary->name_len != 0U) {
                                 emit_text_field(
@@ -2396,6 +2672,15 @@ namespace {
                                     std::string_view(primary->uri_type.data(),
                                                      primary->uri_type_len));
                             }
+                            const ItemSemantic primary_semantic
+                                = classify_item_semantic(*primary);
+                            if (item_semantic_is_known(primary_semantic)) {
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "primary.item_semantic",
+                                                item_semantic_name(
+                                                    primary_semantic));
+                            }
                         }
                         if (p.have_width_height) {
                             emit_u32_field(*ctx->store, ctx->block,
@@ -2415,6 +2700,42 @@ namespace {
                             emit_u8_field(*ctx->store, ctx->block,
                                           (*ctx->order)++, "primary.mirror",
                                           p.mirror);
+                        }
+                        if (p.have_color) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.color_type", p.color_type);
+                            emit_text_field(*ctx->store, ctx->block,
+                                            (*ctx->order)++,
+                                            "primary.color_type_name",
+                                            bmff_fourcc_display_name(
+                                                p.color_type));
+                            if (p.have_nclx) {
+                                emit_u16_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.nclx_colour_primaries",
+                                               p.colour_primaries);
+                                emit_u16_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.nclx_transfer_characteristics",
+                                    p.transfer_characteristics);
+                                emit_u16_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.nclx_matrix_coefficients",
+                                    p.matrix_coefficients);
+                                if (p.have_full_range_flag) {
+                                    emit_u8_field(*ctx->store, ctx->block,
+                                                  (*ctx->order)++,
+                                                  "primary.nclx_full_range_flag",
+                                                  p.full_range_flag);
+                                }
+                            }
+                            if (p.color_profile_bytes != 0U) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.color_profile_bytes",
+                                               p.color_profile_bytes);
+                            }
                         }
                         if (p.iref_edge_total > 0) {
                             emit_u32_field(*ctx->store, ctx->block,

@@ -154,9 +154,11 @@ Coverage matrix
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
-     - BMFF derived fields, item-info rows, bounded relations, primary-linked
-       roles, aux semantics, and draft C2PA/JUMBF structural fields are exposed.
-     - Medium, about 60-70%.
+     - BMFF derived fields, item-info rows, item type/semantic labels for
+       common metadata carriers, bounded relations, primary-linked roles, aux
+       semantics, primary color/profile property summaries, and draft
+       C2PA/JUMBF structural fields are exposed.
+     - Medium, about 63-73%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded

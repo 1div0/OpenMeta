@@ -140,10 +140,14 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
 - `ftyp.*`
 - primary item properties
 - `iinf/infe` item-info rows
+- item type-name and semantic labels for EXIF, XMP, JUMBF, C2PA, ICC profile,
+  image, URI, auxiliary, thumbnail, derived-image, and content-description items
 - typed `iref.<type>.*` rows
 - graph summaries
 - `auxC`-typed auxiliary semantics
 - bounded primary-linked image-role fields
+- primary `colr` summaries for `nclx`/`nclc` color fields and ICC profile-size
+  carriers
 
 This is intentionally smaller than a full QuickTime/BMFF semantic model.
 

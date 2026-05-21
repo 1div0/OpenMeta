@@ -1,5 +1,18 @@
 # OpenMeta Changes
 
+## 0.4.23 - 2026-05-21
+
+Changes compared with `0.4.22`.
+
+### Added
+
+- Added BMFF item type-name and semantic labels for image, EXIF, XMP, JUMBF,
+  C2PA, ICC profile, URI, thumbnail, derived-image, auxiliary, and
+  content-description items.
+- Added bounded primary BMFF color/property summaries for `colr` `nclx`,
+  `nclc`, `rICC`, and `prof` properties, including ICC profile byte counts and
+  nclx color fields.
+
 ## 0.4.22 - 2026-05-21
 
 Changes compared with `0.4.21`.
