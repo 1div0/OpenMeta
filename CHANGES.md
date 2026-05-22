@@ -1,5 +1,27 @@
 # OpenMeta Changes
 
+## 0.4.25 - 2026-05-21
+
+Changes compared with `0.4.24`.
+
+### Changed
+
+- Improved Canon CameraInfo PictureStyle interpretation for EOS 7D,
+  EOS Kiss X7i, and EOS-1D X model cohorts by selecting the matching
+  PSInfo/PSInfo2 table.
+- Split Canon MakerNote main tag `0x0038` byte-blob naming by observed
+  payload size, preserving the placeholder for short blobs while reporting
+  long battery-type payloads as `BatteryType`.
+
+## 0.4.24 - 2026-05-21
+
+Changes compared with `0.4.23`.
+
+### Added
+
+- Added the missing Nikon ShotInfo D300A `ISO2` MakerNote name used by the
+  ExifTool-compatible interpretation path.
+
 ## 0.4.23 - 2026-05-21
 
 Changes compared with `0.4.22`.

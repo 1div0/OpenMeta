@@ -328,7 +328,7 @@ canon_camerainfo_prefers_psinfo(std::string_view model) noexcept
         "EOS 50D",          "EOS 5D Mark II",
         "EOS 1000D",        "EOS DIGITAL REBEL XS",
         "EOS Kiss F",       "EOS-1D Mark III",
-        "EOS-1Ds Mark III",
+        "EOS-1Ds Mark III", "EOS 7D",
     };
     return canon_model_matches_any(model, kCanonModels);
 }
@@ -337,9 +337,7 @@ static bool
 canon_camerainfo_prefers_psinfo2(std::string_view model) noexcept
 {
     static constexpr std::string_view kCanonModels[] = {
-        "EOS 60D",
-        "EOS 6D",
-        "EOS 5D Mark III",
+        "EOS 60D", "EOS 6D", "EOS 5D Mark III", "EOS Kiss X7i", "EOS-1D X",
     };
     return canon_model_matches_any(model, kCanonModels);
 }
@@ -3824,7 +3822,7 @@ decode_canon_makernote(const TiffConfig& cfg,
                                         abs_value_off, value_bytes,
                                         store.arena(), options.limits,
                                         status_out);
-        if (tag == 0x0038u && type == 7
+        if (tag == 0x0038u && type == 7 && count <= 8U
             && entry.value.kind == MetaValueKind::Bytes) {
             entry.flags |= EntryFlags::ContextualName;
             entry.origin.name_context_kind = EntryNameContextKind::CanonMain0038;

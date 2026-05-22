@@ -999,7 +999,8 @@ namespace {
             }
         }
         if (ifd_name == "mk_canon0" && tag == 0x0038u
-            && entry->value.kind == MetaValueKind::Bytes) {
+            && entry->value.kind == MetaValueKind::Bytes
+            && entry->origin.wire_count <= 8U) {
             entry->flags |= EntryFlags::ContextualName;
             entry->origin.name_context_kind
                 = EntryNameContextKind::CanonMain0038;
