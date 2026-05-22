@@ -71,6 +71,7 @@ enum class MetadataConceptRole : uint8_t {
     ExposureProgram,
     Gain,
     RawExposureAdjustment,
+    SourceColorTransform,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {

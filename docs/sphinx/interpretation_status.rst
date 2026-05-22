@@ -125,11 +125,12 @@ Coverage matrix
        color/WB candidates, long-tail camera-to-XYZ/RGB, style/color, and
        white-balance gain aliases, and cross-family concept candidates with
        full grouped value vectors are identified. ICC/profile and color-space
-       records now have a distinct ``color_profile`` semantic role while
-       source-bound RAW color transforms remain conservative. Matrix/vector
-       groups require numeric payloads with conservative minimum shapes before
-       promotion.
-     - Medium-high, about 84-91%.
+       records have a distinct ``color_profile`` semantic role, while camera
+       RAW profile/look/tone-curve/style fields and vendor source color tables
+       have a separate ``source_color_transform`` role marked unsafe for
+       rendered-image transfer. Matrix/vector groups require numeric payloads
+       with conservative minimum shapes before promotion.
+     - Medium-high, about 85-92%.
      - Deeper camera/vendor color science interpretation is intentionally
        conservative, especially for rendered-image transfer.
    * - Lens correction and RAW processing
@@ -178,7 +179,9 @@ Coverage matrix
        patterns, border margins, exposure/gain roles, selected
        vendor/MakerNote exposure-name aliases, per-family grouped vendor
        records, descriptive EXIF/IPTC/XMP concepts, explicit color-profile
-       records for EXIF/ICC/XMP/PNG profile carriers, expanded source
+       records for EXIF/ICC/XMP/PNG profile carriers, explicit
+       source-color-transform records for camera RAW profiles, looks, tone
+       curves, and vendor source color tables, expanded source
        color/style/lens/source-processing aliases, source-processing buckets,
        optional RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
@@ -190,7 +193,7 @@ Coverage matrix
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, rendered/compatible safety
        booleans, and tolerance-aware GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 80-86%.
+     - Medium-high, about 81-87%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification

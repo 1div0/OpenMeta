@@ -17,8 +17,8 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile evidence, lens-correction, sensor, computational capture state, and vendor-private fields. | Medium-high, about 87%. |
-| Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile, orientation, date/time, GPS, lens-correction, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 75-81%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, computational capture state, and vendor-private fields. | Medium-high, about 88%. |
+| Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 76-82%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
 | Transfer | Move metadata between files using explicit compatible-file or rendered-image safety policies. | Medium-high, about 80-85%. |
@@ -1016,6 +1016,12 @@ exposes the generic BMFF XMP item. ExifTool is also used for BMFF EXIF/ICC
 reader checks when available. If the local `oiiotool` build cannot decode a
 configured BMFF target after rewrite, `OPENMETA_FFMPEG_EXECUTABLE` can provide
 the decode fallback.
+
+ExifTool is an optional external validation tool in these tests, not an
+OpenMeta runtime dependency. Keep it patched when running validation against
+untrusted files. This matters especially on macOS, where older ExifTool
+releases have had metadata-write command-injection issues in their own
+platform-specific tooling.
 
 The public GitHub Actions workflow `.github/workflows/ci.yml` runs two Linux
 variants of these public release gates:

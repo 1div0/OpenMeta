@@ -6027,7 +6027,9 @@ NB_MODULE(_openmeta, m)
         .value("Title", MetadataQuerySemanticKind::Title)
         .value("Description", MetadataQuerySemanticKind::Description)
         .value("Creator", MetadataQuerySemanticKind::Creator)
-        .value("Keywords", MetadataQuerySemanticKind::Keywords);
+        .value("Keywords", MetadataQuerySemanticKind::Keywords)
+        .value("SourceColorTransform",
+               MetadataQuerySemanticKind::SourceColorTransform);
 
     nb::enum_<MetadataQueryValueShape>(m, "MetadataQueryValueShape")
         .value("Unknown", MetadataQueryValueShape::Unknown)
@@ -6128,7 +6130,9 @@ NB_MODULE(_openmeta, m)
         .value("ExposureProgram", MetadataConceptRole::ExposureProgram)
         .value("Gain", MetadataConceptRole::Gain)
         .value("RawExposureAdjustment",
-               MetadataConceptRole::RawExposureAdjustment);
+               MetadataConceptRole::RawExposureAdjustment)
+        .value("SourceColorTransform",
+               MetadataConceptRole::SourceColorTransform);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

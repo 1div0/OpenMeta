@@ -62,6 +62,13 @@ What the tests do
 - Unit tests cover normal and malformed inputs.
 - libFuzzer and FuzzTest targets exercise parsers under sanitizers.
 
+Some optional release/interop tests can launch external tools such as ExifTool
+to validate files produced by OpenMeta. Treat those tools as part of your test
+environment, not as OpenMeta runtime dependencies. On macOS, use a patched
+ExifTool version when running validations against untrusted files; older
+ExifTool releases have had macOS metadata-write command-injection issues in
+their own tooling.
+
 Reporting vulnerabilities
 -------------------------
 

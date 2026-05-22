@@ -93,6 +93,13 @@ Before merging changes that touch parsing, decoding, or exports:
 Unit tests require GoogleTest to be discoverable via `find_package(GTest CONFIG)`
 or `CMAKE_PREFIX_PATH`.
 
+Some optional release/interop tests can launch external tools such as ExifTool
+to validate files produced by OpenMeta. Treat those tools as part of your test
+environment, not as OpenMeta runtime dependencies. On macOS, use a patched
+ExifTool version when running validations against untrusted files; older
+ExifTool releases have had macOS metadata-write command-injection issues in
+their own tooling.
+
 Example workflow (Linux/Clang):
 ```bash
 cmake -S . -B build-tests -G Ninja -DCMAKE_BUILD_TYPE=Debug -DOPENMETA_BUILD_TESTS=ON

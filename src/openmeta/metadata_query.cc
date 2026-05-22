@@ -1257,6 +1257,25 @@ namespace {
                | static_cast<uint32_t>(MetadataQueryMatchTerm::Profile);
     }
 
+    static bool color_name_is_source_transform(std::string_view name) noexcept
+    {
+        return contains_ascii_case_insensitive(name, "creative style")
+               || contains_ascii_case_insensitive(name, "creativestyle")
+               || contains_ascii_case_insensitive(name, "picture style")
+               || contains_ascii_case_insensitive(name, "picturestyle")
+               || contains_ascii_case_insensitive(name, "film simulation")
+               || contains_ascii_case_insensitive(name, "filmsimulation")
+               || contains_ascii_case_insensitive(name,
+                                                  "dynamic range optimizer")
+               || contains_ascii_case_insensitive(name, "dynamicrangeoptimizer")
+               || contains_ascii_case_insensitive(name, "camera profile")
+               || contains_ascii_case_insensitive(name, "cameraprofile")
+               || contains_ascii_case_insensitive(name, "tone curve")
+               || contains_ascii_case_insensitive(name, "tonecurve")
+               || contains_ascii_case_insensitive(name, "raw development")
+               || contains_ascii_case_insensitive(name, "rawdevelopment");
+    }
+
     static uint32_t
     xmp_color_profile_terms(std::string_view path,
                             MatchProvenanceState* provenance) noexcept
@@ -1272,6 +1291,34 @@ namespace {
             || contains_ascii_case_insensitive(path, "colorspace")) {
             note_exact_match(provenance);
             return color_profile_terms();
+        }
+        return 0U;
+    }
+
+    static bool
+    xmp_namespace_is_camera_raw_settings(std::string_view ns) noexcept
+    {
+        return contains_ascii_case_insensitive(ns, "camera-raw-settings")
+               || contains_ascii_case_insensitive(ns, "/crs/");
+    }
+
+    static uint32_t
+    xmp_source_color_transform_terms(std::string_view ns, std::string_view path,
+                                     MatchProvenanceState* provenance) noexcept
+    {
+        const std::string_view leaf = xmp_leaf_property(path);
+        if (xmp_namespace_is_camera_raw_settings(ns)
+            && (equals_ascii_case_insensitive(leaf, "CameraProfile")
+                || equals_ascii_case_insensitive(leaf, "ProfileName")
+                || equals_ascii_case_insensitive(leaf, "Look")
+                || equals_ascii_case_insensitive(leaf, "LookName")
+                || starts_with_ascii_case_insensitive(leaf, "ToneCurve"))) {
+            note_exact_match(provenance);
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
+        }
+        if (color_name_is_source_transform(path)) {
+            note_exact_match(provenance);
+            return static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
         }
         return 0U;
     }
@@ -1848,13 +1895,12 @@ namespace {
             return;
         }
         MetadataQueryMatch match;
-        match.entry_id      = entry_id;
-        match.key_kind      = entry.key.kind;
-        match.semantic      = explicit_semantic
-                                      != MetadataQuerySemanticKind::Unknown
-                                  ? explicit_semantic
-                                  : semantic_from_terms(kind, terms);
-        match.shape         = value_shape(entry.value);
+        match.entry_id = entry_id;
+        match.key_kind = entry.key.kind;
+        match.semantic = explicit_semantic != MetadataQuerySemanticKind::Unknown
+                             ? explicit_semantic
+                             : semantic_from_terms(kind, terms);
+        match.shape    = value_shape(entry.value);
         match.confidence    = confidence_from_terms(kind, terms);
         match.matched_terms = terms;
         match.exact_match   = provenance.exact_match;
@@ -1900,6 +1946,17 @@ namespace {
         if (kind == MetadataQueryKind::Color
             && entry.key.data.exif_tag.tag == kExifColorSpaceTag) {
             explicit_semantic = MetadataQuerySemanticKind::ColorProfile;
+        } else if (kind == MetadataQueryKind::Color
+                   && ((vendor_raw_processing_group_has(
+                            groups, VendorRawProcessingGroup::Color)
+                        && (terms
+                            & (static_cast<uint32_t>(
+                                   MetadataQueryMatchTerm::Matrix)
+                               | static_cast<uint32_t>(
+                                   MetadataQueryMatchTerm::Calibration)))
+                               == 0U)
+                       || color_name_is_source_transform(name))) {
+            explicit_semantic = MetadataQuerySemanticKind::SourceColorTransform;
         }
         append_match(result, entry_id, entry, ifd, name, kind, terms,
                      provenance, explicit_semantic);
@@ -1927,15 +1984,23 @@ namespace {
         MetadataQuerySemanticKind explicit_semantic
             = MetadataQuerySemanticKind::Unknown;
         if (kind == MetadataQueryKind::Color) {
-            const uint32_t profile_terms = xmp_color_profile_terms(
-                path, &provenance);
+            const uint32_t profile_terms = xmp_color_profile_terms(path,
+                                                                   &provenance);
             if (profile_terms != 0U) {
                 terms |= profile_terms;
                 explicit_semantic = MetadataQuerySemanticKind::ColorProfile;
+            } else {
+                const uint32_t source_terms
+                    = xmp_source_color_transform_terms(ns, path, &provenance);
+                if (source_terms != 0U) {
+                    terms |= source_terms;
+                    explicit_semantic
+                        = MetadataQuerySemanticKind::SourceColorTransform;
+                }
             }
         }
-        append_match(result, entry_id, entry, ns, path, kind, terms,
-                     provenance, explicit_semantic);
+        append_match(result, entry_id, entry, ns, path, kind, terms, provenance,
+                     explicit_semantic);
     }
 
     static void append_iptc_match_if_relevant(MetadataQueryResult* result,
@@ -2355,7 +2420,9 @@ namespace {
             return match.semantic == MetadataQuerySemanticKind::WhiteBalance;
         case MetadataQueryKind::Color:
             return match.semantic == MetadataQuerySemanticKind::Color
-                   || match.semantic == MetadataQuerySemanticKind::ColorMatrix;
+                   || match.semantic == MetadataQuerySemanticKind::ColorMatrix
+                   || match.semantic
+                          == MetadataQuerySemanticKind::SourceColorTransform;
         case MetadataQueryKind::RawProcessing:
             return match.semantic == MetadataQuerySemanticKind::BlackLevel
                    || match.semantic == MetadataQuerySemanticKind::WhiteLevel
@@ -3478,6 +3545,8 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
     case MetadataQuerySemanticKind::ColorProfile: return "color_profile";
     case MetadataQuerySemanticKind::WhiteBalance: return "white_balance";
     case MetadataQuerySemanticKind::ColorMatrix: return "color_matrix";
+    case MetadataQuerySemanticKind::SourceColorTransform:
+        return "source_color_transform";
     case MetadataQuerySemanticKind::LensCorrection: return "lens_correction";
     case MetadataQuerySemanticKind::Orientation: return "orientation";
     case MetadataQuerySemanticKind::ExposureGain: return "exposure_gain";

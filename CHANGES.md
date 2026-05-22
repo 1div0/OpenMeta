@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.28 - 2026-05-22
+
+Changes compared with `0.4.27`.
+
+### Added
+
+- Added explicit `SourceColorTransform` query and concept roles for
+  source-bound camera RAW profile/look/tone-curve/style metadata.
+- Added C++ and Python enum exposure plus focused query, interpretation, and
+  concept-transfer-safety tests for source color transforms.
+
+### Changed
+
+- Source-bound color transform concept candidates are now marked
+  rendered-image unsafe while remaining visible for compatible-source transfer
+  and inspection UI policy decisions.
+- Public docs now call out external validation-tool patching expectations for
+  untrusted metadata test files.
+
 ## 0.4.27 - 2026-05-22
 
 Changes compared with `0.4.26`.

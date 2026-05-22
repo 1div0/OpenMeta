@@ -13540,7 +13540,9 @@ transfer_concept_diagnostic_message(
         switch (diagnostic.reason) {
         case TransferConceptDiagnosticReason::RenderedUnsafe:
             if (diagnostic.kind == MetadataConceptKind::ColorProfile
-                && diagnostic.role == MetadataConceptRole::ColorMatrix) {
+                && (diagnostic.role == MetadataConceptRole::ColorMatrix
+                    || diagnostic.role
+                           == MetadataConceptRole::SourceColorTransform)) {
                 return "source color transform metadata is unsafe for "
                        "rendered-image transfer and will be dropped";
             }

@@ -1370,5 +1370,37 @@ namespace {
         EXPECT_EQ(candidate->text, "Display P3");
     }
 
+    TEST(MetadataConcepts, ResolvesSourceColorTransformAsRenderedUnsafe)
+    {
+        MetaStore store;
+        const EntryId profile
+            = add_xmp_text(&store,
+                           "http://ns.adobe.com/camera-raw-settings/1.0/",
+                           "crs:CameraProfile", "Adobe Color");
+        store.finalize();
+
+        const MetadataConceptResolution color
+            = resolve_metadata_concept(store,
+                                       MetadataConceptKind::ColorProfile);
+
+        EXPECT_TRUE(color.found);
+        EXPECT_FALSE(color.conflict);
+        EXPECT_EQ(color.preferred_entry, profile);
+        const MetadataConceptCandidate* candidate
+            = find_role(color, MetadataConceptRole::SourceColorTransform);
+        ASSERT_NE(candidate, nullptr);
+        EXPECT_TRUE(candidate->preferred);
+        EXPECT_EQ(candidate->family, MetadataConceptSourceFamily::Xmp);
+        EXPECT_EQ(candidate->semantic,
+                  MetadataQuerySemanticKind::SourceColorTransform);
+        EXPECT_EQ(candidate->shape, MetadataQueryValueShape::Text);
+        EXPECT_EQ(candidate->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(candidate->compatible_file_safe);
+        EXPECT_FALSE(candidate->rendered_image_safe);
+        EXPECT_TRUE(candidate->source_bound);
+        EXPECT_TRUE(contains_entry(candidate->source_entries, profile));
+    }
+
 }  // namespace
 }  // namespace openmeta

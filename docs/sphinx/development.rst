@@ -31,18 +31,19 @@ model should stay compact:
      - High, about 98-100% for the current target scope.
    * - Interpretation
      - Normalize names and values, group entries by meaning, and classify
-       source-bound data such as RAW crop, exposure adjustment, color/profile
-       evidence, lens-correction, sensor, computational capture state, and
-       vendor-private fields.
-     - Medium-high, about 87%.
+       source-bound data such as RAW crop, exposure adjustment,
+       color/profile/source-color-transform evidence, lens-correction, sensor,
+       computational capture state, and vendor-private fields.
+     - Medium-high, about 88%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
        bounded cross-family concept resolutions, transfer hints, and conflict
-       flags for crop/border/active-area, exposure/gain, color/WB/profile,
-       orientation, date/time, GPS, lens-correction, and RAW/source-processing
-       fields across standard and vendor metadata.
-     - Medium-high, about 75-81%.
+       flags for crop/border/active-area, exposure/gain,
+       color/WB/profile/source-color-transform, orientation, date/time, GPS,
+       lens-correction, and RAW/source-processing fields across standard and
+       vendor metadata.
+     - Medium-high, about 76-82%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.

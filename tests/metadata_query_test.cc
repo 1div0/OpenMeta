@@ -137,8 +137,7 @@ namespace {
     }
 
     static EntryId add_png_text(MetaStore* store, std::string_view keyword,
-                                std::string_view field,
-                                std::string_view value)
+                                std::string_view field, std::string_view value)
     {
         if (!store) {
             return kInvalidEntryId;
@@ -934,17 +933,18 @@ TEST(MetadataQuery, MatchesColorProfileCarriers)
         std::byte { 0x73U },
         std::byte { 0x63U },
     };
-    const EntryId icc_tag = add_icc_tag_bytes(
-        &store, 0x64657363U,
-        std::span<const std::byte>(desc_bytes.data(), desc_bytes.size()));
-    const EntryId png_iccp
-        = add_png_text(&store, "iCCP", "profile_name", "sRGB");
+    const EntryId icc_tag
+        = add_icc_tag_bytes(&store, 0x64657363U,
+                            std::span<const std::byte>(desc_bytes.data(),
+                                                       desc_bytes.size()));
+    const EntryId png_iccp = add_png_text(&store, "iCCP", "profile_name",
+                                          "sRGB");
     store.finalize();
 
     const MetadataQueryResult result = query_color_metadata(store);
 
-    const MetadataQueryMatch* exif_match = find_match_for_entry(
-        result, exif_color_space);
+    const MetadataQueryMatch* exif_match
+        = find_match_for_entry(result, exif_color_space);
     ASSERT_NE(exif_match, nullptr);
     EXPECT_EQ(exif_match->semantic, MetadataQuerySemanticKind::ColorProfile);
     EXPECT_EQ(exif_match->shape, MetadataQueryValueShape::Scalar);
@@ -952,8 +952,8 @@ TEST(MetadataQuery, MatchesColorProfileCarriers)
     EXPECT_NE((exif_match->matched_terms
                & static_cast<uint32_t>(MetadataQueryMatchTerm::Profile)),
               0U);
-    const MetadataQueryCandidate* exif_candidate = find_candidate_for_entry(
-        result, exif_color_space);
+    const MetadataQueryCandidate* exif_candidate
+        = find_candidate_for_entry(result, exif_color_space);
     ASSERT_NE(exif_candidate, nullptr);
     EXPECT_EQ(exif_candidate->semantic,
               MetadataQuerySemanticKind::ColorProfile);
@@ -963,15 +963,14 @@ TEST(MetadataQuery, MatchesColorProfileCarriers)
     ASSERT_EQ(exif_candidate->values.size(), 1U);
     EXPECT_DOUBLE_EQ(exif_candidate->values[0], 1.0);
 
-    const MetadataQueryMatch* xmp_match = find_match_for_entry(result,
-                                                               xmp_icc);
+    const MetadataQueryMatch* xmp_match = find_match_for_entry(result, xmp_icc);
     ASSERT_NE(xmp_match, nullptr);
     EXPECT_EQ(xmp_match->semantic, MetadataQuerySemanticKind::ColorProfile);
     EXPECT_EQ(xmp_match->shape, MetadataQueryValueShape::Text);
     EXPECT_TRUE(xmp_match->exact_match);
 
-    const MetadataQueryMatch* icc_header_match = find_match_for_entry(
-        result, icc_header);
+    const MetadataQueryMatch* icc_header_match
+        = find_match_for_entry(result, icc_header);
     ASSERT_NE(icc_header_match, nullptr);
     EXPECT_EQ(icc_header_match->semantic,
               MetadataQuerySemanticKind::ColorProfile);
@@ -1000,6 +999,51 @@ TEST(MetadataQuery, MatchesColorProfileCarriers)
     EXPECT_STREQ(metadata_query_semantic_kind_name(
                      MetadataQuerySemanticKind::ColorProfile),
                  "color_profile");
+}
+
+TEST(MetadataQuery, MatchesSourceColorTransformCarriers)
+{
+    MetaStore store;
+    const EntryId camera_profile
+        = add_xmp_text(&store, "http://ns.adobe.com/camera-raw-settings/1.0/",
+                       "crs:CameraProfile", "Adobe Color");
+    const EntryId look_name
+        = add_xmp_text(&store, "http://ns.adobe.com/camera-raw-settings/1.0/",
+                       "crs:LookName", "Camera Vivid");
+    const EntryId tone_curve
+        = add_xmp_text(&store, "http://ns.adobe.com/camera-raw-settings/1.0/",
+                       "crs:ToneCurvePV2012", "0, 0, 255, 255");
+    store.finalize();
+
+    const MetadataQueryResult result = query_color_metadata(store);
+
+    const MetadataQueryMatch* profile_match
+        = find_match_for_entry(result, camera_profile);
+    ASSERT_NE(profile_match, nullptr);
+    EXPECT_EQ(profile_match->semantic,
+              MetadataQuerySemanticKind::SourceColorTransform);
+    EXPECT_EQ(profile_match->shape, MetadataQueryValueShape::Text);
+    EXPECT_TRUE(profile_match->exact_match);
+
+    const MetadataQueryMatch* look_match = find_match_for_entry(result,
+                                                                look_name);
+    ASSERT_NE(look_match, nullptr);
+    EXPECT_EQ(look_match->semantic,
+              MetadataQuerySemanticKind::SourceColorTransform);
+    EXPECT_EQ(look_match->shape, MetadataQueryValueShape::Text);
+
+    const MetadataQueryMatch* curve_match = find_match_for_entry(result,
+                                                                 tone_curve);
+    ASSERT_NE(curve_match, nullptr);
+    EXPECT_EQ(curve_match->semantic,
+              MetadataQuerySemanticKind::SourceColorTransform);
+
+    EXPECT_NE(find_candidate_for_entry(result, camera_profile), nullptr);
+    EXPECT_NE(find_candidate_for_entry(result, look_name), nullptr);
+    EXPECT_NE(find_candidate_for_entry(result, tone_curve), nullptr);
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::SourceColorTransform),
+                 "source_color_transform");
 }
 
 TEST(MetadataQuery, GroupsDngColorMatrixSet)
@@ -1450,7 +1494,7 @@ TEST(MetadataQuery, GroupsSamsungLensCorrectionTableByAlias)
     EXPECT_DOUBLE_EQ(candidate->values[1], 3.0);
 }
 
-TEST(MetadataQuery, GroupsVendorColorTableByFamily)
+TEST(MetadataQuery, GroupsVendorSourceColorTransformTableByFamily)
 {
     MetaStore store;
     const EntryId color_a = add_exif_u32(&store, "mk_minolta_colorcomp_0",
@@ -1461,9 +1505,9 @@ TEST(MetadataQuery, GroupsVendorColorTableByFamily)
 
     const MetadataQueryResult result = query_color_metadata(store);
 
-    const MetadataQueryCandidate* candidate
-        = find_candidate_with_shape(result, MetadataQuerySemanticKind::Color,
-                                    MetadataQueryValueShape::Table, 2U);
+    const MetadataQueryCandidate* candidate = find_candidate_with_shape(
+        result, MetadataQuerySemanticKind::SourceColorTransform,
+        MetadataQueryValueShape::Table, 2U);
     ASSERT_NE(candidate, nullptr);
     EXPECT_TRUE(contains_entry(candidate->source_entries, color_a));
     EXPECT_TRUE(contains_entry(candidate->source_entries, color_b));

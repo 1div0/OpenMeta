@@ -96,14 +96,15 @@ Host-facing API map
      - Experimental
      - Query contract for inspection matches plus normalized candidates.
        Current coverage includes crop/active-area/border margins,
-       exposure/gain, white balance, color/profile, lens correction,
-       orientation, descriptive EXIF/IPTC/XMP fields, and RAW/source-processing
-       metadata across standard tags, selected DNG tags, EXIF color-space
-       evidence, ICC header/tag entries, XMP ICC/profile/color-space fields,
-       PNG profile text carriers, Fujifilm RAF raw crop/zoom rectangles, Canon
-       aspect/crop metadata, Nikon Capture crop bounds, Sony panorama crop
-       margins, selected decoded vendor/MakerNote exposure names, fuzzy XMP
-       paths, and vendor RAW-processing classification. Matches report
+       exposure/gain, white balance, color/profile/source-color-transform,
+       lens correction, orientation, descriptive EXIF/IPTC/XMP fields, and
+       RAW/source-processing metadata across standard tags, selected DNG tags,
+       EXIF color-space evidence, ICC header/tag entries, XMP
+       ICC/profile/color-space fields, XMP camera RAW profile/look/tone-curve
+       fields, PNG profile text carriers, Fujifilm RAF raw crop/zoom
+       rectangles, Canon aspect/crop metadata, Nikon Capture crop bounds, Sony
+       panorama crop margins, selected decoded vendor/MakerNote exposure names,
+       fuzzy XMP paths, and vendor RAW-processing classification. Matches report
        ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
@@ -113,7 +114,8 @@ Host-facing API map
        non-crop metadata, including RAW black/white levels, linearization,
        CFA/sensor layout, source geometry, raw-storage identifiers, and
        source-processing buckets, and per-family vendor MakerNote/RAW
-       white-balance, color, raw-storage, sensor, and source-processing groups.
+       white-balance, source-color-transform, raw-storage, sensor, and
+       source-processing groups.
        Matrix/vector/table groups are promoted only when the available numeric
        payloads meet conservative minimum shapes, so malformed color matrices,
        white-balance vectors, and lens-correction records remain per-entry
@@ -121,7 +123,8 @@ Host-facing API map
        color/style aliases such as camera-to-XYZ/RGB matrices, creative/picture
        style, film simulation, dynamic-range, optical-correction, and
        raw-development terms are classified for query and transfer-policy
-       inspection.
+       inspection; camera RAW profiles, looks, tone curves, and vendor source
+       color tables use the explicit ``source_color_transform`` semantic.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
        dictionary-returning wrappers.
    * - Structured metadata interpretation records:
@@ -133,7 +136,8 @@ Host-facing API map
        entry ids, and normalized origin/size/rect/margins/value arrays where
        available. Current scope covers orientation, geometry/crop/border
        including Fujifilm RAF, Canon, Nikon Capture, and Sony panorama
-       geometry patterns, exposure/gain, color/white-balance/profile records,
+       geometry patterns, exposure/gain,
+       color/white-balance/profile/source-color-transform records,
        lens-correction, and RAW/source-processing records, and grouped
        vendor-family table/vector records where
        classification supports them. Python ``Document`` and
@@ -149,9 +153,10 @@ Host-facing API map
        vectors, transfer hints, normalized date/time fields, date/time
        precision, timezone kind, normalized geometry fields, normalized
        exposure values, and same-role conflicts for orientation, date/time,
-       exposure/gain, color/profile, GPS, geometry, lens-correction, and
-       RAW-processing evidence across EXIF, XMP, IPTC, ICC, PNG text, and
-       query-backed interpretation records where applicable. Exposure
+       exposure/gain, color/profile/source-color-transform, GPS, geometry,
+       lens-correction, and RAW-processing evidence across EXIF, XMP, IPTC,
+       ICC, PNG text, and query-backed interpretation records where
+       applicable. Exposure
        candidates cover exposure time, aperture, ISO sensitivity, exposure
        bias, exposure program, gain, and raw exposure-adjustment roles across
        standard EXIF/DNG/XMP evidence and selected decoded vendor/MakerNote
@@ -165,9 +170,11 @@ Host-facing API map
        Candidate transfer hints distinguish ``safe``, ``source_bound``,
        ``rendered_unsafe``, and ``requires_target_image_spec`` evidence, with
        compatible-file and rendered-image safety booleans.
-       Color/white-balance, lens-correction, and RAW-processing concepts
-       preserve grouped matrix/vector/table values for host inspection; they
-       do not make source-bound values safe to serialize into rendered targets.
+       Color/white-balance, source-color-transform, lens-correction, and
+       RAW-processing concepts preserve grouped matrix/vector/table values for
+       host inspection; source-bound color transforms are marked
+       rendered-unsafe and should not be serialized into rendered targets as
+       portable color profiles.
        GPS date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp``
        when both entries exist, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference

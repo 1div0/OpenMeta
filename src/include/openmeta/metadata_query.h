@@ -52,6 +52,7 @@ enum class MetadataQuerySemanticKind : uint8_t {
     Description,
     Creator,
     Keywords,
+    SourceColorTransform,
 };
 
 enum class MetadataQueryValueShape : uint8_t {

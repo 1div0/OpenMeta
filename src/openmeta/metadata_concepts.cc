@@ -834,6 +834,7 @@ namespace {
             case MetadataConceptRole::IccProfile:
             case MetadataConceptRole::ColorMatrix:
             case MetadataConceptRole::WhiteBalance:
+            case MetadataConceptRole::SourceColorTransform:
             case MetadataConceptRole::Latitude:
             case MetadataConceptRole::Longitude:
             case MetadataConceptRole::Altitude:
@@ -848,6 +849,7 @@ namespace {
             switch (candidate->role) {
             case MetadataConceptRole::ColorMatrix:
             case MetadataConceptRole::WhiteBalance:
+            case MetadataConceptRole::SourceColorTransform:
                 set_transfer_hint(candidate,
                                   MetadataConceptTransferHint::RenderedUnsafe,
                                   true, false);
@@ -1860,6 +1862,7 @@ namespace {
         case MetadataQuerySemanticKind::ColorProfile:
         case MetadataQuerySemanticKind::WhiteBalance:
         case MetadataQuerySemanticKind::ColorMatrix:
+        case MetadataQuerySemanticKind::SourceColorTransform:
         case MetadataQuerySemanticKind::LensCorrection:
         case MetadataQuerySemanticKind::Orientation:
         case MetadataQuerySemanticKind::BlackLevel:
@@ -1976,6 +1979,8 @@ namespace {
             return MetadataConceptRole::WhiteBalance;
         case MetadataQuerySemanticKind::ColorProfile:
             return MetadataConceptRole::IccProfile;
+        case MetadataQuerySemanticKind::SourceColorTransform:
+            return MetadataConceptRole::SourceColorTransform;
         case MetadataQuerySemanticKind::Color:
             return MetadataConceptRole::Primary;
         case MetadataQuerySemanticKind::Unknown:
@@ -2081,6 +2086,7 @@ namespace {
         case MetadataQuerySemanticKind::ColorProfile:
         case MetadataQuerySemanticKind::WhiteBalance:
         case MetadataQuerySemanticKind::ColorMatrix:
+        case MetadataQuerySemanticKind::SourceColorTransform:
         case MetadataQuerySemanticKind::LensCorrection:
         case MetadataQuerySemanticKind::Orientation:
         case MetadataQuerySemanticKind::ExposureGain:
@@ -2145,8 +2151,8 @@ namespace {
                                           MetadataQueryKind query_kind,
                                           MetadataConceptResolution* out)
     {
-        MetadataInterpretationResult result = interpret_metadata_query(
-            store, query_kind);
+        MetadataInterpretationResult result
+            = interpret_metadata_query(store, query_kind);
         for (size_t i = 0U; i < result.records.size(); ++i) {
             const MetadataInterpretationRecord& record = result.records[i];
             if (record.source_entries.empty()) {
@@ -2156,8 +2162,8 @@ namespace {
             if (entry_id == kInvalidEntryId) {
                 continue;
             }
-            const MetadataConceptRole role = color_role_from_record(store,
-                                                                    record);
+            const MetadataConceptRole role     = color_role_from_record(store,
+                                                                        record);
             MetadataConceptCandidate candidate = make_entry_candidate(
                 store, entry_id, MetadataConceptKind::ColorProfile, role,
                 record.semantic, record.shape,
@@ -2338,6 +2344,7 @@ namespace {
         case MetadataQuerySemanticKind::ColorProfile:
         case MetadataQuerySemanticKind::WhiteBalance:
         case MetadataQuerySemanticKind::ColorMatrix:
+        case MetadataQuerySemanticKind::SourceColorTransform:
         case MetadataQuerySemanticKind::LensCorrection:
         case MetadataQuerySemanticKind::Orientation:
         case MetadataQuerySemanticKind::ExposureGain:
@@ -2766,6 +2773,7 @@ namespace {
         case MetadataConceptRole::IccProfile:
         case MetadataConceptRole::ColorMatrix:
         case MetadataConceptRole::WhiteBalance:
+        case MetadataConceptRole::SourceColorTransform:
         case MetadataConceptRole::Timestamp:
         case MetadataConceptRole::Crop:
         case MetadataConceptRole::ActiveArea:
@@ -2957,6 +2965,7 @@ namespace {
             MetadataConceptRole::ExposureProgram,
             MetadataConceptRole::Gain,
             MetadataConceptRole::RawExposureAdjustment,
+            MetadataConceptRole::SourceColorTransform,
         };
         for (size_t i = 0U; i < std::size(roles); ++i) {
             mark_role_preferred(resolution, roles[i]);
@@ -3107,6 +3116,8 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::Gain: return "gain";
     case MetadataConceptRole::RawExposureAdjustment:
         return "raw_exposure_adjustment";
+    case MetadataConceptRole::SourceColorTransform:
+        return "source_color_transform";
     }
     return "unknown";
 }

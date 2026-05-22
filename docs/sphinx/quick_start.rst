@@ -125,7 +125,10 @@ matches plus normalized candidates for areas such as crop/active-area,
 exposure/gain, white balance, color/profile, lens correction, orientation, and
 RAW-processing metadata. Color-profile matches include EXIF color-space
 evidence, ICC header/tag entries, XMP ICC/profile/color-space fields, and PNG
-profile text carriers. ``query_descriptive_metadata(...)`` also exposes a
+profile text carriers. Source-bound camera RAW profile, look, tone-curve, and
+style metadata is reported separately as ``source_color_transform``, so hosts
+can inspect it without treating it as a portable ICC/profile value.
+``query_descriptive_metadata(...)`` also exposes a
 bounded EXIF/IPTC/XMP reconciliation view for common descriptive fields:
 title/headline, description/caption, creator/author, and keywords/subject.
 These helpers use deterministic built-in name/tag
@@ -137,10 +140,10 @@ Every raw query match carries ``exact_match``, ``fuzzy_match``, and
 separately from exact tag/name hits.
 
 For vendor MakerNote/RAW fields, the query layer also builds conservative
-per-family grouped candidates for related white-balance, color, raw-storage,
-sensor, and source-processing records. These records are for inspection and
-safe-transfer policy, not for writing source RAW transforms into rendered
-outputs.
+per-family grouped candidates for related white-balance,
+source-color-transform, raw-storage, sensor, and source-processing records.
+These records are for inspection and safe-transfer policy, not for writing
+source RAW transforms into rendered outputs.
 Grouped color, white-balance, and lens-correction records require numeric
 payloads with conservative minimum shapes before they become matrix/vector/table
 candidates. Malformed or text-only source records still remain visible as
@@ -177,7 +180,10 @@ selected transfer safety mode and returns keep/drop/requires-target-image-spec
 actions, severity tokens, and default message text for transfer-preview UI.
 Rendered-transfer drop messages distinguish source color transforms, white
 balance, lens correction, source-bound RAW processing, and target-owned image
-properties. GPS altitude reference codes can be displayed with
+properties. Source color transforms cover camera RAW profiles, looks, tone
+curves, and vendor style/rendering tables that should not be treated as
+portable rendered-image color profiles. GPS altitude reference codes can be
+displayed with
 ``metadata_concept_gps_altitude_reference_name(...)``.
 
 For user-facing orientation display, use ``openmeta/orientation.h`` instead of

@@ -128,6 +128,12 @@ reader checks when available. If the local ``oiiotool`` build cannot decode a
 configured BMFF target after rewrite, ``OPENMETA_FFMPEG_EXECUTABLE`` can
 provide the decode fallback.
 
+ExifTool is an optional external validation tool in these tests, not an
+OpenMeta runtime dependency. Keep it patched when running validation against
+untrusted files. This matters especially on macOS, where older ExifTool
+releases have had metadata-write command-injection issues in their own
+platform-specific tooling.
+
 The public GitHub Actions workflow ``.github/workflows/ci.yml`` runs two Linux
 variants of these public release gates:
 
