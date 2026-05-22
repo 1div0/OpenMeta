@@ -96,12 +96,15 @@ Host-facing API map
      - Experimental
      - Query contract for inspection matches plus normalized candidates.
        Current coverage includes crop/active-area/border margins,
-       exposure/gain, white balance, color, lens correction, orientation, and
-       RAW/source-processing metadata across standard tags, selected DNG tags,
-       Fujifilm RAF raw crop/zoom rectangles, Canon aspect/crop metadata,
-       Nikon Capture crop bounds, Sony panorama crop margins, selected decoded
-       vendor/MakerNote exposure names, fuzzy XMP paths, and vendor
-       RAW-processing classification. Matches report ``exact_match``,
+       exposure/gain, white balance, color/profile, lens correction,
+       orientation, descriptive EXIF/IPTC/XMP fields, and RAW/source-processing
+       metadata across standard tags, selected DNG tags, EXIF color-space
+       evidence, ICC header/tag entries, XMP ICC/profile/color-space fields,
+       PNG profile text carriers, Fujifilm RAF raw crop/zoom rectangles, Canon
+       aspect/crop metadata, Nikon Capture crop bounds, Sony panorama crop
+       margins, selected decoded vendor/MakerNote exposure names, fuzzy XMP
+       paths, and vendor RAW-processing classification. Matches report
+       ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
        ``OPENMETA_ENABLE_RAPIDFUZZ=ON`` adds optional near-miss
@@ -130,9 +133,9 @@ Host-facing API map
        entry ids, and normalized origin/size/rect/margins/value arrays where
        available. Current scope covers orientation, geometry/crop/border
        including Fujifilm RAF, Canon, Nikon Capture, and Sony panorama
-       geometry patterns, exposure/gain, color/white-balance, lens-correction,
-       and RAW/source-processing records, and grouped vendor-family table/vector
-       records where
+       geometry patterns, exposure/gain, color/white-balance/profile records,
+       lens-correction, and RAW/source-processing records, and grouped
+       vendor-family table/vector records where
        classification supports them. Python ``Document`` and
        ``TransferSourceSnapshot`` expose matching dictionary wrappers.
    * - Cross-family concept resolution:

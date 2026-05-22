@@ -144,8 +144,10 @@ Use exact keys for:
 
 For semantic inspection UI, use `openmeta/metadata_query.h`. It reports raw
 matches plus normalized candidates for areas such as crop/active-area,
-exposure/gain, white balance, color, lens correction, orientation, and
-RAW-processing metadata. `query_descriptive_metadata(...)` also exposes a
+exposure/gain, white balance, color/profile, lens correction, orientation, and
+RAW-processing metadata. Color-profile matches include EXIF color-space
+evidence, ICC header/tag entries, XMP ICC/profile/color-space fields, and PNG
+profile text carriers. `query_descriptive_metadata(...)` also exposes a
 bounded EXIF/IPTC/XMP reconciliation view for common descriptive fields:
 title/headline, description/caption, creator/author, and keywords/subject.
 These helpers use deterministic built-in name/tag

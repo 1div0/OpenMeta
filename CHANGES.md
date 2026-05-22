@@ -1,5 +1,26 @@
 # OpenMeta Changes
 
+## 0.4.27 - 2026-05-22
+
+Changes compared with `0.4.26`.
+
+### Added
+
+- Added a distinct `ColorProfile` semantic query role for EXIF color-space
+  evidence, ICC header/tag entries, XMP ICC/profile fields, and PNG profile
+  text carriers.
+- Added query, interpretation, concept-resolution, and Python enum coverage for
+  color-profile evidence while preserving source-entry provenance.
+
+### Changed
+
+- Color-profile concept resolution now keeps ICC profile and color-space roles
+  separate when query-backed records and direct cross-family candidates are
+  merged.
+- Public progress docs now describe the color-profile query/interpretation
+  surface and keep the current interpretation/query readiness estimates aligned
+  with the implemented API.
+
 ## 0.4.26 - 2026-05-22
 
 Changes compared with `0.4.25`.

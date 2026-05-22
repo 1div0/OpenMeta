@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 86%** for the public target scope.
+Current overall status: **medium-high, about 87%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -117,15 +117,19 @@ Coverage matrix
      - Medium-high, about 87-91%.
      - More vendor MakerNote exposure print conversions and richer per-vendor
        exposure/gain labels.
-   * - Color, white balance, and matrices
+   * - Color, white balance, profiles, and matrices
      - DNG color/calibration/reduction/forward matrix groups, white-balance
-       vector groups, ICC metadata, RAW color/source-processing safety
-       buckets, transfer hints, per-family grouped vendor color/WB candidates,
-       long-tail camera-to-XYZ/RGB, style/color, and white-balance gain aliases,
-       and cross-family concept candidates with full grouped value vectors are
-       identified. Matrix/vector groups require numeric payloads with
-       conservative minimum shapes before promotion.
-     - Medium-high, about 82-90%.
+       vector groups, EXIF color-space evidence, ICC header/tag entries, XMP
+       ICC/profile fields, PNG profile text carriers, RAW color/source-
+       processing safety buckets, transfer hints, per-family grouped vendor
+       color/WB candidates, long-tail camera-to-XYZ/RGB, style/color, and
+       white-balance gain aliases, and cross-family concept candidates with
+       full grouped value vectors are identified. ICC/profile and color-space
+       records now have a distinct ``color_profile`` semantic role while
+       source-bound RAW color transforms remain conservative. Matrix/vector
+       groups require numeric payloads with conservative minimum shapes before
+       promotion.
+     - Medium-high, about 84-91%.
      - Deeper camera/vendor color science interpretation is intentionally
        conservative, especially for rendered-image transfer.
    * - Lens correction and RAW processing
@@ -173,7 +177,8 @@ Coverage matrix
        RAF raw crop/zoom rectangles, Canon/Nikon/Sony crop and border
        patterns, border margins, exposure/gain roles, selected
        vendor/MakerNote exposure-name aliases, per-family grouped vendor
-       records, descriptive EXIF/IPTC/XMP concepts, expanded source
+       records, descriptive EXIF/IPTC/XMP concepts, explicit color-profile
+       records for EXIF/ICC/XMP/PNG profile carriers, expanded source
        color/style/lens/source-processing aliases, source-processing buckets,
        optional RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
@@ -185,7 +190,7 @@ Coverage matrix
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, rendered/compatible safety
        booleans, and tolerance-aware GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 79-85%.
+     - Medium-high, about 80-86%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification

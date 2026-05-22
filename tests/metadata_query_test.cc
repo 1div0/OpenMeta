@@ -108,6 +108,49 @@ namespace {
         return id;
     }
 
+    static EntryId add_icc_header_u32(MetaStore* store, uint32_t offset,
+                                      uint32_t value)
+    {
+        if (!store) {
+            return kInvalidEntryId;
+        }
+        Entry entry;
+        entry.key        = make_icc_header_field_key(offset);
+        entry.value      = make_u32(value);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
+    static EntryId add_icc_tag_bytes(MetaStore* store, uint32_t signature,
+                                     std::span<const std::byte> bytes)
+    {
+        if (!store) {
+            return kInvalidEntryId;
+        }
+        Entry entry;
+        entry.key        = make_icc_tag_key(signature);
+        entry.value      = make_bytes(store->arena(), bytes);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
+    static EntryId add_png_text(MetaStore* store, std::string_view keyword,
+                                std::string_view field,
+                                std::string_view value)
+    {
+        if (!store) {
+            return kInvalidEntryId;
+        }
+        Entry entry;
+        entry.key        = make_png_text_key(store->arena(), keyword, field);
+        entry.value      = make_text(store->arena(), value, TextEncoding::Utf8);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
     static const MetadataQueryCandidate*
     find_candidate(const MetadataQueryResult& result,
                    MetadataQuerySemanticKind semantic)
@@ -874,6 +917,89 @@ TEST(MetadataQuery, MatchesDngColorMatrix)
     EXPECT_DOUBLE_EQ(candidate->values[0], 1.0);
     EXPECT_DOUBLE_EQ(candidate->values[4], 1.0);
     EXPECT_DOUBLE_EQ(candidate->values[8], 1.0);
+}
+
+TEST(MetadataQuery, MatchesColorProfileCarriers)
+{
+    MetaStore store;
+    const EntryId exif_color_space = add_exif_u32(&store, "exififd", 0xA001U,
+                                                  1U);
+    const EntryId xmp_icc
+        = add_xmp_text(&store, "http://ns.adobe.com/photoshop/1.0/",
+                       "photoshop:ICCProfile", "sRGB IEC61966-2.1");
+    const EntryId icc_header = add_icc_header_u32(&store, 16U, 0x52474220U);
+    const std::array<std::byte, 4> desc_bytes = {
+        std::byte { 0x64U },
+        std::byte { 0x65U },
+        std::byte { 0x73U },
+        std::byte { 0x63U },
+    };
+    const EntryId icc_tag = add_icc_tag_bytes(
+        &store, 0x64657363U,
+        std::span<const std::byte>(desc_bytes.data(), desc_bytes.size()));
+    const EntryId png_iccp
+        = add_png_text(&store, "iCCP", "profile_name", "sRGB");
+    store.finalize();
+
+    const MetadataQueryResult result = query_color_metadata(store);
+
+    const MetadataQueryMatch* exif_match = find_match_for_entry(
+        result, exif_color_space);
+    ASSERT_NE(exif_match, nullptr);
+    EXPECT_EQ(exif_match->semantic, MetadataQuerySemanticKind::ColorProfile);
+    EXPECT_EQ(exif_match->shape, MetadataQueryValueShape::Scalar);
+    EXPECT_TRUE(exif_match->exact_match);
+    EXPECT_NE((exif_match->matched_terms
+               & static_cast<uint32_t>(MetadataQueryMatchTerm::Profile)),
+              0U);
+    const MetadataQueryCandidate* exif_candidate = find_candidate_for_entry(
+        result, exif_color_space);
+    ASSERT_NE(exif_candidate, nullptr);
+    EXPECT_EQ(exif_candidate->semantic,
+              MetadataQuerySemanticKind::ColorProfile);
+    EXPECT_EQ(exif_candidate->normalized_shape,
+              MetadataQueryValueShape::Scalar);
+    ASSERT_TRUE(exif_candidate->has_values);
+    ASSERT_EQ(exif_candidate->values.size(), 1U);
+    EXPECT_DOUBLE_EQ(exif_candidate->values[0], 1.0);
+
+    const MetadataQueryMatch* xmp_match = find_match_for_entry(result,
+                                                               xmp_icc);
+    ASSERT_NE(xmp_match, nullptr);
+    EXPECT_EQ(xmp_match->semantic, MetadataQuerySemanticKind::ColorProfile);
+    EXPECT_EQ(xmp_match->shape, MetadataQueryValueShape::Text);
+    EXPECT_TRUE(xmp_match->exact_match);
+
+    const MetadataQueryMatch* icc_header_match = find_match_for_entry(
+        result, icc_header);
+    ASSERT_NE(icc_header_match, nullptr);
+    EXPECT_EQ(icc_header_match->semantic,
+              MetadataQuerySemanticKind::ColorProfile);
+    EXPECT_EQ(icc_header_match->shape, MetadataQueryValueShape::Scalar);
+    EXPECT_EQ(icc_header_match->group, "icc");
+    EXPECT_EQ(icc_header_match->name, "ICCColorSpace");
+
+    const MetadataQueryMatch* icc_tag_match = find_match_for_entry(result,
+                                                                   icc_tag);
+    ASSERT_NE(icc_tag_match, nullptr);
+    EXPECT_EQ(icc_tag_match->semantic, MetadataQuerySemanticKind::ColorProfile);
+    EXPECT_EQ(icc_tag_match->shape, MetadataQueryValueShape::Blob);
+    EXPECT_EQ(icc_tag_match->name, "ICCProfileTag");
+
+    const MetadataQueryMatch* png_match = find_match_for_entry(result,
+                                                               png_iccp);
+    ASSERT_NE(png_match, nullptr);
+    EXPECT_EQ(png_match->semantic, MetadataQuerySemanticKind::ColorProfile);
+    EXPECT_EQ(png_match->shape, MetadataQueryValueShape::Text);
+    EXPECT_EQ(png_match->group, "png_text");
+
+    EXPECT_NE(find_candidate_for_entry(result, xmp_icc), nullptr);
+    EXPECT_NE(find_candidate_for_entry(result, icc_header), nullptr);
+    EXPECT_NE(find_candidate_for_entry(result, icc_tag), nullptr);
+    EXPECT_NE(find_candidate_for_entry(result, png_iccp), nullptr);
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::ColorProfile),
+                 "color_profile");
 }
 
 TEST(MetadataQuery, GroupsDngColorMatrixSet)

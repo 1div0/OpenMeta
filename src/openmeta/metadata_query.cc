@@ -42,6 +42,7 @@ namespace {
     static constexpr uint16_t kExifMaxApertureValueTag        = 0x9205U;
     static constexpr uint16_t kExifLightSourceTag             = 0x9208U;
     static constexpr uint16_t kExifExposureIndexTag           = 0x9215U;
+    static constexpr uint16_t kExifColorSpaceTag              = 0xA001U;
     static constexpr uint16_t kExifWhiteBalanceTag            = 0xA403U;
     static constexpr uint16_t kExifGainControlTag             = 0xA407U;
     static constexpr uint16_t kExifCfaRepeatPatternDimTag     = 0x828DU;
@@ -124,6 +125,9 @@ namespace {
     static constexpr uint16_t kSonyPanoramaCropTopTag           = 0x0005U;
     static constexpr uint16_t kSonyPanoramaCropRightTag         = 0x0006U;
     static constexpr uint16_t kSonyPanoramaCropBottomTag        = 0x0007U;
+    static constexpr uint32_t kIccHeaderProfileSizeOffset       = 0U;
+    static constexpr uint32_t kIccHeaderColorSpaceOffset        = 16U;
+    static constexpr uint32_t kIccHeaderPcsOffset               = 20U;
 
     static constexpr uint16_t kDngColorMatrixTags[] = {
         kDngColorMatrix1Tag,
@@ -1247,6 +1251,53 @@ namespace {
         return 0U;
     }
 
+    static uint32_t color_profile_terms() noexcept
+    {
+        return static_cast<uint32_t>(MetadataQueryMatchTerm::Color)
+               | static_cast<uint32_t>(MetadataQueryMatchTerm::Profile);
+    }
+
+    static uint32_t
+    xmp_color_profile_terms(std::string_view path,
+                            MatchProvenanceState* provenance) noexcept
+    {
+        const std::string_view leaf = xmp_leaf_property(path);
+        if (equals_ascii_case_insensitive(leaf, "ICCProfile")
+            || equals_ascii_case_insensitive(leaf, "ICCProfileName")
+            || contains_ascii_case_insensitive(path, "iccprofile")) {
+            note_exact_match(provenance);
+            return color_profile_terms();
+        }
+        if (equals_ascii_case_insensitive(leaf, "ColorSpace")
+            || contains_ascii_case_insensitive(path, "colorspace")) {
+            note_exact_match(provenance);
+            return color_profile_terms();
+        }
+        return 0U;
+    }
+
+    static const char* icc_header_field_query_name(uint32_t offset) noexcept
+    {
+        switch (offset) {
+        case kIccHeaderProfileSizeOffset: return "ICCProfileSize";
+        case kIccHeaderColorSpaceOffset: return "ICCColorSpace";
+        case kIccHeaderPcsOffset: return "ICCProfileConnectionSpace";
+        default: break;
+        }
+        return "ICCProfileHeader";
+    }
+
+    static bool png_text_is_color_profile(std::string_view keyword,
+                                          std::string_view field) noexcept
+    {
+        return contains_ascii_case_insensitive(keyword, "icc")
+               || contains_ascii_case_insensitive(keyword, "profile")
+               || contains_ascii_case_insensitive(keyword, "colorspace")
+               || contains_ascii_case_insensitive(field, "icc")
+               || contains_ascii_case_insensitive(field, "profile")
+               || contains_ascii_case_insensitive(field, "colorspace");
+    }
+
     static uint32_t exact_exif_terms_for_kind(uint16_t tag,
                                               MetadataQueryKind kind) noexcept
     {
@@ -1306,6 +1357,7 @@ namespace {
             return 0U;
         case MetadataQueryKind::Color:
             switch (tag) {
+            case kExifColorSpaceTag: return color_profile_terms();
             case kDngColorMatrix1Tag:
             case kDngColorMatrix2Tag:
             case kDngReductionMatrix1Tag:
@@ -1711,6 +1763,10 @@ namespace {
                 != 0U) {
                 return 88U;
             }
+            if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Profile))
+                != 0U) {
+                return 88U;
+            }
             if ((terms & static_cast<uint32_t>(MetadataQueryMatchTerm::Color))
                 != 0U) {
                 return 70U;
@@ -1784,7 +1840,9 @@ namespace {
                              const Entry& entry, std::string_view group,
                              std::string_view name, MetadataQueryKind kind,
                              uint32_t terms,
-                             const MatchProvenanceState& provenance)
+                             const MatchProvenanceState& provenance,
+                             MetadataQuerySemanticKind explicit_semantic
+                             = MetadataQuerySemanticKind::Unknown)
     {
         if (!result || terms == 0U) {
             return;
@@ -1792,7 +1850,10 @@ namespace {
         MetadataQueryMatch match;
         match.entry_id      = entry_id;
         match.key_kind      = entry.key.kind;
-        match.semantic      = semantic_from_terms(kind, terms);
+        match.semantic      = explicit_semantic
+                                      != MetadataQuerySemanticKind::Unknown
+                                  ? explicit_semantic
+                                  : semantic_from_terms(kind, terms);
         match.shape         = value_shape(entry.value);
         match.confidence    = confidence_from_terms(kind, terms);
         match.matched_terms = terms;
@@ -1834,8 +1895,14 @@ namespace {
             note_exact_match(&provenance);
             terms |= vendor_terms;
         }
+        MetadataQuerySemanticKind explicit_semantic
+            = MetadataQuerySemanticKind::Unknown;
+        if (kind == MetadataQueryKind::Color
+            && entry.key.data.exif_tag.tag == kExifColorSpaceTag) {
+            explicit_semantic = MetadataQuerySemanticKind::ColorProfile;
+        }
         append_match(result, entry_id, entry, ifd, name, kind, terms,
-                     provenance);
+                     provenance, explicit_semantic);
     }
 
     static void append_xmp_match_if_relevant(const MetaStore& store,
@@ -1857,8 +1924,18 @@ namespace {
         } else {
             terms = match_terms_for_kind(path, ns, kind, true, &provenance);
         }
+        MetadataQuerySemanticKind explicit_semantic
+            = MetadataQuerySemanticKind::Unknown;
+        if (kind == MetadataQueryKind::Color) {
+            const uint32_t profile_terms = xmp_color_profile_terms(
+                path, &provenance);
+            if (profile_terms != 0U) {
+                terms |= profile_terms;
+                explicit_semantic = MetadataQuerySemanticKind::ColorProfile;
+            }
+        }
         append_match(result, entry_id, entry, ns, path, kind, terms,
-                     provenance);
+                     provenance, explicit_semantic);
     }
 
     static void append_iptc_match_if_relevant(MetadataQueryResult* result,
@@ -1877,6 +1954,52 @@ namespace {
         append_match(result, entry_id, entry, "iptc",
                      iptc_descriptive_dataset_name(record, dataset), kind,
                      terms, provenance);
+    }
+
+    static void append_icc_match_if_relevant(MetadataQueryResult* result,
+                                             EntryId entry_id,
+                                             const Entry& entry,
+                                             MetadataQueryKind kind)
+    {
+        if (kind != MetadataQueryKind::Color) {
+            return;
+        }
+        MatchProvenanceState provenance;
+        note_exact_match(&provenance);
+        if (entry.key.kind == MetaKeyKind::IccHeaderField) {
+            append_match(result, entry_id, entry, "icc",
+                         icc_header_field_query_name(
+                             entry.key.data.icc_header_field.offset),
+                         kind, color_profile_terms(), provenance,
+                         MetadataQuerySemanticKind::ColorProfile);
+            return;
+        }
+        append_match(result, entry_id, entry, "icc", "ICCProfileTag", kind,
+                     color_profile_terms(), provenance,
+                     MetadataQuerySemanticKind::ColorProfile);
+    }
+
+    static void append_png_text_match_if_relevant(const MetaStore& store,
+                                                  MetadataQueryResult* result,
+                                                  EntryId entry_id,
+                                                  const Entry& entry,
+                                                  MetadataQueryKind kind)
+    {
+        if (kind != MetadataQueryKind::Color) {
+            return;
+        }
+        const std::string_view keyword
+            = arena_string(store.arena(), entry.key.data.png_text.keyword);
+        const std::string_view field
+            = arena_string(store.arena(), entry.key.data.png_text.field);
+        if (!png_text_is_color_profile(keyword, field)) {
+            return;
+        }
+        MatchProvenanceState provenance;
+        note_exact_match(&provenance);
+        append_match(result, entry_id, entry, "png_text", keyword, kind,
+                     color_profile_terms(), provenance,
+                     MetadataQuerySemanticKind::ColorProfile);
     }
 
     static bool exif_entry_is(const MetaStore& store, const Entry& entry,
@@ -3195,6 +3318,14 @@ namespace {
             } else if (entry.key.kind == MetaKeyKind::IptcDataset) {
                 append_iptc_match_if_relevant(&result, static_cast<EntryId>(i),
                                               entry, kind);
+            } else if (entry.key.kind == MetaKeyKind::IccHeaderField
+                       || entry.key.kind == MetaKeyKind::IccTag) {
+                append_icc_match_if_relevant(&result, static_cast<EntryId>(i),
+                                             entry, kind);
+            } else if (entry.key.kind == MetaKeyKind::PngText) {
+                append_png_text_match_if_relevant(store, &result,
+                                                  static_cast<EntryId>(i),
+                                                  entry, kind);
             }
         }
         append_query_value_candidates(store, &result);
@@ -3344,6 +3475,7 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
     case MetadataQuerySemanticKind::Exposure: return "exposure";
     case MetadataQuerySemanticKind::Gain: return "gain";
     case MetadataQuerySemanticKind::Color: return "color";
+    case MetadataQuerySemanticKind::ColorProfile: return "color_profile";
     case MetadataQuerySemanticKind::WhiteBalance: return "white_balance";
     case MetadataQuerySemanticKind::ColorMatrix: return "color_matrix";
     case MetadataQuerySemanticKind::LensCorrection: return "lens_correction";

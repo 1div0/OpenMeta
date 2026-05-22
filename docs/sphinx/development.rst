@@ -31,18 +31,18 @@ model should stay compact:
      - High, about 98-100% for the current target scope.
    * - Interpretation
      - Normalize names and values, group entries by meaning, and classify
-       source-bound data such as RAW crop, exposure adjustment, color,
-       lens-correction, sensor, computational capture state, and
+       source-bound data such as RAW crop, exposure adjustment, color/profile
+       evidence, lens-correction, sensor, computational capture state, and
        vendor-private fields.
-     - Medium-high, about 86%.
+     - Medium-high, about 87%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
        bounded cross-family concept resolutions, transfer hints, and conflict
-       flags for crop/border/active-area, exposure/gain, color/WB,
+       flags for crop/border/active-area, exposure/gain, color/WB/profile,
        orientation, date/time, GPS, lens-correction, and RAW/source-processing
        fields across standard and vendor metadata.
-     - Medium, about 73-79%.
+     - Medium-high, about 75-81%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -79,8 +79,8 @@ interpretation rather than hiding ambiguity behind a single value.
 
 The first experimental C++ query surface is ``openmeta/metadata_query.h``.
 It returns both raw matches and normalized candidates for crop/active-area,
-exposure/gain, white balance, color, lens correction, orientation, and
-RAW-processing queries.
+exposure/gain, white balance, color/profile, lens correction, orientation,
+descriptive, and RAW-processing queries.
 Crop queries include DNG crop tags, ``ActiveArea``, Phase One/Leaf raw
 geometry, Fujifilm RAF raw crop/zoom rectangles, Canon aspect/crop metadata,
 Nikon Capture crop bounds, Sony panorama crop margins, and fuzzy
@@ -90,11 +90,14 @@ paths, canonical border-margin parsing, and vendor RAW-processing
 classification where applicable.
 They also append grouped candidates for related DNG color matrix/calibration/
 reduction/forward matrix tags, DNG white-balance vector tags, and
-lens-correction table groups. Vendor-classified MakerNote/RAW fields can also
-form per-family grouped candidates for white balance, color, raw-storage,
-sensor, and source-processing records. RAW-processing queries add conservative
-groups for black/white levels, linearization tables, CFA/sensor layout, source
-geometry, raw-storage identifiers, and source-private processing buckets.
+lens-correction table groups. Color queries expose a distinct
+``color_profile`` semantic for EXIF color-space evidence, ICC header/tag
+entries, XMP ICC/profile/color-space fields, and PNG profile text carriers.
+Vendor-classified MakerNote/RAW fields can also form per-family grouped
+candidates for white balance, color, raw-storage, sensor, and source-processing
+records. RAW-processing queries add conservative groups for black/white levels,
+linearization tables, CFA/sensor layout, source geometry, raw-storage
+identifiers, and source-private processing buckets.
 Exposure/gain concept resolution promotes exposure time, aperture, ISO,
 exposure bias, exposure program, gain, and raw exposure-adjustment records into
 host-visible roles, with raw exposure adjustments kept unsafe for rendered

@@ -139,6 +139,9 @@ namespace {
             = add_exif_u32_array(&store, "ifd0", 0xC621U,
                                  std::span<const uint32_t>(matrix.data(),
                                                            matrix.size()));
+        const EntryId color_profile
+            = add_xmp_text(&store, "http://ns.adobe.com/photoshop/1.0/",
+                           "photoshop:ICCProfile", "sRGB IEC61966-2.1");
         const EntryId raw     = add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
         const EntryId source  = add_exif_u32(&store, "mk_google_shotlogdata",
                                              0x0001U, 7U);
@@ -194,6 +197,13 @@ namespace {
         EXPECT_DOUBLE_EQ(color_matrix->values[0], 1.0);
         EXPECT_DOUBLE_EQ(color_matrix->values[4], 1.0);
         EXPECT_DOUBLE_EQ(color_matrix->values[8], 1.0);
+
+        const MetadataInterpretationRecord* profile
+            = find_record(result, MetadataQuerySemanticKind::ColorProfile,
+                          MetadataQueryValueShape::Text);
+        ASSERT_NE(profile, nullptr);
+        EXPECT_EQ(profile->query_kind, MetadataQueryKind::Color);
+        EXPECT_TRUE(contains_entry(profile->source_entries, color_profile));
 
         const MetadataInterpretationRecord* black
             = find_record(result, MetadataQuerySemanticKind::BlackLevel,

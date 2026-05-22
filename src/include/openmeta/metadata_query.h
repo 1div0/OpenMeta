@@ -35,6 +35,7 @@ enum class MetadataQuerySemanticKind : uint8_t {
     Exposure,
     Gain,
     Color,
+    ColorProfile,
     WhiteBalance,
     ColorMatrix,
     LensCorrection,

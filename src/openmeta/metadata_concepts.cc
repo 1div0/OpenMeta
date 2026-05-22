@@ -1857,6 +1857,7 @@ namespace {
         case MetadataQuerySemanticKind::Border:
         case MetadataQuerySemanticKind::ActiveArea:
         case MetadataQuerySemanticKind::Color:
+        case MetadataQuerySemanticKind::ColorProfile:
         case MetadataQuerySemanticKind::WhiteBalance:
         case MetadataQuerySemanticKind::ColorMatrix:
         case MetadataQuerySemanticKind::LensCorrection:
@@ -1973,6 +1974,8 @@ namespace {
             return MetadataConceptRole::ColorMatrix;
         case MetadataQuerySemanticKind::WhiteBalance:
             return MetadataConceptRole::WhiteBalance;
+        case MetadataQuerySemanticKind::ColorProfile:
+            return MetadataConceptRole::IccProfile;
         case MetadataQuerySemanticKind::Color:
             return MetadataConceptRole::Primary;
         case MetadataQuerySemanticKind::Unknown:
@@ -1997,6 +2000,48 @@ namespace {
         case MetadataQuerySemanticKind::Keywords: break;
         }
         return MetadataConceptRole::Primary;
+    }
+
+    static MetadataConceptRole
+    color_role_from_record(const MetaStore& store,
+                           const MetadataInterpretationRecord& record)
+    {
+        if (!record.source_entries.empty()) {
+            const EntryId entry_id = record.source_entries[0];
+            if (entry_id != kInvalidEntryId) {
+                const Entry& entry = store.entry(entry_id);
+                if (entry.key.kind == MetaKeyKind::ExifTag
+                    && entry.key.data.exif_tag.tag == kExifColorSpaceTag) {
+                    return MetadataConceptRole::ColorSpace;
+                }
+                if (entry.key.kind == MetaKeyKind::IccHeaderField) {
+                    if (entry.key.data.icc_header_field.offset
+                        == kIccHeaderRgbColorSpaceOffset) {
+                        return MetadataConceptRole::ColorSpace;
+                    }
+                    return MetadataConceptRole::IccProfile;
+                }
+                if (entry.key.kind == MetaKeyKind::IccTag
+                    || entry.key.kind == MetaKeyKind::PngText) {
+                    return MetadataConceptRole::IccProfile;
+                }
+                if (entry.key.kind == MetaKeyKind::XmpProperty) {
+                    const std::string_view path = arena_string(
+                        store.arena(),
+                        entry.key.data.xmp_property.property_path);
+                    if (xmp_leaf_matches(path, "ICCProfile")
+                        || xmp_leaf_matches(path, "ICCProfileName")
+                        || ascii_contains_ci(path, "iccprofile")) {
+                        return MetadataConceptRole::IccProfile;
+                    }
+                    if (xmp_leaf_matches(path, "ColorSpace")
+                        || ascii_contains_ci(path, "colorspace")) {
+                        return MetadataConceptRole::ColorSpace;
+                    }
+                }
+            }
+        }
+        return color_role_from_semantic(record.semantic);
     }
 
     static MetadataConceptRole
@@ -2033,6 +2078,7 @@ namespace {
         case MetadataQuerySemanticKind::Exposure:
         case MetadataQuerySemanticKind::Gain:
         case MetadataQuerySemanticKind::Color:
+        case MetadataQuerySemanticKind::ColorProfile:
         case MetadataQuerySemanticKind::WhiteBalance:
         case MetadataQuerySemanticKind::ColorMatrix:
         case MetadataQuerySemanticKind::LensCorrection:
@@ -2095,15 +2141,46 @@ namespace {
     }
 
     static void
+    append_color_query_concept_candidates(const MetaStore& store,
+                                          MetadataQueryKind query_kind,
+                                          MetadataConceptResolution* out)
+    {
+        MetadataInterpretationResult result = interpret_metadata_query(
+            store, query_kind);
+        for (size_t i = 0U; i < result.records.size(); ++i) {
+            const MetadataInterpretationRecord& record = result.records[i];
+            if (record.source_entries.empty()) {
+                continue;
+            }
+            const EntryId entry_id = record.source_entries[0];
+            if (entry_id == kInvalidEntryId) {
+                continue;
+            }
+            const MetadataConceptRole role = color_role_from_record(store,
+                                                                    record);
+            MetadataConceptCandidate candidate = make_entry_candidate(
+                store, entry_id, MetadataConceptKind::ColorProfile, role,
+                record.semantic, record.shape,
+                record.confidence != 0U ? record.confidence : 60U);
+            candidate.source_entries.clear();
+            for (size_t e = 0U; e < record.source_entries.size(); ++e) {
+                add_unique_entry(&candidate.source_entries,
+                                 record.source_entries[e]);
+            }
+            copy_interpretation_values(record, &candidate);
+            append_candidate(out, candidate);
+        }
+    }
+
+    static void
     append_color_interpretation_candidates(const MetaStore& store,
                                            MetadataConceptResolution* out)
     {
-        append_query_concept_candidates(store, MetadataQueryKind::Color,
-                                        MetadataConceptKind::ColorProfile,
-                                        color_role_from_semantic, 60U, out);
-        append_query_concept_candidates(store, MetadataQueryKind::WhiteBalance,
-                                        MetadataConceptKind::ColorProfile,
-                                        color_role_from_semantic, 60U, out);
+        append_color_query_concept_candidates(store, MetadataQueryKind::Color,
+                                              out);
+        append_color_query_concept_candidates(store,
+                                              MetadataQueryKind::WhiteBalance,
+                                              out);
     }
 
     static void append_lens_correction_candidates(const MetaStore& store,
@@ -2135,7 +2212,7 @@ namespace {
         MetadataConceptCandidate candidate
             = make_entry_candidate(store, id, MetadataConceptKind::ColorProfile,
                                    MetadataConceptRole::ColorSpace,
-                                   MetadataQuerySemanticKind::Color,
+                                   MetadataQuerySemanticKind::ColorProfile,
                                    MetadataQueryValueShape::Scalar, 90U);
         fill_numeric_candidate(&candidate, values, 1U);
         candidate.value_key = numeric_key(values[0]);
@@ -2149,7 +2226,7 @@ namespace {
         MetadataConceptCandidate candidate
             = make_entry_candidate(store, id, MetadataConceptKind::ColorProfile,
                                    MetadataConceptRole::IccProfile,
-                                   MetadataQuerySemanticKind::Color,
+                                   MetadataQuerySemanticKind::ColorProfile,
                                    MetadataQueryValueShape::Blob, 100U);
         if (entry.key.kind == MetaKeyKind::IccHeaderField
             && entry.key.data.icc_header_field.offset
@@ -2191,7 +2268,8 @@ namespace {
         (void)value_to_text(store.arena(), entry.value, &text);
         MetadataConceptCandidate candidate
             = make_entry_candidate(store, id, MetadataConceptKind::ColorProfile,
-                                   role, MetadataQuerySemanticKind::Color,
+                                   role,
+                                   MetadataQuerySemanticKind::ColorProfile,
                                    MetadataQueryValueShape::Text, priority);
         candidate.text = text;
         normalize_text_key(text, &candidate.value_key);
@@ -2212,7 +2290,7 @@ namespace {
         MetadataConceptCandidate candidate
             = make_entry_candidate(store, id, MetadataConceptKind::ColorProfile,
                                    MetadataConceptRole::IccProfile,
-                                   MetadataQuerySemanticKind::Color,
+                                   MetadataQuerySemanticKind::ColorProfile,
                                    MetadataQueryValueShape::Text, 65U);
         value_to_text(store.arena(), entry.value, &candidate.text);
         normalize_text_key(candidate.text, &candidate.value_key);
@@ -2257,6 +2335,7 @@ namespace {
         case MetadataQuerySemanticKind::Exposure:
         case MetadataQuerySemanticKind::Gain:
         case MetadataQuerySemanticKind::Color:
+        case MetadataQuerySemanticKind::ColorProfile:
         case MetadataQuerySemanticKind::WhiteBalance:
         case MetadataQuerySemanticKind::ColorMatrix:
         case MetadataQuerySemanticKind::LensCorrection:

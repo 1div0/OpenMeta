@@ -6000,7 +6000,8 @@ NB_MODULE(_openmeta, m)
         .value("Color", MetadataQueryKind::Color)
         .value("LensCorrection", MetadataQueryKind::LensCorrection)
         .value("Orientation", MetadataQueryKind::Orientation)
-        .value("RawProcessing", MetadataQueryKind::RawProcessing);
+        .value("RawProcessing", MetadataQueryKind::RawProcessing)
+        .value("Descriptive", MetadataQueryKind::Descriptive);
 
     nb::enum_<MetadataQuerySemanticKind>(m, "MetadataQuerySemanticKind")
         .value("Unknown", MetadataQuerySemanticKind::Unknown)
@@ -6010,6 +6011,7 @@ NB_MODULE(_openmeta, m)
         .value("Exposure", MetadataQuerySemanticKind::Exposure)
         .value("Gain", MetadataQuerySemanticKind::Gain)
         .value("Color", MetadataQuerySemanticKind::Color)
+        .value("ColorProfile", MetadataQuerySemanticKind::ColorProfile)
         .value("WhiteBalance", MetadataQuerySemanticKind::WhiteBalance)
         .value("ColorMatrix", MetadataQuerySemanticKind::ColorMatrix)
         .value("LensCorrection", MetadataQuerySemanticKind::LensCorrection)
@@ -6021,7 +6023,11 @@ NB_MODULE(_openmeta, m)
         .value("CfaLayout", MetadataQuerySemanticKind::CfaLayout)
         .value("SensorGeometry", MetadataQuerySemanticKind::SensorGeometry)
         .value("RawStorage", MetadataQuerySemanticKind::RawStorage)
-        .value("SourceProcessing", MetadataQuerySemanticKind::SourceProcessing);
+        .value("SourceProcessing", MetadataQuerySemanticKind::SourceProcessing)
+        .value("Title", MetadataQuerySemanticKind::Title)
+        .value("Description", MetadataQuerySemanticKind::Description)
+        .value("Creator", MetadataQuerySemanticKind::Creator)
+        .value("Keywords", MetadataQuerySemanticKind::Keywords);
 
     nb::enum_<MetadataQueryValueShape>(m, "MetadataQueryValueShape")
         .value("Unknown", MetadataQueryValueShape::Unknown)
