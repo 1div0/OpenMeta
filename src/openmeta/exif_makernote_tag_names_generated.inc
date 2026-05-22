@@ -6038,6 +6038,7 @@ static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod810[] = {
 static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod850[] = {
     { 0x0000u, "ShotInfoVersion" },
     { 0x0004u, "FirmwareVersion" },
+    { 0x0024u, "PhotoShootingMenuBank" },
 };
 
 static constexpr MakerNoteTagNameEntry kMakernoteNikonShotinfod90[] = {

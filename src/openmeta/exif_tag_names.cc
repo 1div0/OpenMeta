@@ -1100,6 +1100,12 @@ namespace {
             case 1: return "Canon_0x0038";
             default: return canonical;
             }
+        case EntryNameContextKind::CanonMain0000:
+            switch (entry.origin.name_context_variant) {
+            case 1: return "FocalType";
+            case 2: return "AFInfoSize";
+            default: return canonical;
+            }
         case EntryNameContextKind::CanonShotInfo000E:
             switch (entry.origin.name_context_variant) {
             case 1: return "MinFocalLength";

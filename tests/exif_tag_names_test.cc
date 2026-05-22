@@ -717,6 +717,8 @@ TEST(ExifTagNames, MapsNikonCustomDslrTables)
               std::string_view("PhotoShootingMenuBankImageArea"));
     EXPECT_EQ(exif_tag_name("mk_nikon_moresettingsd850_0", 0x0025),
               std::string_view("PrimarySlot"));
+    EXPECT_EQ(exif_tag_name("mk_nikon_shotinfod850_0", 0x0024),
+              std::string_view("PhotoShootingMenuBank"));
     EXPECT_EQ(exif_tag_name("mk_nikoncustom_settingsz8_0", 0x0001),
               std::string_view("CustomSettingsBank"));
     EXPECT_EQ(exif_tag_name("mk_nikoncustom_settingsz8_0", 0x0203),
@@ -2084,6 +2086,24 @@ TEST(ExifTagNames, ContextualEntryNamesSelectNikonShotInfoD850CompatTables)
     EXPECT_EQ(exif_entry_name(store, image_area_entry,
                               ExifTagNamePolicy::ExifToolCompat),
               std::string_view("PhotoShootingMenuBankImageArea"));
+
+    Entry menu_bank;
+    menu_bank.key = make_exif_tag_key(store.arena(), "mk_nikon_shotinfo_0",
+                                      0x0024);
+    menu_bank.origin.block = block;
+    menu_bank.flags |= EntryFlags::ContextualName;
+    menu_bank.origin.name_context_kind = EntryNameContextKind::NikonShotInfoD850;
+    menu_bank.origin.name_context_variant = 1U;
+    const EntryId menu_bank_id            = store.add_entry(menu_bank);
+    ASSERT_NE(menu_bank_id, openmeta::kInvalidEntryId);
+
+    const Entry& menu_bank_entry = store.entry(menu_bank_id);
+    EXPECT_TRUE(
+        exif_entry_name(store, menu_bank_entry, ExifTagNamePolicy::Canonical)
+            .empty());
+    EXPECT_EQ(exif_entry_name(store, menu_bank_entry,
+                              ExifTagNamePolicy::ExifToolCompat),
+              std::string_view("PhotoShootingMenuBank"));
 }
 
 TEST(ExifTagNames, ContextualEntryNamesSelectNikonFlashInfoGroupVariants)

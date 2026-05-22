@@ -1,5 +1,22 @@
 # OpenMeta Changes
 
+## 0.4.26 - 2026-05-22
+
+Changes compared with `0.4.25`.
+
+### Added
+
+- Added contextual Canon MakerNote main tag `0x0000` names for the observed
+  camcorder and Cinema EOS cohorts.
+- Added Nikon ShotInfo D850 tag `0x0024` as `PhotoShootingMenuBank`.
+
+### Changed
+
+- Canon AFInfo2 decoding now retries with a bounded in-MakerNote payload scan
+  when the primary Canon offset points at a non-AFInfo2 block.
+- Nikon ShotInfo `0x0024` compatibility naming now covers the Z f ShotInfo
+  layout used by the interpretation path.
+
 ## 0.4.25 - 2026-05-21
 
 Changes compared with `0.4.24`.
