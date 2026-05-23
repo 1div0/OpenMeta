@@ -1317,33 +1317,67 @@ TEST(MetadataQuery, MatchesDngRawProcessingLevels)
     EXPECT_DOUBLE_EQ(black_candidate->values[0], 512.0);
 }
 
-TEST(MetadataQuery, MatchesVendorSourceProcessingFields)
+TEST(MetadataQuery, MatchesVendorSourceProcessingSubroles)
 {
     MetaStore store;
-    const EntryId source_id = add_exif_u32(&store, "mk_google_shotlogdata",
-                                           0x0001U, 7U);
+    const EntryId computational_id
+        = add_exif_u32(&store, "mk_google_shotlogdata", 0x0001U, 7U);
+    const EntryId thermal_id = add_exif_u32(&store, "mk_dji_thermalparams",
+                                            0x0048U, 98U);
+    const EntryId stitch_id  = add_exif_u32(&store, "mk_microsoft_stitch",
+                                            0x0003U, 12U);
     store.finalize();
 
     const MetadataQueryResult result = query_raw_processing_metadata(store);
 
-    const MetadataQueryMatch* match = find_match_for_entry(result, source_id);
-    ASSERT_NE(match, nullptr);
-    EXPECT_EQ(match->semantic, MetadataQuerySemanticKind::SourceProcessing);
-    EXPECT_GE(match->confidence, 80U);
-    EXPECT_NE((match->matched_terms
+    const MetadataQueryMatch* computational_match
+        = find_match_for_entry(result, computational_id);
+    ASSERT_NE(computational_match, nullptr);
+    EXPECT_EQ(computational_match->semantic,
+              MetadataQuerySemanticKind::ComputationalProcessing);
+    EXPECT_GE(computational_match->confidence, 80U);
+    EXPECT_NE((computational_match->matched_terms
                & static_cast<uint32_t>(
                    MetadataQueryMatchTerm::SourceProcessing)),
               0U);
-    const MetadataQueryCandidate* candidate
-        = find_candidate_for_entry(result, source_id);
-    ASSERT_NE(candidate, nullptr);
-    EXPECT_EQ(candidate->semantic, MetadataQuerySemanticKind::SourceProcessing);
-    ASSERT_TRUE(candidate->has_values);
-    ASSERT_EQ(candidate->values.size(), 1U);
-    EXPECT_DOUBLE_EQ(candidate->values[0], 7.0);
+    const MetadataQueryCandidate* computational
+        = find_candidate_for_entry(result, computational_id);
+    ASSERT_NE(computational, nullptr);
+    EXPECT_EQ(computational->semantic,
+              MetadataQuerySemanticKind::ComputationalProcessing);
+    ASSERT_TRUE(computational->has_values);
+    ASSERT_EQ(computational->values.size(), 1U);
+    EXPECT_DOUBLE_EQ(computational->values[0], 7.0);
+
+    const MetadataQueryMatch* thermal_match = find_match_for_entry(result,
+                                                                   thermal_id);
+    ASSERT_NE(thermal_match, nullptr);
+    EXPECT_EQ(thermal_match->semantic,
+              MetadataQuerySemanticKind::ThermalProcessing);
+    const MetadataQueryCandidate* thermal
+        = find_candidate_for_entry(result, thermal_id);
+    ASSERT_NE(thermal, nullptr);
+    EXPECT_EQ(thermal->semantic, MetadataQuerySemanticKind::ThermalProcessing);
+
+    const MetadataQueryMatch* stitch_match = find_match_for_entry(result,
+                                                                  stitch_id);
+    ASSERT_NE(stitch_match, nullptr);
+    EXPECT_EQ(stitch_match->semantic,
+              MetadataQuerySemanticKind::StitchProcessing);
+    const MetadataQueryCandidate* stitch = find_candidate_for_entry(result,
+                                                                    stitch_id);
+    ASSERT_NE(stitch, nullptr);
+    EXPECT_EQ(stitch->semantic, MetadataQuerySemanticKind::StitchProcessing);
+
     EXPECT_STREQ(metadata_query_semantic_kind_name(
-                     MetadataQuerySemanticKind::SourceProcessing),
-                 "source_processing");
+                     MetadataQuerySemanticKind::ComputationalProcessing),
+                 "computational_processing");
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::ThermalProcessing),
+                 "thermal_processing");
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::StitchProcessing),
+                 "stitch_processing");
 }
 
 TEST(MetadataQuery, GroupsVendorWhiteBalanceVectorSetByFamily)
@@ -1517,7 +1551,7 @@ TEST(MetadataQuery, GroupsVendorSourceColorTransformTableByFamily)
     EXPECT_DOUBLE_EQ(candidate->values[1], 24.0);
 }
 
-TEST(MetadataQuery, GroupsSonyStyleSourceProcessingByAlias)
+TEST(MetadataQuery, GroupsSonyStyleComputationalProcessingByAlias)
 {
     MetaStore store;
     const EntryId style_a = add_exif_u32(&store, "mk_sony0", 0xB020U, 1U);
@@ -1527,10 +1561,9 @@ TEST(MetadataQuery, GroupsSonyStyleSourceProcessingByAlias)
 
     const MetadataQueryResult result = query_raw_processing_metadata(store);
 
-    const MetadataQueryCandidate* candidate
-        = find_candidate_with_shape(result,
-                                    MetadataQuerySemanticKind::SourceProcessing,
-                                    MetadataQueryValueShape::Table, 2U);
+    const MetadataQueryCandidate* candidate = find_candidate_with_shape(
+        result, MetadataQuerySemanticKind::ComputationalProcessing,
+        MetadataQueryValueShape::Table, 2U);
     ASSERT_NE(candidate, nullptr);
     EXPECT_TRUE(contains_entry(candidate->source_entries, style_a));
     EXPECT_TRUE(contains_entry(candidate->source_entries, style_b));
@@ -1567,10 +1600,9 @@ TEST(MetadataQuery, GroupsVendorRawProcessingTablesByFamilyAndSemantic)
     EXPECT_DOUBLE_EQ(storage->values[0], 128.0);
     EXPECT_DOUBLE_EQ(storage->values[1], 4096.0);
 
-    const MetadataQueryCandidate* source_processing
-        = find_candidate_with_shape(result,
-                                    MetadataQuerySemanticKind::SourceProcessing,
-                                    MetadataQueryValueShape::Table, 2U);
+    const MetadataQueryCandidate* source_processing = find_candidate_with_shape(
+        result, MetadataQuerySemanticKind::ComputationalProcessing,
+        MetadataQueryValueShape::Table, 2U);
     ASSERT_NE(source_processing, nullptr);
     EXPECT_TRUE(contains_entry(source_processing->source_entries, shot_log_a));
     EXPECT_TRUE(contains_entry(source_processing->source_entries, shot_log_b));

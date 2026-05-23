@@ -812,6 +812,9 @@ namespace {
             case MetadataConceptRole::SensorGeometry:
             case MetadataConceptRole::RawStorage:
             case MetadataConceptRole::SourceProcessing:
+            case MetadataConceptRole::ComputationalProcessing:
+            case MetadataConceptRole::ThermalProcessing:
+            case MetadataConceptRole::StitchProcessing:
             case MetadataConceptRole::ExposureTime:
             case MetadataConceptRole::Aperture:
             case MetadataConceptRole::IsoSensitivity:
@@ -883,6 +886,9 @@ namespace {
             case MetadataConceptRole::CfaLayout:
             case MetadataConceptRole::RawStorage:
             case MetadataConceptRole::SourceProcessing:
+            case MetadataConceptRole::ComputationalProcessing:
+            case MetadataConceptRole::ThermalProcessing:
+            case MetadataConceptRole::StitchProcessing:
             case MetadataConceptRole::ExposureTime:
             case MetadataConceptRole::Aperture:
             case MetadataConceptRole::IsoSensitivity:
@@ -1872,6 +1878,9 @@ namespace {
         case MetadataQuerySemanticKind::SensorGeometry:
         case MetadataQuerySemanticKind::RawStorage:
         case MetadataQuerySemanticKind::SourceProcessing:
+        case MetadataQuerySemanticKind::ComputationalProcessing:
+        case MetadataQuerySemanticKind::ThermalProcessing:
+        case MetadataQuerySemanticKind::StitchProcessing:
         case MetadataQuerySemanticKind::Title:
         case MetadataQuerySemanticKind::Description:
         case MetadataQuerySemanticKind::Creator:
@@ -1999,6 +2008,9 @@ namespace {
         case MetadataQuerySemanticKind::SensorGeometry:
         case MetadataQuerySemanticKind::RawStorage:
         case MetadataQuerySemanticKind::SourceProcessing:
+        case MetadataQuerySemanticKind::ComputationalProcessing:
+        case MetadataQuerySemanticKind::ThermalProcessing:
+        case MetadataQuerySemanticKind::StitchProcessing:
         case MetadataQuerySemanticKind::Title:
         case MetadataQuerySemanticKind::Description:
         case MetadataQuerySemanticKind::Creator:
@@ -2076,6 +2088,12 @@ namespace {
             return MetadataConceptRole::RawStorage;
         case MetadataQuerySemanticKind::SourceProcessing:
             return MetadataConceptRole::SourceProcessing;
+        case MetadataQuerySemanticKind::ComputationalProcessing:
+            return MetadataConceptRole::ComputationalProcessing;
+        case MetadataQuerySemanticKind::ThermalProcessing:
+            return MetadataConceptRole::ThermalProcessing;
+        case MetadataQuerySemanticKind::StitchProcessing:
+            return MetadataConceptRole::StitchProcessing;
         case MetadataQuerySemanticKind::Unknown:
         case MetadataQuerySemanticKind::Crop:
         case MetadataQuerySemanticKind::Border:
@@ -2354,6 +2372,9 @@ namespace {
         case MetadataQuerySemanticKind::CfaLayout:
         case MetadataQuerySemanticKind::RawStorage:
         case MetadataQuerySemanticKind::SourceProcessing:
+        case MetadataQuerySemanticKind::ComputationalProcessing:
+        case MetadataQuerySemanticKind::ThermalProcessing:
+        case MetadataQuerySemanticKind::StitchProcessing:
         case MetadataQuerySemanticKind::Title:
         case MetadataQuerySemanticKind::Description:
         case MetadataQuerySemanticKind::Creator:
@@ -2786,6 +2807,9 @@ namespace {
         case MetadataConceptRole::CfaLayout:
         case MetadataConceptRole::RawStorage:
         case MetadataConceptRole::SourceProcessing:
+        case MetadataConceptRole::ComputationalProcessing:
+        case MetadataConceptRole::ThermalProcessing:
+        case MetadataConceptRole::StitchProcessing:
         case MetadataConceptRole::ExposureTime:
         case MetadataConceptRole::Aperture:
         case MetadataConceptRole::IsoSensitivity:
@@ -2958,6 +2982,9 @@ namespace {
             MetadataConceptRole::CfaLayout,
             MetadataConceptRole::RawStorage,
             MetadataConceptRole::SourceProcessing,
+            MetadataConceptRole::ComputationalProcessing,
+            MetadataConceptRole::ThermalProcessing,
+            MetadataConceptRole::StitchProcessing,
             MetadataConceptRole::ExposureTime,
             MetadataConceptRole::Aperture,
             MetadataConceptRole::IsoSensitivity,
@@ -3108,6 +3135,10 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::CfaLayout: return "cfa_layout";
     case MetadataConceptRole::RawStorage: return "raw_storage";
     case MetadataConceptRole::SourceProcessing: return "source_processing";
+    case MetadataConceptRole::ComputationalProcessing:
+        return "computational_processing";
+    case MetadataConceptRole::ThermalProcessing: return "thermal_processing";
+    case MetadataConceptRole::StitchProcessing: return "stitch_processing";
     case MetadataConceptRole::ExposureTime: return "exposure_time";
     case MetadataConceptRole::Aperture: return "aperture";
     case MetadataConceptRole::IsoSensitivity: return "iso_sensitivity";

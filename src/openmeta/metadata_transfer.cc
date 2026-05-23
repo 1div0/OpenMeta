@@ -13558,6 +13558,25 @@ transfer_concept_diagnostic_message(
             return "source processing metadata is unsafe for rendered-image "
                    "transfer and will be dropped";
         case TransferConceptDiagnosticReason::SourceBound:
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && diagnostic.role
+                       == MetadataConceptRole::ComputationalProcessing) {
+                return "source computational processing metadata is bound to "
+                       "the source pipeline and will be dropped for this "
+                       "transfer mode";
+            }
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && diagnostic.role == MetadataConceptRole::ThermalProcessing) {
+                return "source thermal processing metadata is bound to the "
+                       "source pipeline and will be dropped for this transfer "
+                       "mode";
+            }
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && diagnostic.role == MetadataConceptRole::StitchProcessing) {
+                return "source stitch/panorama processing metadata is bound to "
+                       "the source pipeline and will be dropped for this "
+                       "transfer mode";
+            }
             return "metadata is bound to the source RAW or correction pipeline "
                    "and will be dropped for this transfer mode";
         case TransferConceptDiagnosticReason::TargetImageSpecRequired:

@@ -21507,7 +21507,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     const openmeta::TransferConceptDiagnostic* source_diag
         = find_transfer_concept_diagnostic(
             rendered, openmeta::MetadataConceptKind::RawProcessing,
-            openmeta::MetadataConceptRole::SourceProcessing,
+            openmeta::MetadataConceptRole::ComputationalProcessing,
             openmeta::TransferConceptDiagnosticAction::Drop);
     ASSERT_NE(source_diag, nullptr);
     EXPECT_EQ(source_diag->reason,
@@ -21516,8 +21516,8 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
               openmeta::TransferConceptDiagnosticSeverity::Warning);
     EXPECT_STREQ(
         openmeta::transfer_concept_diagnostic_message(*source_diag),
-        "metadata is bound to the source RAW or correction pipeline and will "
-        "be dropped for this transfer mode");
+        "source computational processing metadata is bound to the source "
+        "pipeline and will be dropped for this transfer mode");
 
     const openmeta::TransferConceptDiagnostics compatible
         = openmeta::transfer_concept_diagnostics_from_store(
@@ -21525,7 +21525,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     const openmeta::TransferConceptDiagnostic* compatible_source_diag
         = find_transfer_concept_diagnostic(
             compatible, openmeta::MetadataConceptKind::RawProcessing,
-            openmeta::MetadataConceptRole::SourceProcessing,
+            openmeta::MetadataConceptRole::ComputationalProcessing,
             openmeta::TransferConceptDiagnosticAction::Keep);
     ASSERT_NE(compatible_source_diag, nullptr);
     EXPECT_TRUE(compatible_source_diag->compatible_file_safe);

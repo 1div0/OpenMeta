@@ -1121,6 +1121,25 @@ namespace {
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::SourceProcessing);
         }
+        if (term_matches(name, "thermal", enable_fuzzy, provenance)
+            || term_matches(name, "radiometric", enable_fuzzy, provenance)
+            || term_matches(name, "emissivity", enable_fuzzy, provenance)
+            || term_matches(name, "planck", enable_fuzzy, provenance)
+            || term_matches(name, "rawthermal", enable_fuzzy, provenance)
+            || term_matches(name, "raw thermal", enable_fuzzy, provenance)
+            || term_matches(name, "irwindow", enable_fuzzy, provenance)
+            || term_matches(name, "ir window", enable_fuzzy, provenance)
+            || term_matches(name, "real2ir", enable_fuzzy, provenance)
+            || term_matches(name, "real to ir", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(
+                MetadataQueryMatchTerm::SourceProcessing);
+        }
+        if (term_matches(name, "stitch", enable_fuzzy, provenance)
+            || term_matches(name, "panorama", enable_fuzzy, provenance)
+            || term_matches(name, "panoramic", enable_fuzzy, provenance)) {
+            terms |= static_cast<uint32_t>(
+                MetadataQueryMatchTerm::SourceProcessing);
+        }
         return terms;
     }
 
@@ -1321,6 +1340,67 @@ namespace {
             return static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
         }
         return 0U;
+    }
+
+    static MetadataQuerySemanticKind
+    source_processing_semantic_from_name(std::string_view name) noexcept
+    {
+        if (contains_ascii_case_insensitive(name, "thermal")
+            || contains_ascii_case_insensitive(name, "radiometric")
+            || contains_ascii_case_insensitive(name, "emissivity")
+            || contains_ascii_case_insensitive(name, "planck")
+            || contains_ascii_case_insensitive(name, "rawthermal")
+            || contains_ascii_case_insensitive(name, "raw thermal")
+            || contains_ascii_case_insensitive(name, "irwindow")
+            || contains_ascii_case_insensitive(name, "ir window")
+            || contains_ascii_case_insensitive(name, "real2ir")
+            || contains_ascii_case_insensitive(name, "real to ir")) {
+            return MetadataQuerySemanticKind::ThermalProcessing;
+        }
+        if (contains_ascii_case_insensitive(name, "stitch")
+            || contains_ascii_case_insensitive(name, "panorama")
+            || contains_ascii_case_insensitive(name, "panoramic")) {
+            return MetadataQuerySemanticKind::StitchProcessing;
+        }
+        if (contains_ascii_case_insensitive(name, "deepfusion")
+            || contains_ascii_case_insensitive(name, "deep fusion")
+            || contains_ascii_case_insensitive(name, "smart hdr")
+            || contains_ascii_case_insensitive(name, "hdrplus")
+            || contains_ascii_case_insensitive(name, "hdr headroom")
+            || contains_ascii_case_insensitive(name, "hdrheadroom")
+            || contains_ascii_case_insensitive(name, "pixelshift")
+            || contains_ascii_case_insensitive(name, "pixel shift")
+            || contains_ascii_case_insensitive(name, "multishot")
+            || contains_ascii_case_insensitive(name, "multi shot")
+            || contains_ascii_case_insensitive(name, "multiframe")
+            || contains_ascii_case_insensitive(name, "multi frame")
+            || contains_ascii_case_insensitive(name, "imagefusion")
+            || contains_ascii_case_insensitive(name, "image fusion")
+            || contains_ascii_case_insensitive(name, "shotlog")
+            || contains_ascii_case_insensitive(name, "shot log")
+            || contains_ascii_case_insensitive(name, "auto lighting optimizer")
+            || contains_ascii_case_insensitive(name, "autolightingoptimizer")) {
+            return MetadataQuerySemanticKind::ComputationalProcessing;
+        }
+        return MetadataQuerySemanticKind::Unknown;
+    }
+
+    static MetadataQuerySemanticKind source_processing_semantic_from_groups(
+        VendorRawProcessingGroup groups) noexcept
+    {
+        if (vendor_raw_processing_group_has(groups,
+                                            VendorRawProcessingGroup::Thermal)) {
+            return MetadataQuerySemanticKind::ThermalProcessing;
+        }
+        if (vendor_raw_processing_group_has(groups,
+                                            VendorRawProcessingGroup::Stitch)) {
+            return MetadataQuerySemanticKind::StitchProcessing;
+        }
+        if (vendor_raw_processing_group_has(
+                groups, VendorRawProcessingGroup::Computational)) {
+            return MetadataQuerySemanticKind::ComputationalProcessing;
+        }
+        return MetadataQuerySemanticKind::Unknown;
     }
 
     static const char* icc_header_field_query_name(uint32_t offset) noexcept
@@ -1957,6 +2037,13 @@ namespace {
                                == 0U)
                        || color_name_is_source_transform(name))) {
             explicit_semantic = MetadataQuerySemanticKind::SourceColorTransform;
+        } else if (kind == MetadataQueryKind::RawProcessing
+                   && semantic_from_terms(kind, terms)
+                          == MetadataQuerySemanticKind::SourceProcessing) {
+            explicit_semantic = source_processing_semantic_from_groups(groups);
+            if (explicit_semantic == MetadataQuerySemanticKind::Unknown) {
+                explicit_semantic = source_processing_semantic_from_name(name);
+            }
         }
         append_match(result, entry_id, entry, ifd, name, kind, terms,
                      provenance, explicit_semantic);
@@ -1998,6 +2085,10 @@ namespace {
                         = MetadataQuerySemanticKind::SourceColorTransform;
                 }
             }
+        } else if (kind == MetadataQueryKind::RawProcessing
+                   && semantic_from_terms(kind, terms)
+                          == MetadataQuerySemanticKind::SourceProcessing) {
+            explicit_semantic = source_processing_semantic_from_name(path);
         }
         append_match(result, entry_id, entry, ns, path, kind, terms, provenance,
                      explicit_semantic);
@@ -2432,7 +2523,13 @@ namespace {
                           == MetadataQuerySemanticKind::SensorGeometry
                    || match.semantic == MetadataQuerySemanticKind::RawStorage
                    || match.semantic
-                          == MetadataQuerySemanticKind::SourceProcessing;
+                          == MetadataQuerySemanticKind::SourceProcessing
+                   || match.semantic
+                          == MetadataQuerySemanticKind::ComputationalProcessing
+                   || match.semantic
+                          == MetadataQuerySemanticKind::ThermalProcessing
+                   || match.semantic
+                          == MetadataQuerySemanticKind::StitchProcessing;
         case MetadataQueryKind::Crop:
         case MetadataQueryKind::ExposureGain:
         case MetadataQueryKind::LensCorrection:
@@ -3558,6 +3655,12 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
     case MetadataQuerySemanticKind::RawStorage: return "raw_storage";
     case MetadataQuerySemanticKind::SourceProcessing:
         return "source_processing";
+    case MetadataQuerySemanticKind::ComputationalProcessing:
+        return "computational_processing";
+    case MetadataQuerySemanticKind::ThermalProcessing:
+        return "thermal_processing";
+    case MetadataQuerySemanticKind::StitchProcessing:
+        return "stitch_processing";
     case MetadataQuerySemanticKind::Title: return "title";
     case MetadataQuerySemanticKind::Description: return "description";
     case MetadataQuerySemanticKind::Creator: return "creator";

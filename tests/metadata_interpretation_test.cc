@@ -227,7 +227,8 @@ namespace {
         EXPECT_DOUBLE_EQ(black->values[0], 512.0);
 
         const MetadataInterpretationRecord* source_processing
-            = find_record(result, MetadataQuerySemanticKind::SourceProcessing,
+            = find_record(result,
+                          MetadataQuerySemanticKind::ComputationalProcessing,
                           MetadataQueryValueShape::Scalar);
         ASSERT_NE(source_processing, nullptr);
         EXPECT_TRUE(contains_entry(source_processing->source_entries, source));
@@ -274,7 +275,8 @@ namespace {
             = interpret_metadata_query(store, MetadataQueryKind::RawProcessing);
 
         const MetadataInterpretationRecord* record
-            = find_record(result, MetadataQuerySemanticKind::SourceProcessing,
+            = find_record(result,
+                          MetadataQuerySemanticKind::ComputationalProcessing,
                           MetadataQueryValueShape::Table);
         ASSERT_NE(record, nullptr);
         EXPECT_EQ(record->query_kind, MetadataQueryKind::RawProcessing);

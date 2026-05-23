@@ -1,5 +1,25 @@
 # OpenMeta Changes
 
+## 0.4.29 - 2026-05-22
+
+Changes compared with `0.4.28`.
+
+### Added
+
+- Added explicit `ComputationalProcessing`, `ThermalProcessing`, and
+  `StitchProcessing` semantic query and concept roles for source-bound
+  vendor RAW/source-processing metadata.
+- Added Python enum exposure and focused query, interpretation, concept, and
+  transfer-diagnostic tests for the new source-processing subroles.
+
+### Changed
+
+- Vendor RAW/source-processing query candidates now preserve computational,
+  thermal, and stitch/panorama intent instead of collapsing all such fields
+  into generic `source_processing`.
+- Transfer diagnostics now report role-specific messages for computational,
+  thermal, and stitch/panorama source-processing drops.
+
 ## 0.4.28 - 2026-05-22
 
 Changes compared with `0.4.27`.

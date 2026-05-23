@@ -33,17 +33,18 @@ model should stay compact:
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, exposure adjustment,
        color/profile/source-color-transform evidence, lens-correction, sensor,
-       computational capture state, and vendor-private fields.
-     - Medium-high, about 88%.
+       computational, thermal, stitch/panorama capture state, and
+       vendor-private fields.
+     - Medium-high, about 89%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
        bounded cross-family concept resolutions, transfer hints, and conflict
        flags for crop/border/active-area, exposure/gain,
        color/WB/profile/source-color-transform, orientation, date/time, GPS,
-       lens-correction, and RAW/source-processing fields across standard and
-       vendor metadata.
-     - Medium-high, about 76-82%.
+       lens-correction, computational/thermal/stitch, and
+       RAW/source-processing fields across standard and vendor metadata.
+     - Medium-high, about 77-83%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -95,8 +96,9 @@ lens-correction table groups. Color queries expose a distinct
 ``color_profile`` semantic for EXIF color-space evidence, ICC header/tag
 entries, XMP ICC/profile/color-space fields, and PNG profile text carriers.
 Vendor-classified MakerNote/RAW fields can also form per-family grouped
-candidates for white balance, color, raw-storage, sensor, and source-processing
-records. RAW-processing queries add conservative groups for black/white levels,
+candidates for white balance, color, raw-storage, sensor, computational,
+thermal, stitch/panorama, and source-processing records. RAW-processing queries
+add conservative groups for black/white levels,
 linearization tables, CFA/sensor layout, source geometry, raw-storage
 identifiers, and source-private processing buckets.
 Exposure/gain concept resolution promotes exposure time, aperture, ISO,

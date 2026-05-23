@@ -141,9 +141,10 @@ separately from exact tag/name hits.
 
 For vendor MakerNote/RAW fields, the query layer also builds conservative
 per-family grouped candidates for related white-balance,
-source-color-transform, raw-storage, sensor, and source-processing records.
-These records are for inspection and safe-transfer policy, not for writing
-source RAW transforms into rendered outputs.
+source-color-transform, raw-storage, sensor, computational, thermal,
+stitch/panorama, and source-processing records. These records are for
+inspection and safe-transfer policy, not for writing source RAW transforms into
+rendered outputs.
 Grouped color, white-balance, and lens-correction records require numeric
 payloads with conservative minimum shapes before they become matrix/vector/table
 candidates. Malformed or text-only source records still remain visible as
@@ -182,7 +183,9 @@ Rendered-transfer drop messages distinguish source color transforms, white
 balance, lens correction, source-bound RAW processing, and target-owned image
 properties. Source color transforms cover camera RAW profiles, looks, tone
 curves, and vendor style/rendering tables that should not be treated as
-portable rendered-image color profiles. GPS altitude reference codes can be
+portable rendered-image color profiles. Source-bound RAW processing diagnostics
+also keep computational, thermal, and stitch/panorama roles separate for UI
+policy messages. GPS altitude reference codes can be
 displayed with
 ``metadata_concept_gps_altitude_reference_name(...)``.
 

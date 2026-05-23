@@ -546,7 +546,7 @@ namespace {
         EXPECT_TRUE(contains_entry(storage->source_entries, raw_id));
         EXPECT_TRUE(contains_entry(storage->source_entries, raw_name));
         const MetadataConceptCandidate* source
-            = find_role(*raw, MetadataConceptRole::SourceProcessing);
+            = find_role(*raw, MetadataConceptRole::ComputationalProcessing);
         ASSERT_NE(source, nullptr);
         ASSERT_TRUE(source->has_values);
         EXPECT_DOUBLE_EQ(source->values[0], 7.0);
@@ -808,7 +808,8 @@ namespace {
             = find_concept(result, MetadataConceptKind::RawProcessing);
         ASSERT_NE(raw, nullptr);
         const MetadataConceptCandidate* source
-            = find_role_entries(*raw, MetadataConceptRole::SourceProcessing,
+            = find_role_entries(*raw,
+                                MetadataConceptRole::ComputationalProcessing,
                                 source_a, source_b);
         ASSERT_NE(source, nullptr);
         EXPECT_EQ(source->shape, MetadataQueryValueShape::Table);
@@ -906,7 +907,8 @@ namespace {
             = find_concept(result, MetadataConceptKind::RawProcessing);
         ASSERT_NE(raw, nullptr);
         const MetadataConceptCandidate* source
-            = find_role_entries(*raw, MetadataConceptRole::SourceProcessing,
+            = find_role_entries(*raw,
+                                MetadataConceptRole::ComputationalProcessing,
                                 style_a, style_b);
         ASSERT_NE(source, nullptr);
         EXPECT_EQ(source->shape, MetadataQueryValueShape::Table);
@@ -1287,7 +1289,7 @@ namespace {
         EXPECT_EQ(black->transfer_hint,
                   MetadataConceptTransferHint::RenderedUnsafe);
         const MetadataConceptCandidate* source
-            = find_role(*raw, MetadataConceptRole::SourceProcessing);
+            = find_role(*raw, MetadataConceptRole::ComputationalProcessing);
         ASSERT_NE(source, nullptr);
         EXPECT_EQ(source->transfer_hint,
                   MetadataConceptTransferHint::SourceBound);
@@ -1400,6 +1402,48 @@ namespace {
         EXPECT_FALSE(candidate->rendered_image_safe);
         EXPECT_TRUE(candidate->source_bound);
         EXPECT_TRUE(contains_entry(candidate->source_entries, profile));
+    }
+
+    TEST(MetadataConcepts, ResolvesSourceProcessingSubrolesAsSourceBound)
+    {
+        MetaStore store;
+        const EntryId computational
+            = add_exif_u32(&store, "mk_google_shotlogdata", 0x0001U, 7U);
+        const EntryId thermal = add_exif_u32(&store, "mk_dji_thermalparams",
+                                             0x0048U, 98U);
+        const EntryId stitch  = add_exif_u32(&store, "mk_microsoft_stitch",
+                                             0x0003U, 12U);
+        store.finalize();
+
+        const MetadataConceptResolution raw
+            = resolve_metadata_concept(store,
+                                       MetadataConceptKind::RawProcessing);
+
+        EXPECT_TRUE(raw.found);
+        const MetadataConceptCandidate* computational_candidate
+            = find_role(raw, MetadataConceptRole::ComputationalProcessing);
+        ASSERT_NE(computational_candidate, nullptr);
+        EXPECT_EQ(computational_candidate->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(computational_candidate->source_bound);
+        EXPECT_TRUE(contains_entry(computational_candidate->source_entries,
+                                   computational));
+
+        const MetadataConceptCandidate* thermal_candidate
+            = find_role(raw, MetadataConceptRole::ThermalProcessing);
+        ASSERT_NE(thermal_candidate, nullptr);
+        EXPECT_EQ(thermal_candidate->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(thermal_candidate->source_bound);
+        EXPECT_TRUE(contains_entry(thermal_candidate->source_entries, thermal));
+
+        const MetadataConceptCandidate* stitch_candidate
+            = find_role(raw, MetadataConceptRole::StitchProcessing);
+        ASSERT_NE(stitch_candidate, nullptr);
+        EXPECT_EQ(stitch_candidate->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(stitch_candidate->source_bound);
+        EXPECT_TRUE(contains_entry(stitch_candidate->source_entries, stitch));
     }
 
 }  // namespace
