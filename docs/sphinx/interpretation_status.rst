@@ -167,18 +167,18 @@ Coverage matrix
        common metadata carriers, bounded ``ipma`` item-property association
        rows, bounded relations, primary-linked roles, aux semantics, primary
        color/profile property summaries, primary pixel aspect ratio, primary
-       pixel component bit depth, clean-aperture rationals, and draft
-       C2PA/JUMBF structural fields are exposed.
-     - Medium, about 68-78%.
+       pixel component bit depth, clean-aperture rationals, JUMBF box labels,
+       and draft C2PA/JUMBF structural fields are exposed.
+     - Medium, about 69-79%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including resolution/version/print data,
-       alpha names/identifiers, captions, QuickMask info, URL/list data,
-       thumbnail headers, channel options, clipping-path names, embedded
-       ICC/XMP/EXIF resource byte counts, and embedded IPTC/XMP/ICC payload
-       decode where enabled.
-     - Medium, about 68-77%.
+       display info, grid/guide info, alpha names/identifiers, captions,
+       QuickMask info, URL/list data, thumbnail headers, channel options,
+       clipping-path names, embedded ICC/XMP/EXIF resource byte counts, and
+       embedded IPTC/XMP/ICC payload decode where enabled.
+     - Medium, about 70-79%.
      - Broader resource-specific interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,

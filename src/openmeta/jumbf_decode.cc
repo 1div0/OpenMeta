@@ -11040,19 +11040,22 @@ namespace {
             parsed.payload      = payload;
             ctx->boxes.push_back(parsed);
 
+            std::string jumb_label;
+            bool have_jumb_label = false;
             if (box.type == fourcc('j', 'u', 'm', 'd')) {
-                std::string label;
-                if (parse_jumd_label(payload, &label) && parent_box_index >= 0
+                if (parse_jumd_label(payload, &jumb_label)
+                    && parent_box_index >= 0
                     && static_cast<size_t>(parent_box_index) < ctx->boxes.size()
                     && ctx->boxes[static_cast<size_t>(parent_box_index)].type
                            == fourcc('j', 'u', 'm', 'b')
                     && !ctx->boxes[static_cast<size_t>(parent_box_index)]
                             .has_jumb_label) {
+                    have_jumb_label = true;
                     ctx->boxes[static_cast<size_t>(parent_box_index)]
                         .has_jumb_label
                         = true;
                     ctx->boxes[static_cast<size_t>(parent_box_index)].jumb_label
-                        = label;
+                        = jumb_label;
                 }
             }
 
@@ -11075,6 +11078,13 @@ namespace {
             if (!emit_field_u64(ctx, field_key, box.offset,
                                 EntryFlags::Derived)) {
                 return false;
+            }
+            if (have_jumb_label && !parent_path.empty()) {
+                make_field_key(parent_path, "jumb_label", &field_key);
+                if (!emit_field_text(ctx, field_key, jumb_label,
+                                     EntryFlags::Derived)) {
+                    return false;
+                }
             }
 
             if (ctx->options.detect_c2pa) {

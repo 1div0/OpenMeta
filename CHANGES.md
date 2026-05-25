@@ -1,5 +1,22 @@
 # OpenMeta Changes
 
+## 0.4.32 - 2026-05-25
+
+Changes compared with `0.4.31`.
+
+### Added
+
+- Added Photoshop IRB `DisplayInfo` and `GridGuidesInfo` fixed-layout
+  interpretation for display colors, opacity/kind, grid cycles, guide
+  locations, and guide directions.
+- Added JUMBF box-label emission from parsed `jumd` boxes as structural
+  `JumbfField` entries.
+
+### Changed
+
+- Public interpretation/support docs now describe the expanded Photoshop IRB
+  fixed-layout subset and JUMBF label visibility.
+
 ## 0.4.31 - 2026-05-25
 
 Changes compared with `0.4.30`.

@@ -615,6 +615,97 @@ namespace {
         }
     }
 
+    static void decode_display_info(std::span<const std::byte> payload,
+                                    MetaStore& store, BlockId block,
+                                    uint32_t order,
+                                    PhotoshopIrbDecodeResult* result)
+    {
+        const uint32_t count = static_cast<uint32_t>(payload.size() / 14U);
+        if (count == 0U
+            || static_cast<uint64_t>(count) * 14U
+                   != static_cast<uint64_t>(payload.size())) {
+            return;
+        }
+        emit_derived_field(store, block, order, 0x03EFU, "DisplayInfoCount",
+                           make_u32(count), result);
+        for (uint32_t i = 0U; i < count; ++i) {
+            const uint64_t offset = static_cast<uint64_t>(i) * 14U;
+            uint16_t color_space  = 0;
+            uint16_t color_0      = 0;
+            uint16_t color_1      = 0;
+            uint16_t color_2      = 0;
+            uint16_t color_3      = 0;
+            uint16_t opacity      = 0;
+            if (!read_u16be(payload, offset + 0U, &color_space)
+                || !read_u16be(payload, offset + 2U, &color_0)
+                || !read_u16be(payload, offset + 4U, &color_1)
+                || !read_u16be(payload, offset + 6U, &color_2)
+                || !read_u16be(payload, offset + 8U, &color_3)
+                || !read_u16be(payload, offset + 10U, &opacity)) {
+                return;
+            }
+            emit_derived_field(store, block, order, 0x03EFU,
+                               "DisplayColorSpace", make_u16(color_space),
+                               result);
+            emit_derived_field(store, block, order, 0x03EFU, "DisplayColorData",
+                               make_u16(color_0), result);
+            emit_derived_field(store, block, order, 0x03EFU, "DisplayColorData",
+                               make_u16(color_1), result);
+            emit_derived_field(store, block, order, 0x03EFU, "DisplayColorData",
+                               make_u16(color_2), result);
+            emit_derived_field(store, block, order, 0x03EFU, "DisplayColorData",
+                               make_u16(color_3), result);
+            emit_derived_field(store, block, order, 0x03EFU, "DisplayOpacity",
+                               make_u16(opacity), result);
+            emit_derived_field(store, block, order, 0x03EFU, "DisplayKind",
+                               make_u8(u8(payload[offset + 12U])), result);
+        }
+    }
+
+
+    static void decode_grid_guides_info(std::span<const std::byte> payload,
+                                        MetaStore& store, BlockId block,
+                                        uint32_t order,
+                                        PhotoshopIrbDecodeResult* result)
+    {
+        uint32_t version          = 0;
+        uint32_t horizontal_cycle = 0;
+        uint32_t vertical_cycle   = 0;
+        uint32_t declared_count   = 0;
+        if (!read_u32be(payload, 0U, &version)
+            || !read_u32be(payload, 4U, &horizontal_cycle)
+            || !read_u32be(payload, 8U, &vertical_cycle)
+            || !read_u32be(payload, 12U, &declared_count)) {
+            return;
+        }
+
+        const uint32_t available_count = static_cast<uint32_t>(
+            (payload.size() >= 16U) ? ((payload.size() - 16U) / 5U) : 0U);
+        const uint32_t emit_count = (declared_count < available_count)
+                                        ? declared_count
+                                        : available_count;
+        emit_derived_field(store, block, order, 0x0408U, "GridGuidesVersion",
+                           make_u32(version), result);
+        emit_derived_field(store, block, order, 0x0408U, "GridHorizontalCycle",
+                           make_u32(horizontal_cycle), result);
+        emit_derived_field(store, block, order, 0x0408U, "GridVerticalCycle",
+                           make_u32(vertical_cycle), result);
+        emit_derived_field(store, block, order, 0x0408U, "GuideCount",
+                           make_u32(declared_count), result);
+        for (uint32_t i = 0U; i < emit_count; ++i) {
+            const uint64_t offset = 16U + static_cast<uint64_t>(i) * 5U;
+            uint32_t location     = 0;
+            if (!read_u32be(payload, offset, &location)) {
+                return;
+            }
+            emit_derived_field(store, block, order, 0x0408U, "GuideLocation",
+                               make_u32(location), result);
+            emit_derived_field(store, block, order, 0x0408U, "GuideDirection",
+                               make_u8(u8(payload[offset + 4U])), result);
+        }
+    }
+
+
     static void decode_quick_mask_info(std::span<const std::byte> payload,
                                        MetaStore& store, BlockId block,
                                        uint32_t order,
@@ -955,6 +1046,9 @@ namespace {
                                              options.string_charset, store,
                                              block, order, result);
             break;
+        case 0x03EFU:
+            decode_display_info(payload, store, block, order, result);
+            break;
         case 0x0421U:
             decode_version_info(payload, store, block, order, result);
             break;
@@ -985,6 +1079,9 @@ namespace {
             break;
         case 0x0406U:
             decode_jpeg_quality(payload, store, block, order, result);
+            break;
+        case 0x0408U:
+            decode_grid_guides_info(payload, store, block, order, result);
             break;
         case 0x0409U:
         case 0x040CU:

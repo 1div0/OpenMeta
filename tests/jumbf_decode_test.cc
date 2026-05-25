@@ -823,6 +823,7 @@ TEST(JumbfDecode, DecodesStructureAndCborMap)
     ASSERT_EQ(c2pa_entry.value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(c2pa_entry.value.elem_type, MetaElementType::U8);
     EXPECT_EQ(static_cast<uint8_t>(c2pa_entry.value.data.u64), 1U);
+    EXPECT_EQ(read_jumbf_field_text(store, "box.0.jumb_label"), "c2pa");
 
     MetaKeyView cbor_key;
     cbor_key.kind                       = MetaKeyKind::JumbfCborKey;

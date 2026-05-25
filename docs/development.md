@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF item-property associations and primary item properties, Photoshop IRB embedded carriers and thumbnail headers, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 90%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF item-property associations and primary item properties, JUMBF labels, Photoshop IRB embedded carriers and fixed-layout headers, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 90%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 77-83%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -717,8 +717,9 @@ This policy surface is intentionally marked draft and may be refined.
 - JUMBF/C2PA decode (draft phase-3): `src/openmeta/jumbf_decode.cc`
   - Routed from container scan blocks tagged as `ContainerBlockKind::Jumbf`
     (BMFF `jumb`/C2PA hints and JXL `jumb` boxes).
-  - Emits structural fields as `MetaKeyKind::JumbfField` (`box.*`, `c2pa.*`)
-    and decoded CBOR keys as `MetaKeyKind::JumbfCborKey` (`*.cbor.*`).
+  - Emits structural fields as `MetaKeyKind::JumbfField` (`box.*`, `c2pa.*`,
+    including JUMBF labels from parsed `jumd` boxes) and decoded CBOR keys as
+    `MetaKeyKind::JumbfCborKey` (`*.cbor.*`).
   - Current CBOR path supports bounded definite and indefinite forms, with
     composite-key fallback naming (`k{map_index}_{
     major}`) and broader scalar
@@ -901,10 +902,11 @@ Internal helper conventions (used by vendor decoders):
   Add interpreted IRB fields only for fixed-layout resources and emit them as
   separate `PhotoshopIrbField` entries instead of weakening the raw payload
   surface. The current bounded interpreted subset includes `ResolutionInfo`,
-  `AlphaChannelsNames`, `PStringCaption`, `VersionInfo`, `PrintFlags`,
-  `EffectiveBW`, `QuickMaskInfo`, `TargetLayerID`, `LayersGroupInfo`,
-  `JPEG_Quality`, `CopyrightFlag`, `URL`, `GlobalAngle`, `Watermark`,
-  `ICC_Untagged`, `EffectsVisible`, `IDsBaseValue`, `UnicodeAlphaNames`,
+  `AlphaChannelsNames`, `DisplayInfo`, `PStringCaption`, `VersionInfo`,
+  `PrintFlags`, `EffectiveBW`, `QuickMaskInfo`, `TargetLayerID`,
+  `LayersGroupInfo`, `JPEG_Quality`, `GridGuidesInfo`, `CopyrightFlag`,
+  `URL`, `GlobalAngle`, `Watermark`, `ICC_Untagged`, `EffectsVisible`,
+  `IDsBaseValue`, `UnicodeAlphaNames`,
   `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
   `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`, `IPTCDigest`,
   `PrintScaleInfo`, `PixelInfo`, `PhotoshopBGRThumbnail`,

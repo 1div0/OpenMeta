@@ -71,11 +71,11 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, thumbnail headers, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout headers, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
 | BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipma`, `iref`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
-| JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer; not full conformance |
+| JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
 ## Important Bounded Areas
@@ -119,11 +119,13 @@ OpenMeta preserves raw IRB resources and also decodes a bounded interpreted
 subset. That subset includes common fixed-layout resources such as:
 - `ResolutionInfo`
 - `AlphaChannelsNames`
+- `DisplayInfo`
 - `PStringCaption`
 - `VersionInfo`
 - `PrintFlags`
 - `QuickMaskInfo`
 - `JPEG_Quality`
+- `GridGuidesInfo`
 - `PhotoshopBGRThumbnail` / `PhotoshopThumbnail` headers
 - `UnicodeAlphaNames`
 - `AlphaIdentifiers`
@@ -175,6 +177,7 @@ Other `brob` realtypes are still out of scope.
 
 Current support is intentionally draft:
 - structural BMFF box decode
+- JUMBF box labels from parsed `jumd` boxes
 - bounded CBOR traversal
 - draft `c2pa.semantic.*` projection
 - draft verify scaffolding with opt-in trusted certificate-chain enforcement

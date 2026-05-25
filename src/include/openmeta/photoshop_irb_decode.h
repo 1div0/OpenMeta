@@ -75,6 +75,7 @@ struct PhotoshopIrbDecodeResult final {
  * \ref MetaKeyKind::PhotoshopIrbField entries for fixed-layout resources:
  * - ResolutionInfo (0x03ED)
  * - AlphaChannelsNames (0x03EE)
+ * - DisplayInfo (0x03EF)
  * - PStringCaption (0x03F0)
  * - VersionInfo (0x0421)
  * - PrintFlags (0x03F3)
@@ -83,6 +84,7 @@ struct PhotoshopIrbDecodeResult final {
  * - TargetLayerID (0x0400)
  * - LayersGroupInfo (0x0402)
  * - JPEG_Quality (0x0406)
+ * - GridGuidesInfo (0x0408)
  * - PhotoshopBGRThumbnail / PhotoshopThumbnail header fields (0x0409/0x040C)
  * - CopyrightFlag (0x040A)
  * - URL (0x040B)

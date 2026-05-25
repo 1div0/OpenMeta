@@ -516,6 +516,90 @@ TEST(PhotoshopIrbDecodeTest, DecodesThumbnailHeaderResources)
     EXPECT_EQ(planes[0], 1U);
 }
 
+TEST(PhotoshopIrbDecodeTest, DecodesDisplayInfoAndGridGuidesResources)
+{
+    std::vector<std::byte> display;
+    append_u16be(1U, &display);
+    append_u16be(100U, &display);
+    append_u16be(200U, &display);
+    append_u16be(300U, &display);
+    append_u16be(400U, &display);
+    append_u16be(85U, &display);
+    display.push_back(std::byte { 2U });
+    display.push_back(std::byte { 0U });
+
+    std::vector<std::byte> grid_guides;
+    append_u32be(1U, &grid_guides);
+    append_u32be(576U, &grid_guides);
+    append_u32be(720U, &grid_guides);
+    append_u32be(2U, &grid_guides);
+    append_u32be(1000U, &grid_guides);
+    grid_guides.push_back(std::byte { 0U });
+    append_u32be(2000U, &grid_guides);
+    grid_guides.push_back(std::byte { 1U });
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x03EFU,
+                        std::span<const std::byte>(display.data(),
+                                                   display.size()),
+                        &irb);
+    append_irb_resource(0x0408U,
+                        std::span<const std::byte>(grid_guides.data(),
+                                                   grid_guides.size()),
+                        &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 2U);
+
+    const std::vector<uint32_t> display_count
+        = collect_photoshop_irb_u32_fields(store, 0x03EFU, "DisplayInfoCount");
+    const std::vector<uint16_t> display_space
+        = collect_photoshop_irb_u16_fields(store, 0x03EFU, "DisplayColorSpace");
+    const std::vector<uint16_t> display_data
+        = collect_photoshop_irb_u16_fields(store, 0x03EFU, "DisplayColorData");
+    const std::vector<uint16_t> opacity
+        = collect_photoshop_irb_u16_fields(store, 0x03EFU, "DisplayOpacity");
+    const std::vector<uint8_t> kind
+        = collect_photoshop_irb_u8_fields(store, 0x03EFU, "DisplayKind");
+    ASSERT_EQ(display_count.size(), 1U);
+    ASSERT_EQ(display_space.size(), 1U);
+    ASSERT_EQ(display_data.size(), 4U);
+    ASSERT_EQ(opacity.size(), 1U);
+    ASSERT_EQ(kind.size(), 1U);
+    EXPECT_EQ(display_count[0], 1U);
+    EXPECT_EQ(display_space[0], 1U);
+    EXPECT_EQ(display_data[0], 100U);
+    EXPECT_EQ(display_data[3], 400U);
+    EXPECT_EQ(opacity[0], 85U);
+    EXPECT_EQ(kind[0], 2U);
+
+    const std::vector<uint32_t> guide_count
+        = collect_photoshop_irb_u32_fields(store, 0x0408U, "GuideCount");
+    const std::vector<uint32_t> grid_h
+        = collect_photoshop_irb_u32_fields(store, 0x0408U,
+                                           "GridHorizontalCycle");
+    const std::vector<uint32_t> grid_v
+        = collect_photoshop_irb_u32_fields(store, 0x0408U, "GridVerticalCycle");
+    const std::vector<uint32_t> locations
+        = collect_photoshop_irb_u32_fields(store, 0x0408U, "GuideLocation");
+    const std::vector<uint8_t> directions
+        = collect_photoshop_irb_u8_fields(store, 0x0408U, "GuideDirection");
+    ASSERT_EQ(guide_count.size(), 1U);
+    ASSERT_EQ(grid_h.size(), 1U);
+    ASSERT_EQ(grid_v.size(), 1U);
+    ASSERT_EQ(locations.size(), 2U);
+    ASSERT_EQ(directions.size(), 2U);
+    EXPECT_EQ(guide_count[0], 2U);
+    EXPECT_EQ(grid_h[0], 576U);
+    EXPECT_EQ(grid_v[0], 720U);
+    EXPECT_EQ(locations[0], 1000U);
+    EXPECT_EQ(locations[1], 2000U);
+    EXPECT_EQ(directions[0], 0U);
+    EXPECT_EQ(directions[1], 1U);
+}
+
 TEST(PhotoshopIrbDecodeTest, EstimateMatchesDecodeCounters)
 {
     const std::array<std::byte, 3> payload = {
