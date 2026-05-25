@@ -615,6 +615,85 @@ namespace {
         }
     }
 
+    static bool read_color_structure(std::span<const std::byte> payload,
+                                     uint64_t offset, uint16_t* color_space,
+                                     uint16_t* color_0, uint16_t* color_1,
+                                     uint16_t* color_2,
+                                     uint16_t* color_3) noexcept
+    {
+        if (!color_space || !color_0 || !color_1 || !color_2 || !color_3) {
+            return false;
+        }
+        return read_u16be(payload, offset + 0U, color_space)
+               && read_u16be(payload, offset + 2U, color_0)
+               && read_u16be(payload, offset + 4U, color_1)
+               && read_u16be(payload, offset + 6U, color_2)
+               && read_u16be(payload, offset + 8U, color_3);
+    }
+
+    static void decode_border_info(std::span<const std::byte> payload,
+                                   MetaStore& store, BlockId block,
+                                   uint32_t order,
+                                   PhotoshopIrbDecodeResult* result)
+    {
+        uint32_t width_fixed = 0;
+        uint16_t units       = 0;
+        if (!read_u32be(payload, 0U, &width_fixed)
+            || !read_u16be(payload, 4U, &units)) {
+            return;
+        }
+        const double width = static_cast<double>(width_fixed) / 65536.0;
+        emit_derived_field(store, block, order, 0x03F1U, "BorderWidth",
+                           make_f64_bits(f64_bits(width)), result);
+        emit_derived_field(store, block, order, 0x03F1U, "BorderUnits",
+                           make_u16(units), result);
+    }
+
+    static void decode_background_color(std::span<const std::byte> payload,
+                                        MetaStore& store, BlockId block,
+                                        uint32_t order,
+                                        PhotoshopIrbDecodeResult* result)
+    {
+        uint16_t color_space = 0;
+        uint16_t color_0     = 0;
+        uint16_t color_1     = 0;
+        uint16_t color_2     = 0;
+        uint16_t color_3     = 0;
+        if (!read_color_structure(payload, 0U, &color_space, &color_0, &color_1,
+                                  &color_2, &color_3)) {
+            return;
+        }
+        emit_derived_field(store, block, order, 0x03F2U, "BackgroundColorSpace",
+                           make_u16(color_space), result);
+        emit_derived_field(store, block, order, 0x03F2U, "BackgroundColorData",
+                           make_u16(color_0), result);
+        emit_derived_field(store, block, order, 0x03F2U, "BackgroundColorData",
+                           make_u16(color_1), result);
+        emit_derived_field(store, block, order, 0x03F2U, "BackgroundColorData",
+                           make_u16(color_2), result);
+        emit_derived_field(store, block, order, 0x03F2U, "BackgroundColorData",
+                           make_u16(color_3), result);
+    }
+
+    static void decode_effective_bw(std::span<const std::byte> payload,
+                                    MetaStore& store, BlockId block,
+                                    uint32_t order,
+                                    PhotoshopIrbDecodeResult* result)
+    {
+        if (payload.empty()) {
+            return;
+        }
+        emit_derived_field(store, block, order, 0x03FBU, "EffectiveBW",
+                           make_u8(u8(payload[0])), result);
+        if (payload.size() < 2U) {
+            return;
+        }
+        emit_derived_field(store, block, order, 0x03FBU, "EffectiveBlack",
+                           make_u8(u8(payload[0])), result);
+        emit_derived_field(store, block, order, 0x03FBU, "EffectiveWhite",
+                           make_u8(u8(payload[1])), result);
+    }
+
     static void decode_display_info(std::span<const std::byte> payload,
                                     MetaStore& store, BlockId block,
                                     uint32_t order,
@@ -702,6 +781,94 @@ namespace {
                                make_u32(location), result);
             emit_derived_field(store, block, order, 0x0408U, "GuideDirection",
                                make_u8(u8(payload[offset + 4U])), result);
+        }
+    }
+
+
+    static void decode_color_samplers(std::span<const std::byte> payload,
+                                      uint16_t resource_id, MetaStore& store,
+                                      BlockId block, uint32_t order,
+                                      PhotoshopIrbDecodeResult* result)
+    {
+        uint32_t version        = 0;
+        uint32_t declared_count = 0;
+        if (!read_u32be(payload, 0U, &version)
+            || !read_u32be(payload, 4U, &declared_count)) {
+            return;
+        }
+
+        uint32_t record_size    = 0;
+        bool has_record_version = false;
+        bool has_depth          = false;
+        if (version == 1U) {
+            record_size = 10U;
+        } else if (version == 2U) {
+            record_size = 12U;
+            has_depth   = true;
+        } else if (version == 3U) {
+            record_size        = 16U;
+            has_record_version = true;
+            has_depth          = true;
+        } else {
+            emit_derived_field(store, block, order, resource_id,
+                               "ColorSamplerVersion", make_u32(version),
+                               result);
+            emit_derived_field(store, block, order, resource_id,
+                               "ColorSamplerCount", make_u32(declared_count),
+                               result);
+            return;
+        }
+
+        const uint32_t available_count = static_cast<uint32_t>(
+            (payload.size() >= 8U) ? ((payload.size() - 8U) / record_size)
+                                   : 0U);
+        const uint32_t emit_count = (declared_count < available_count)
+                                        ? declared_count
+                                        : available_count;
+        emit_derived_field(store, block, order, resource_id,
+                           "ColorSamplerVersion", make_u32(version), result);
+        emit_derived_field(store, block, order, resource_id,
+                           "ColorSamplerCount", make_u32(declared_count),
+                           result);
+        for (uint32_t i = 0U; i < emit_count; ++i) {
+            uint64_t offset = 8U + static_cast<uint64_t>(i) * record_size;
+            if (has_record_version) {
+                uint32_t record_version = 0;
+                if (!read_u32be(payload, offset, &record_version)) {
+                    return;
+                }
+                emit_derived_field(store, block, order, resource_id,
+                                   "ColorSamplerRecordVersion",
+                                   make_u32(record_version), result);
+                offset += 4U;
+            }
+
+            uint32_t horizontal  = 0;
+            uint32_t vertical    = 0;
+            uint16_t color_space = 0;
+            if (!read_u32be(payload, offset + 0U, &horizontal)
+                || !read_u32be(payload, offset + 4U, &vertical)
+                || !read_u16be(payload, offset + 8U, &color_space)) {
+                return;
+            }
+            emit_derived_field(store, block, order, resource_id,
+                               "ColorSamplerHorizontalRaw",
+                               make_u32(horizontal), result);
+            emit_derived_field(store, block, order, resource_id,
+                               "ColorSamplerVerticalRaw", make_u32(vertical),
+                               result);
+            emit_derived_field(store, block, order, resource_id,
+                               "ColorSamplerColorSpace", make_u16(color_space),
+                               result);
+            if (has_depth) {
+                uint16_t depth = 0;
+                if (!read_u16be(payload, offset + 10U, &depth)) {
+                    return;
+                }
+                emit_derived_field(store, block, order, resource_id,
+                                   "ColorSamplerDepth", make_u16(depth),
+                                   result);
+            }
         }
     }
 
@@ -912,6 +1079,28 @@ namespace {
     }
 
 
+    static void
+    decode_descriptor_header_resource(std::span<const std::byte> payload,
+                                      uint16_t resource_id, MetaStore& store,
+                                      BlockId block, uint32_t order,
+                                      PhotoshopIrbDecodeResult* result)
+    {
+        uint32_t descriptor_version = 0;
+        if (!read_u32be(payload, 0U, &descriptor_version)) {
+            return;
+        }
+        const uint64_t bytes         = payload.size() - 4U;
+        const uint32_t clamped_bytes = (bytes > UINT32_MAX)
+                                           ? UINT32_MAX
+                                           : static_cast<uint32_t>(bytes);
+        emit_derived_field(store, block, order, resource_id,
+                           "DescriptorVersion", make_u32(descriptor_version),
+                           result);
+        emit_derived_field(store, block, order, resource_id, "DescriptorBytes",
+                           make_u32(clamped_bytes), result);
+    }
+
+
     static void decode_version_info(std::span<const std::byte> payload,
                                     MetaStore& store, BlockId block,
                                     uint32_t order,
@@ -1057,13 +1246,18 @@ namespace {
                                         options.string_charset, store, block,
                                         order, result);
             break;
+        case 0x03F1U:
+            decode_border_info(payload, store, block, order, result);
+            break;
+        case 0x03F2U:
+            decode_background_color(payload, store, block, order, result);
+            break;
         case 0x03F3U:
             decode_u8_scalar_resource(payload, resource_id, "PrintFlags", store,
                                       block, order, result);
             break;
         case 0x03FBU:
-            decode_u8_scalar_resource(payload, resource_id, "EffectiveBW",
-                                      store, block, order, result);
+            decode_effective_bw(payload, store, block, order, result);
             break;
         case 0x0400U:
             decode_u16_scalar_resource(payload, resource_id, "TargetLayerID",
@@ -1091,6 +1285,10 @@ namespace {
         case 0x040BU:
             decode_ascii_text_resource(payload, resource_id, "URL", store,
                                        block, order, result);
+            break;
+        case 0x040EU:
+            decode_color_samplers(payload, resource_id, store, block, order,
+                                  result);
             break;
         case 0x0BB7U:
             decode_pascal_text_resource(payload, resource_id,
@@ -1128,6 +1326,10 @@ namespace {
             break;
         case 0x0428U:
             decode_pixel_info(payload, store, block, order, result);
+            break;
+        case 0x0429U:
+            decode_descriptor_header_resource(payload, resource_id, store,
+                                              block, order, result);
             break;
         case 0x042DU:
             decode_layer_selection_ids(payload, store, block, order, result);
@@ -1190,8 +1392,27 @@ namespace {
                                       "LayerGroupsEnabledID", store, block,
                                       order, result);
             break;
+        case 0x0431U:
+            decode_color_samplers(payload, resource_id, store, block, order,
+                                  result);
+            break;
+        case 0x0432U:
+        case 0x0433U:
+        case 0x0434U:
+            decode_descriptor_header_resource(payload, resource_id, store,
+                                              block, order, result);
+            break;
         case 0x0435U:
             decode_channel_options(payload, store, block, order, result);
+            break;
+        case 0x0436U:
+        case 0x0438U:
+        case 0x043AU:
+        case 0x043BU:
+        case 0x0440U:
+        case 0x0BB8U:
+            decode_descriptor_header_resource(payload, resource_id, store,
+                                              block, order, result);
             break;
         case 0x2710U:
             decode_print_flags_info(payload, store, block, order, result);

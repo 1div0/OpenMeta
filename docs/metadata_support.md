@@ -71,7 +71,7 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout headers, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout and descriptor-header summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
 | BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipma`, `iref`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
@@ -116,13 +116,17 @@ promoted when fields can be typed, named, and safety-classified.
 ### Photoshop IRB
 
 OpenMeta preserves raw IRB resources and also decodes a bounded interpreted
-subset. That subset includes common fixed-layout resources such as:
+subset. That subset includes common fixed-layout resources and descriptor-header
+summaries such as:
 - `ResolutionInfo`
 - `AlphaChannelsNames`
 - `DisplayInfo`
 - `PStringCaption`
+- `BorderInformation`
+- `BackgroundColor`
 - `VersionInfo`
 - `PrintFlags`
+- `EffectiveBW`
 - `QuickMaskInfo`
 - `JPEG_Quality`
 - `GridGuidesInfo`
@@ -131,6 +135,11 @@ subset. That subset includes common fixed-layout resources such as:
 - `AlphaIdentifiers`
 - `PrintScaleInfo`
 - `PixelInfo`
+- `ColorSamplersResource` / `ColorSamplersResource2` headers and records
+- descriptor-header summaries for resources such as `LayerComps`,
+  `MeasurementScale`, `TimelineInfo`, `SheetDisclosure`, `OnionSkins`,
+  `CountInfo`, `PrintInfo2`, `PrintStyle`, `PathSelectionState`, and
+  `OriginPathInfo`
 - `ChannelOptions`
 - `PrintFlagsInfo`
 - `ClippingPathName`

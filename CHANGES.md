@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.33 - 2026-05-25
+
+Changes compared with `0.4.32`.
+
+### Added
+
+- Added bounded Photoshop IRB interpretation for `BorderInformation`,
+  `BackgroundColor`, and two-byte `EffectiveBW` payloads.
+- Added Photoshop IRB color-sampler header and record interpretation for
+  `ColorSamplersResource` and `ColorSamplersResource2`.
+- Added descriptor-version and descriptor-byte-count summaries for descriptor
+  backed Photoshop IRB resources such as `LayerComps`, `MeasurementScale`,
+  `TimelineInfo`, `PrintInfo2`, `PrintStyle`, and `PathSelectionState`.
+
+### Changed
+
+- Public interpretation/support docs now describe the expanded Photoshop IRB
+  fixed-layout and descriptor-header subset.
+
 ## 0.4.32 - 2026-05-25
 
 Changes compared with `0.4.31`.

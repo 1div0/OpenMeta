@@ -174,12 +174,15 @@ Coverage matrix
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including resolution/version/print data,
-       display info, grid/guide info, alpha names/identifiers, captions,
-       QuickMask info, URL/list data, thumbnail headers, channel options,
-       clipping-path names, embedded ICC/XMP/EXIF resource byte counts, and
-       embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 70-79%.
-     - Broader resource-specific interpretation.
+       border/background/effective-BW data, display info, grid/guide info,
+       color sampler headers/records, descriptor-header summaries, alpha
+       names/identifiers, captions, QuickMask info, URL/list data, thumbnail
+       headers, channel options, clipping-path names, embedded ICC/XMP/EXIF
+       resource byte counts, and embedded IPTC/XMP/ICC payload decode where
+       enabled.
+     - Medium, about 72-81%.
+     - Broader resource-specific descriptor parsing and long-tail resource
+       interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm

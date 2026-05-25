@@ -600,6 +600,157 @@ TEST(PhotoshopIrbDecodeTest, DecodesDisplayInfoAndGridGuidesResources)
     EXPECT_EQ(directions[1], 1U);
 }
 
+TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
+{
+    std::vector<std::byte> border;
+    append_u32be(0x00018000U, &border);
+    append_u16be(2U, &border);
+
+    std::vector<std::byte> background;
+    append_u16be(0U, &background);
+    append_u16be(65535U, &background);
+    append_u16be(32768U, &background);
+    append_u16be(1024U, &background);
+    append_u16be(0U, &background);
+
+    std::vector<std::byte> effective_bw;
+    effective_bw.push_back(std::byte { 12U });
+    effective_bw.push_back(std::byte { 240U });
+
+    std::vector<std::byte> color_samplers_v2;
+    append_u32be(2U, &color_samplers_v2);
+    append_u32be(1U, &color_samplers_v2);
+    append_u32be(f32_bits(12.5f), &color_samplers_v2);
+    append_u32be(f32_bits(34.25f), &color_samplers_v2);
+    append_u16be(0U, &color_samplers_v2);
+    append_u16be(16U, &color_samplers_v2);
+
+    std::vector<std::byte> color_samplers_v3;
+    append_u32be(3U, &color_samplers_v3);
+    append_u32be(1U, &color_samplers_v3);
+    append_u32be(1U, &color_samplers_v3);
+    append_u32be(111U, &color_samplers_v3);
+    append_u32be(222U, &color_samplers_v3);
+    append_u16be(18U, &color_samplers_v3);
+    append_u16be(32U, &color_samplers_v3);
+
+    std::vector<std::byte> layer_comps;
+    append_u32be(16U, &layer_comps);
+    layer_comps.push_back(std::byte { 'd' });
+    layer_comps.push_back(std::byte { 'e' });
+    layer_comps.push_back(std::byte { 's' });
+    layer_comps.push_back(std::byte { 'c' });
+
+    std::vector<std::byte> measurement_scale;
+    append_u32be(16U, &measurement_scale);
+    measurement_scale.push_back(std::byte { 1U });
+    measurement_scale.push_back(std::byte { 2U });
+
+    std::vector<std::byte> path_selection;
+    append_u32be(16U, &path_selection);
+    path_selection.push_back(std::byte { 3U });
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x03F1U, border, &irb);
+    append_irb_resource(0x03F2U, background, &irb);
+    append_irb_resource(0x03FBU, effective_bw, &irb);
+    append_irb_resource(0x040EU, color_samplers_v2, &irb);
+    append_irb_resource(0x0431U, color_samplers_v3, &irb);
+    append_irb_resource(0x0429U, layer_comps, &irb);
+    append_irb_resource(0x0432U, measurement_scale, &irb);
+    append_irb_resource(0x0440U, path_selection, &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 8U);
+
+    const Entry* border_width = find_photoshop_irb_field(store, 0x03F1U,
+                                                         "BorderWidth");
+    ASSERT_NE(border_width, nullptr);
+    EXPECT_EQ(border_width->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(border_width->value.elem_type, MetaElementType::F64);
+    EXPECT_DOUBLE_EQ(std::bit_cast<double>(border_width->value.data.f64_bits),
+                     1.5);
+
+    const std::vector<uint16_t> border_units
+        = collect_photoshop_irb_u16_fields(store, 0x03F1U, "BorderUnits");
+    ASSERT_EQ(border_units.size(), 1U);
+    EXPECT_EQ(border_units[0], 2U);
+
+    const std::vector<uint16_t> background_space
+        = collect_photoshop_irb_u16_fields(store, 0x03F2U,
+                                           "BackgroundColorSpace");
+    const std::vector<uint16_t> background_data
+        = collect_photoshop_irb_u16_fields(store, 0x03F2U,
+                                           "BackgroundColorData");
+    ASSERT_EQ(background_space.size(), 1U);
+    ASSERT_EQ(background_data.size(), 4U);
+    EXPECT_EQ(background_space[0], 0U);
+    EXPECT_EQ(background_data[0], 65535U);
+    EXPECT_EQ(background_data[1], 32768U);
+    EXPECT_EQ(background_data[2], 1024U);
+    EXPECT_EQ(background_data[3], 0U);
+
+    const std::vector<uint8_t> effective_black
+        = collect_photoshop_irb_u8_fields(store, 0x03FBU, "EffectiveBlack");
+    const std::vector<uint8_t> effective_white
+        = collect_photoshop_irb_u8_fields(store, 0x03FBU, "EffectiveWhite");
+    ASSERT_EQ(effective_black.size(), 1U);
+    ASSERT_EQ(effective_white.size(), 1U);
+    EXPECT_EQ(effective_black[0], 12U);
+    EXPECT_EQ(effective_white[0], 240U);
+
+    const std::vector<uint32_t> sampler_v2_version
+        = collect_photoshop_irb_u32_fields(store, 0x040EU,
+                                           "ColorSamplerVersion");
+    const std::vector<uint32_t> sampler_v2_horizontal
+        = collect_photoshop_irb_u32_fields(store, 0x040EU,
+                                           "ColorSamplerHorizontalRaw");
+    const std::vector<uint32_t> sampler_v2_vertical
+        = collect_photoshop_irb_u32_fields(store, 0x040EU,
+                                           "ColorSamplerVerticalRaw");
+    const std::vector<uint16_t> sampler_v2_depth
+        = collect_photoshop_irb_u16_fields(store, 0x040EU, "ColorSamplerDepth");
+    ASSERT_EQ(sampler_v2_version.size(), 1U);
+    ASSERT_EQ(sampler_v2_horizontal.size(), 1U);
+    ASSERT_EQ(sampler_v2_vertical.size(), 1U);
+    ASSERT_EQ(sampler_v2_depth.size(), 1U);
+    EXPECT_EQ(sampler_v2_version[0], 2U);
+    EXPECT_EQ(sampler_v2_horizontal[0], f32_bits(12.5f));
+    EXPECT_EQ(sampler_v2_vertical[0], f32_bits(34.25f));
+    EXPECT_EQ(sampler_v2_depth[0], 16U);
+
+    const std::vector<uint32_t> sampler_v3_record_version
+        = collect_photoshop_irb_u32_fields(store, 0x0431U,
+                                           "ColorSamplerRecordVersion");
+    const std::vector<uint32_t> sampler_v3_horizontal
+        = collect_photoshop_irb_u32_fields(store, 0x0431U,
+                                           "ColorSamplerHorizontalRaw");
+    const std::vector<uint16_t> sampler_v3_color_space
+        = collect_photoshop_irb_u16_fields(store, 0x0431U,
+                                           "ColorSamplerColorSpace");
+    ASSERT_EQ(sampler_v3_record_version.size(), 1U);
+    ASSERT_EQ(sampler_v3_horizontal.size(), 1U);
+    ASSERT_EQ(sampler_v3_color_space.size(), 1U);
+    EXPECT_EQ(sampler_v3_record_version[0], 1U);
+    EXPECT_EQ(sampler_v3_horizontal[0], 111U);
+    EXPECT_EQ(sampler_v3_color_space[0], 18U);
+
+    const std::vector<uint32_t> layer_comp_version
+        = collect_photoshop_irb_u32_fields(store, 0x0429U, "DescriptorVersion");
+    const std::vector<uint32_t> measurement_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0432U, "DescriptorBytes");
+    const std::vector<uint32_t> path_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0440U, "DescriptorBytes");
+    ASSERT_EQ(layer_comp_version.size(), 1U);
+    ASSERT_EQ(measurement_bytes.size(), 1U);
+    ASSERT_EQ(path_bytes.size(), 1U);
+    EXPECT_EQ(layer_comp_version[0], 16U);
+    EXPECT_EQ(measurement_bytes[0], 2U);
+    EXPECT_EQ(path_bytes[0], 1U);
+}
+
 TEST(PhotoshopIrbDecodeTest, EstimateMatchesDecodeCounters)
 {
     const std::array<std::byte, 3> payload = {

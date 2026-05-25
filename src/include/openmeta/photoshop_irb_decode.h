@@ -72,11 +72,14 @@ struct PhotoshopIrbDecodeResult final {
  * - \ref MetaValueKind::Bytes (raw resource payload)
  *
  * A bounded interpreted subset is additionally emitted as
- * \ref MetaKeyKind::PhotoshopIrbField entries for fixed-layout resources:
+ * \ref MetaKeyKind::PhotoshopIrbField entries for fixed-layout and
+ * descriptor-header resources:
  * - ResolutionInfo (0x03ED)
  * - AlphaChannelsNames (0x03EE)
  * - DisplayInfo (0x03EF)
  * - PStringCaption (0x03F0)
+ * - BorderInformation (0x03F1)
+ * - BackgroundColor (0x03F2)
  * - VersionInfo (0x0421)
  * - PrintFlags (0x03F3)
  * - EffectiveBW (0x03FB)
@@ -89,6 +92,8 @@ struct PhotoshopIrbDecodeResult final {
  * - CopyrightFlag (0x040A)
  * - URL (0x040B)
  * - GlobalAngle (0x040D)
+ * - ColorSamplersResource / ColorSamplersResource2 headers and records
+ *   (0x040E/0x0431)
  * - Watermark (0x0410)
  * - ICC_Untagged (0x0411)
  * - EffectsVisible (0x0412)
@@ -108,6 +113,9 @@ struct PhotoshopIrbDecodeResult final {
  * - IPTCDigest (0x0425)
  * - PrintScaleInfo (0x0426)
  * - PixelInfo / PixelAspectRatio (0x0428)
+ * - Descriptor-backed resource headers for LayerComps, MeasurementScale,
+ *   TimelineInfo, SheetDisclosure, OnionSkins, CountInfo, PrintInfo2,
+ *   PrintStyle, PathSelectionState, and OriginPathInfo
  * - LayerSelectionIDs (0x042D)
  * - LayerGroupsEnabledID (0x0430)
  * - ChannelOptions (0x0435)
