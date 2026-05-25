@@ -83,6 +83,7 @@ struct PhotoshopIrbDecodeResult final {
  * - TargetLayerID (0x0400)
  * - LayersGroupInfo (0x0402)
  * - JPEG_Quality (0x0406)
+ * - PhotoshopBGRThumbnail / PhotoshopThumbnail header fields (0x0409/0x040C)
  * - CopyrightFlag (0x040A)
  * - URL (0x040B)
  * - GlobalAngle (0x040D)

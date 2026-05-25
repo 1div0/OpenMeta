@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 89%** for the public target scope.
+Current overall status: **medium-high, about 90%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -164,19 +164,21 @@ Coverage matrix
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
      - BMFF derived fields, item-info rows, item type/semantic labels for
-       common metadata carriers, bounded relations, primary-linked roles, aux
-       semantics, primary color/profile property summaries, primary pixel
-       aspect ratio, primary pixel component bit depth, clean-aperture
-       rationals, and draft C2PA/JUMBF structural fields are exposed.
-     - Medium, about 66-76%.
+       common metadata carriers, bounded ``ipma`` item-property association
+       rows, bounded relations, primary-linked roles, aux semantics, primary
+       color/profile property summaries, primary pixel aspect ratio, primary
+       pixel component bit depth, clean-aperture rationals, and draft
+       C2PA/JUMBF structural fields are exposed.
+     - Medium, about 68-78%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including resolution/version/print data,
        alpha names/identifiers, captions, QuickMask info, URL/list data,
-       channel options, clipping-path names, embedded ICC/XMP/EXIF resource
-       byte counts, and embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 66-75%.
+       thumbnail headers, channel options, clipping-path names, embedded
+       ICC/XMP/EXIF resource byte counts, and embedded IPTC/XMP/ICC payload
+       decode where enabled.
+     - Medium, about 68-77%.
      - Broader resource-specific interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,

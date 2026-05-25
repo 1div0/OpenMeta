@@ -714,6 +714,63 @@ namespace {
     }
 
 
+    static void decode_thumbnail_info(std::span<const std::byte> payload,
+                                      uint16_t resource_id, MetaStore& store,
+                                      BlockId block, uint32_t order,
+                                      PhotoshopIrbDecodeResult* result)
+    {
+        if (payload.size() < 28U) {
+            return;
+        }
+
+        uint32_t format           = 0;
+        uint32_t width            = 0;
+        uint32_t height           = 0;
+        uint32_t row_bytes        = 0;
+        uint32_t total_bytes      = 0;
+        uint32_t compressed_bytes = 0;
+        uint16_t bits_per_pixel   = 0;
+        uint16_t planes           = 0;
+        if (!read_u32be(payload, 0U, &format)
+            || !read_u32be(payload, 4U, &width)
+            || !read_u32be(payload, 8U, &height)
+            || !read_u32be(payload, 12U, &row_bytes)
+            || !read_u32be(payload, 16U, &total_bytes)
+            || !read_u32be(payload, 20U, &compressed_bytes)
+            || !read_u16be(payload, 24U, &bits_per_pixel)
+            || !read_u16be(payload, 26U, &planes)) {
+            return;
+        }
+
+        const uint64_t data_size_u64 = payload.size() - 28U;
+        const uint32_t data_size     = (data_size_u64 > UINT32_MAX)
+                                           ? UINT32_MAX
+                                           : static_cast<uint32_t>(data_size_u64);
+
+        emit_derived_field(store, block, order, resource_id, "ThumbnailFormat",
+                           make_u32(format), result);
+        emit_derived_field(store, block, order, resource_id, "ThumbnailWidth",
+                           make_u32(width), result);
+        emit_derived_field(store, block, order, resource_id, "ThumbnailHeight",
+                           make_u32(height), result);
+        emit_derived_field(store, block, order, resource_id,
+                           "ThumbnailRowBytes", make_u32(row_bytes), result);
+        emit_derived_field(store, block, order, resource_id,
+                           "ThumbnailTotalBytes", make_u32(total_bytes),
+                           result);
+        emit_derived_field(store, block, order, resource_id,
+                           "ThumbnailCompressedBytes",
+                           make_u32(compressed_bytes), result);
+        emit_derived_field(store, block, order, resource_id,
+                           "ThumbnailBitsPerPixel", make_u16(bits_per_pixel),
+                           result);
+        emit_derived_field(store, block, order, resource_id, "ThumbnailPlanes",
+                           make_u16(planes), result);
+        emit_derived_field(store, block, order, resource_id,
+                           "ThumbnailDataBytes", make_u32(data_size), result);
+    }
+
+
     static void decode_jpeg_quality(std::span<const std::byte> payload,
                                     MetaStore& store, BlockId block,
                                     uint32_t order,
@@ -928,6 +985,11 @@ namespace {
             break;
         case 0x0406U:
             decode_jpeg_quality(payload, store, block, order, result);
+            break;
+        case 0x0409U:
+        case 0x040CU:
+            decode_thumbnail_info(payload, resource_id, store, block, order,
+                                  result);
             break;
         case 0x040BU:
             decode_ascii_text_resource(payload, resource_id, "URL", store,

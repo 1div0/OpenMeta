@@ -71,10 +71,10 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, thumbnail headers, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `iref`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipma`, `iref`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
@@ -124,6 +124,7 @@ subset. That subset includes common fixed-layout resources such as:
 - `PrintFlags`
 - `QuickMaskInfo`
 - `JPEG_Quality`
+- `PhotoshopBGRThumbnail` / `PhotoshopThumbnail` headers
 - `UnicodeAlphaNames`
 - `AlphaIdentifiers`
 - `PrintScaleInfo`
@@ -143,6 +144,8 @@ This is useful, but it is still not full Photoshop-resource parity.
 OpenMeta now has a bounded semantic model on top of raw item discovery:
 - `ftyp.*`
 - primary item properties
+- `ipma` item-property association rows with item ids, property indices,
+  essential flags, and known property type names
 - `iinf/infe` item-info rows
 - item type-name and semantic labels for EXIF, XMP, JUMBF, C2PA, ICC profile,
   image, URI, auxiliary, thumbnail, derived-image, and content-description items

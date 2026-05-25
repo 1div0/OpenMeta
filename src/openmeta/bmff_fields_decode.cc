@@ -635,6 +635,14 @@ namespace {
         uint32_t to_item_id   = 0;
     };
 
+    struct ItemPropertyAssociation final {
+        uint32_t item_id        = 0;
+        uint32_t property_index = 0;
+        uint32_t property_type  = 0;
+        uint8_t essential       = 0;
+        bool have_property_type = false;
+    };
+
     struct ItemInfo final {
         uint32_t item_id          = 0;
         uint16_t protection_index = 0;
@@ -690,6 +698,11 @@ namespace {
         uint32_t iref_edge_count = 0;
         uint32_t iref_edge_total = 0;
         bool iref_truncated      = false;
+
+        std::array<ItemPropertyAssociation, 512> ipma_associations {};
+        uint32_t ipma_association_count = 0;
+        uint32_t ipma_association_total = 0;
+        bool ipma_truncated             = false;
 
         std::array<ItemInfo, 256> item_infos {};
         uint32_t item_info_count = 0;
@@ -2188,6 +2201,77 @@ namespace {
         return nullptr;
     }
 
+    static bool bmff_property_type_for_index(
+        uint32_t index, std::span<const IspeProp> ispe,
+        std::span<const U8Prop> irot, std::span<const U8Prop> imir,
+        std::span<const ColrProp> colr, std::span<const AuxCProp> auxc,
+        std::span<const PaspProp> pasp, std::span<const PixiProp> pixi,
+        std::span<const ClapProp> clap, uint32_t* out_type) noexcept
+    {
+        if (!out_type) {
+            return false;
+        }
+        if (find_ispe(ispe, index)) {
+            *out_type = fourcc('i', 's', 'p', 'e');
+            return true;
+        }
+        if (find_u8(irot, index)) {
+            *out_type = fourcc('i', 'r', 'o', 't');
+            return true;
+        }
+        if (find_u8(imir, index)) {
+            *out_type = fourcc('i', 'm', 'i', 'r');
+            return true;
+        }
+        if (find_colr(colr, index)) {
+            *out_type = fourcc('c', 'o', 'l', 'r');
+            return true;
+        }
+        if (find_auxc(auxc, index)) {
+            *out_type = fourcc('a', 'u', 'x', 'C');
+            return true;
+        }
+        if (find_pasp(pasp, index)) {
+            *out_type = fourcc('p', 'a', 's', 'p');
+            return true;
+        }
+        if (find_pixi(pixi, index)) {
+            *out_type = fourcc('p', 'i', 'x', 'i');
+            return true;
+        }
+        if (find_clap(clap, index)) {
+            *out_type = fourcc('c', 'l', 'a', 'p');
+            return true;
+        }
+        return false;
+    }
+
+    static void append_ipma_association(PrimaryProps* out, uint32_t item_id,
+                                        uint32_t property_index,
+                                        uint8_t essential,
+                                        bool have_property_type,
+                                        uint32_t property_type) noexcept
+    {
+        if (!out || property_index == 0U) {
+            return;
+        }
+        if (out->ipma_association_total != UINT32_MAX) {
+            out->ipma_association_total += 1U;
+        }
+        if (out->ipma_association_count >= out->ipma_associations.size()) {
+            out->ipma_truncated = true;
+            return;
+        }
+        ItemPropertyAssociation& assoc
+            = out->ipma_associations[out->ipma_association_count];
+        assoc.item_id            = item_id;
+        assoc.property_index     = property_index;
+        assoc.property_type      = property_type;
+        assoc.essential          = essential;
+        assoc.have_property_type = have_property_type;
+        out->ipma_association_count += 1U;
+    }
+
     static void set_primary_color(PrimaryProps* out,
                                   const ColrProp& prop) noexcept
     {
@@ -2320,8 +2404,17 @@ namespace {
                     }
                     const uint8_t v = u8(bytes[off]);
                     off += 1;
+                    const uint8_t essential = static_cast<uint8_t>(
+                        (v & 0x80U) ? 1U : 0U);
                     const uint32_t prop_index = static_cast<uint32_t>(v & 0x7F);
                     if (prop_index != 0U) {
+                        uint32_t prop_type   = 0;
+                        const bool have_type = bmff_property_type_for_index(
+                            prop_index, ispe, irot, imir, colr, auxc, pasp,
+                            pixi, clap, &prop_type);
+                        append_ipma_association(out, item_id, prop_index,
+                                                essential, have_type,
+                                                prop_type);
                         if (is_primary) {
                             if (const IspeProp* p = find_ispe(ispe,
                                                               prop_index)) {
@@ -2410,9 +2503,18 @@ namespace {
                         return;
                     }
                     off += 2;
+                    const uint8_t essential = static_cast<uint8_t>(
+                        (v & 0x8000U) ? 1U : 0U);
                     const uint32_t prop_index = static_cast<uint32_t>(v
                                                                       & 0x7FFF);
                     if (prop_index != 0U) {
+                        uint32_t prop_type   = 0;
+                        const bool have_type = bmff_property_type_for_index(
+                            prop_index, ispe, irot, imir, colr, auxc, pasp,
+                            pixi, clap, &prop_type);
+                        append_ipma_association(out, item_id, prop_index,
+                                                essential, have_type,
+                                                prop_type);
                         if (is_primary) {
                             if (const IspeProp* p = find_ispe(ispe,
                                                               prop_index)) {
@@ -2858,6 +2960,42 @@ namespace {
                                                 (*ctx->order)++,
                                                 "item.semantic",
                                                 item_semantic_name(semantic));
+                            }
+                        }
+                    }
+                    if (p.ipma_association_total > 0U) {
+                        emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
+                                       "ipma.association_count",
+                                       p.ipma_association_total);
+                        if (p.ipma_truncated) {
+                            emit_u8_field(*ctx->store, ctx->block,
+                                          (*ctx->order)++,
+                                          "ipma.association_truncated", 1U);
+                        }
+                        for (uint32_t i = 0U; i < p.ipma_association_count;
+                             ++i) {
+                            const ItemPropertyAssociation& assoc
+                                = p.ipma_associations[i];
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++, "ipma.item_id",
+                                           assoc.item_id);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "ipma.property_index",
+                                           assoc.property_index);
+                            emit_u8_field(*ctx->store, ctx->block,
+                                          (*ctx->order)++, "ipma.essential",
+                                          assoc.essential);
+                            if (assoc.have_property_type) {
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "ipma.property_type",
+                                               assoc.property_type);
+                                emit_text_field(*ctx->store, ctx->block,
+                                                (*ctx->order)++,
+                                                "ipma.property_type_name",
+                                                bmff_fourcc_display_name(
+                                                    assoc.property_type));
                             }
                         }
                     }

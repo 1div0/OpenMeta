@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF primary item properties, Photoshop IRB embedded carriers, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 89%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF item-property associations and primary item properties, Photoshop IRB embedded carriers and thumbnail headers, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 90%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 77-83%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -670,8 +670,11 @@ This policy surface is intentionally marked draft and may be refined.
     `primary.nclx_colour_primaries`,
     `primary.nclx_transfer_characteristics`,
     `primary.nclx_matrix_coefficients`, `primary.nclx_full_range_flag`, and
-    `primary.color_profile_bytes` for bounded ICC profile carriers), item-info
-    rows from `iinf/infe` (`item.info_count`, `item.id`, `item.type`,
+    `primary.color_profile_bytes` for bounded ICC profile carriers), `ipma`
+    item-property association rows (`ipma.association_count`, `ipma.item_id`,
+    `ipma.property_index`, `ipma.essential`, `ipma.property_type`,
+    `ipma.property_type_name`), item-info rows from `iinf/infe`
+    (`item.info_count`, `item.id`, `item.type`,
     `item.type_name`, `item.semantic`, `item.name`, `item.content_type`,
     `item.content_encoding`, `item.uri_type`; emitted even when `meta` has no
     `pitm`, plus `primary.item_type`, `primary.item_type_name`,
@@ -904,7 +907,8 @@ Internal helper conventions (used by vendor decoders):
   `ICC_Untagged`, `EffectsVisible`, `IDsBaseValue`, `UnicodeAlphaNames`,
   `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
   `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`, `IPTCDigest`,
-  `PrintScaleInfo`, `PixelInfo`, `LayerSelectionIDs`,
+  `PrintScaleInfo`, `PixelInfo`, `PhotoshopBGRThumbnail`,
+  `PhotoshopThumbnail`, `LayerSelectionIDs`,
   `LayerGroupsEnabledID`, `ChannelOptions`, `PrintFlagsInfo`, and
   `ClippingPathName`.
 - Legacy 8-bit Photoshop text stays opt-in and explicit. The IRB decoder

@@ -284,13 +284,13 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
         // ipma (FullBox version 0): item 1 has properties [1,2,3,4]
         std::vector<std::byte> ipma_payload;
         append_fullbox_header(&ipma_payload, 0);
-        append_u32be(&ipma_payload, 1);           // entry_count
-        append_u16be(&ipma_payload, 1);           // item_ID
-        ipma_payload.push_back(std::byte { 4 });  // association_count
-        ipma_payload.push_back(std::byte { 1 });  // property_index=1
-        ipma_payload.push_back(std::byte { 2 });  // property_index=2
-        ipma_payload.push_back(std::byte { 3 });  // property_index=3
-        ipma_payload.push_back(std::byte { 4 });  // property_index=4
+        append_u32be(&ipma_payload, 1);              // entry_count
+        append_u16be(&ipma_payload, 1);              // item_ID
+        ipma_payload.push_back(std::byte { 4 });     // association_count
+        ipma_payload.push_back(std::byte { 1 });     // property_index=1
+        ipma_payload.push_back(std::byte { 0x82 });  // essential, index=2
+        ipma_payload.push_back(std::byte { 3 });     // property_index=3
+        ipma_payload.push_back(std::byte { 4 });     // property_index=4
         std::vector<std::byte> ipma_box;
         append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
 
@@ -383,6 +383,39 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
     EXPECT_EQ(transfer[0], 16U);
     EXPECT_EQ(matrix[0], 9U);
     EXPECT_EQ(full_range[0], 1U);
+
+    const std::vector<uint32_t> association_count
+        = collect_u32_values(store, "ipma.association_count");
+    ASSERT_EQ(association_count.size(), 1U);
+    EXPECT_EQ(association_count[0], 4U);
+
+    const std::vector<uint32_t> association_item_ids
+        = collect_u32_values(store, "ipma.item_id");
+    const std::vector<uint32_t> property_indices
+        = collect_u32_values(store, "ipma.property_index");
+    const std::vector<uint8_t> essential = collect_u8_values(store,
+                                                             "ipma.essential");
+    ASSERT_EQ(association_item_ids.size(), 4U);
+    ASSERT_EQ(property_indices.size(), 4U);
+    ASSERT_EQ(essential.size(), 4U);
+    EXPECT_EQ(association_item_ids[0], 1U);
+    EXPECT_EQ(association_item_ids[3], 1U);
+    EXPECT_EQ(property_indices[0], 1U);
+    EXPECT_EQ(property_indices[1], 2U);
+    EXPECT_EQ(property_indices[2], 3U);
+    EXPECT_EQ(property_indices[3], 4U);
+    EXPECT_EQ(essential[0], 0U);
+    EXPECT_EQ(essential[1], 1U);
+    EXPECT_EQ(essential[2], 0U);
+    EXPECT_EQ(essential[3], 0U);
+
+    const std::vector<std::string> property_type_names
+        = collect_text_values(store, "ipma.property_type_name");
+    ASSERT_EQ(property_type_names.size(), 4U);
+    EXPECT_EQ(property_type_names[0], "ispe");
+    EXPECT_EQ(property_type_names[1], "irot");
+    EXPECT_EQ(property_type_names[2], "imir");
+    EXPECT_EQ(property_type_names[3], "colr");
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsPrimaryApertureAspectAndPixelDepth)

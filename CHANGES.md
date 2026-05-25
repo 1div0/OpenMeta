@@ -1,5 +1,23 @@
 # OpenMeta Changes
 
+## 0.4.31 - 2026-05-25
+
+Changes compared with `0.4.30`.
+
+### Added
+
+- Added bounded BMFF `ipma` association interpretation, exposing item id,
+  property index, essential flag, and known property type/name rows for
+  inspected item-property links.
+- Added Photoshop IRB thumbnail-header interpretation for resource ids
+  `0x0409` and `0x040C`, exposing format, dimensions, byte counts,
+  bit depth, planes, and payload data size without decoding thumbnail pixels.
+
+### Changed
+
+- Public interpretation/support docs now describe the expanded BMFF
+  item-property association surface and Photoshop IRB thumbnail headers.
+
 ## 0.4.30 - 2026-05-24
 
 Changes compared with `0.4.29`.

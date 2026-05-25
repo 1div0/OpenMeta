@@ -456,6 +456,66 @@ TEST(PhotoshopIrbDecodeTest, DecodesEmbeddedExifResourceByteCounts)
     EXPECT_EQ(exif_info2->value.data.u64, 2U);
 }
 
+TEST(PhotoshopIrbDecodeTest, DecodesThumbnailHeaderResources)
+{
+    std::vector<std::byte> thumbnail;
+    append_u32be(1U, &thumbnail);
+    append_u32be(160U, &thumbnail);
+    append_u32be(90U, &thumbnail);
+    append_u32be(480U, &thumbnail);
+    append_u32be(43200U, &thumbnail);
+    append_u32be(1234U, &thumbnail);
+    append_u16be(24U, &thumbnail);
+    append_u16be(1U, &thumbnail);
+    thumbnail.push_back(std::byte { 0xFF });
+    thumbnail.push_back(std::byte { 0xD8 });
+    thumbnail.push_back(std::byte { 0xFF });
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x040CU,
+                        std::span<const std::byte>(thumbnail.data(),
+                                                   thumbnail.size()),
+                        &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 1U);
+
+    const std::vector<uint32_t> format
+        = collect_photoshop_irb_u32_fields(store, 0x040CU, "ThumbnailFormat");
+    const std::vector<uint32_t> width
+        = collect_photoshop_irb_u32_fields(store, 0x040CU, "ThumbnailWidth");
+    const std::vector<uint32_t> height
+        = collect_photoshop_irb_u32_fields(store, 0x040CU, "ThumbnailHeight");
+    const std::vector<uint32_t> compressed
+        = collect_photoshop_irb_u32_fields(store, 0x040CU,
+                                           "ThumbnailCompressedBytes");
+    const std::vector<uint32_t> data_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x040CU,
+                                           "ThumbnailDataBytes");
+    const std::vector<uint16_t> bits
+        = collect_photoshop_irb_u16_fields(store, 0x040CU,
+                                           "ThumbnailBitsPerPixel");
+    const std::vector<uint16_t> planes
+        = collect_photoshop_irb_u16_fields(store, 0x040CU, "ThumbnailPlanes");
+
+    ASSERT_EQ(format.size(), 1U);
+    ASSERT_EQ(width.size(), 1U);
+    ASSERT_EQ(height.size(), 1U);
+    ASSERT_EQ(compressed.size(), 1U);
+    ASSERT_EQ(data_bytes.size(), 1U);
+    ASSERT_EQ(bits.size(), 1U);
+    ASSERT_EQ(planes.size(), 1U);
+    EXPECT_EQ(format[0], 1U);
+    EXPECT_EQ(width[0], 160U);
+    EXPECT_EQ(height[0], 90U);
+    EXPECT_EQ(compressed[0], 1234U);
+    EXPECT_EQ(data_bytes[0], 3U);
+    EXPECT_EQ(bits[0], 24U);
+    EXPECT_EQ(planes[0], 1U);
+}
+
 TEST(PhotoshopIrbDecodeTest, EstimateMatchesDecodeCounters)
 {
     const std::array<std::byte, 3> payload = {
