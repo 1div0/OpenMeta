@@ -127,6 +127,23 @@ namespace {
         return out;
     }
 
+    static std::vector<int32_t> collect_i32_values(const MetaStore& store,
+                                                   std::string_view field)
+    {
+        std::vector<int32_t> out;
+        const std::span<const EntryId> ids = store.find_all(bmff_key(field));
+        out.reserve(ids.size());
+        for (size_t i = 0; i < ids.size(); ++i) {
+            const Entry& e = store.entry(ids[i]);
+            if (e.value.kind != MetaValueKind::Scalar
+                || e.value.elem_type != MetaElementType::I32) {
+                continue;
+            }
+            out.push_back(static_cast<int32_t>(e.value.data.i64));
+        }
+        return out;
+    }
+
     static std::vector<uint8_t> collect_u8_values(const MetaStore& store,
                                                   std::string_view field)
     {
@@ -366,6 +383,140 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
     EXPECT_EQ(transfer[0], 16U);
     EXPECT_EQ(matrix[0], 9U);
     EXPECT_EQ(full_range[0], 1U);
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsPrimaryApertureAspectAndPixelDepth)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> pasp_payload;
+        append_u32be(&pasp_payload, 4);
+        append_u32be(&pasp_payload, 3);
+        std::vector<std::byte> pasp_box;
+        append_bmff_box(&pasp_box, fourcc('p', 'a', 's', 'p'), pasp_payload);
+
+        std::vector<std::byte> pixi_payload;
+        append_fullbox_header(&pixi_payload, 0);
+        pixi_payload.push_back(std::byte { 3 });
+        pixi_payload.push_back(std::byte { 10 });
+        pixi_payload.push_back(std::byte { 10 });
+        pixi_payload.push_back(std::byte { 10 });
+        std::vector<std::byte> pixi_box;
+        append_bmff_box(&pixi_box, fourcc('p', 'i', 'x', 'i'), pixi_payload);
+
+        std::vector<std::byte> clap_payload;
+        append_u32be(&clap_payload, 1920);
+        append_u32be(&clap_payload, 1);
+        append_u32be(&clap_payload, 1080);
+        append_u32be(&clap_payload, 1);
+        append_u32be(&clap_payload, 0xFFFFFFFCU);
+        append_u32be(&clap_payload, 1);
+        append_u32be(&clap_payload, 8);
+        append_u32be(&clap_payload, 1);
+        std::vector<std::byte> clap_box;
+        append_bmff_box(&clap_box, fourcc('c', 'l', 'a', 'p'), clap_payload);
+
+        std::vector<std::byte> ipco_payload;
+        ipco_payload.insert(ipco_payload.end(), pasp_box.begin(),
+                            pasp_box.end());
+        ipco_payload.insert(ipco_payload.end(), pixi_box.begin(),
+                            pixi_box.end());
+        ipco_payload.insert(ipco_payload.end(), clap_box.begin(),
+                            clap_box.end());
+        std::vector<std::byte> ipco_box;
+        append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
+
+        std::vector<std::byte> ipma_payload;
+        append_fullbox_header(&ipma_payload, 0);
+        append_u32be(&ipma_payload, 1);
+        append_u16be(&ipma_payload, 1);
+        ipma_payload.push_back(std::byte { 3 });
+        ipma_payload.push_back(std::byte { 1 });
+        ipma_payload.push_back(std::byte { 2 });
+        ipma_payload.push_back(std::byte { 3 });
+        std::vector<std::byte> ipma_box;
+        append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
+
+        std::vector<std::byte> iprp_payload;
+        iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                            ipco_box.end());
+        iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                            ipma_box.end());
+        std::vector<std::byte> iprp_box;
+        append_bmff_box(&iprp_box, fourcc('i', 'p', 'r', 'p'), iprp_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iprp_box.begin(),
+                            iprp_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> pixel_aspect_h
+        = collect_u32_values(store, "primary.pixel_aspect_h_spacing");
+    const std::vector<uint32_t> pixel_aspect_v
+        = collect_u32_values(store, "primary.pixel_aspect_v_spacing");
+    ASSERT_EQ(pixel_aspect_h.size(), 1U);
+    ASSERT_EQ(pixel_aspect_v.size(), 1U);
+    EXPECT_EQ(pixel_aspect_h[0], 4U);
+    EXPECT_EQ(pixel_aspect_v[0], 3U);
+
+    const std::vector<uint8_t> channel_count
+        = collect_u8_values(store, "primary.pixel_depth_channel_count");
+    const std::vector<uint8_t> bits
+        = collect_u8_values(store, "primary.pixel_depth_bits_per_channel");
+    ASSERT_EQ(channel_count.size(), 1U);
+    ASSERT_EQ(bits.size(), 3U);
+    EXPECT_EQ(channel_count[0], 3U);
+    EXPECT_EQ(bits[0], 10U);
+    EXPECT_EQ(bits[1], 10U);
+    EXPECT_EQ(bits[2], 10U);
+
+    const std::vector<int32_t> clean_width_n
+        = collect_i32_values(store, "primary.clean_aperture_width_n");
+    const std::vector<int32_t> clean_height_n
+        = collect_i32_values(store, "primary.clean_aperture_height_n");
+    const std::vector<int32_t> horiz_off_n
+        = collect_i32_values(store, "primary.clean_aperture_horiz_off_n");
+    const std::vector<int32_t> vert_off_n
+        = collect_i32_values(store, "primary.clean_aperture_vert_off_n");
+    ASSERT_EQ(clean_width_n.size(), 1U);
+    ASSERT_EQ(clean_height_n.size(), 1U);
+    ASSERT_EQ(horiz_off_n.size(), 1U);
+    ASSERT_EQ(vert_off_n.size(), 1U);
+    EXPECT_EQ(clean_width_n[0], 1920);
+    EXPECT_EQ(clean_height_n[0], 1080);
+    EXPECT_EQ(horiz_off_n[0], -4);
+    EXPECT_EQ(vert_off_n[0], 8);
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsPrimaryIccColorProfileSummary)

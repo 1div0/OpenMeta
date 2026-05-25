@@ -50,6 +50,21 @@ namespace {
     }
 
 
+    static bool read_i32be(std::span<const std::byte> bytes, uint64_t offset,
+                           int32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint32_t raw = 0;
+        if (!read_u32be(bytes, offset, &raw)) {
+            return false;
+        }
+        *out = static_cast<int32_t>(raw);
+        return true;
+    }
+
+
     static bool read_u64be(std::span<const std::byte> bytes, uint64_t offset,
                            uint64_t* out) noexcept
     {
@@ -304,6 +319,21 @@ namespace {
     }
 
 
+    static void emit_i32_field(MetaStore& store, BlockId block, uint32_t order,
+                               std::string_view field, int32_t value) noexcept
+    {
+        Entry e;
+        e.key                   = make_bmff_field_key(store.arena(), field);
+        e.value                 = make_i32(value);
+        e.origin.block          = block;
+        e.origin.order_in_block = order;
+        e.origin.wire_type      = WireType { WireFamily::Other, 0 };
+        e.origin.wire_count     = 1;
+        e.flags                 = EntryFlags::Derived;
+        (void)store.add_entry(e);
+    }
+
+
     static void emit_text_field(MetaStore& store, BlockId block, uint32_t order,
                                 std::string_view field,
                                 std::string_view value) noexcept
@@ -506,6 +536,30 @@ namespace {
         uint8_t value  = 0;
     };
 
+    struct PaspProp final {
+        uint32_t index     = 0;  // 1-based ipco index
+        uint32_t h_spacing = 0;
+        uint32_t v_spacing = 0;
+    };
+
+    struct PixiProp final {
+        uint32_t index = 0;  // 1-based ipco index
+        std::array<uint8_t, 16> bits_per_channel {};
+        uint8_t channel_count = 0;
+    };
+
+    struct ClapProp final {
+        uint32_t index      = 0;  // 1-based ipco index
+        int32_t width_n     = 0;
+        int32_t width_d     = 0;
+        int32_t height_n    = 0;
+        int32_t height_d    = 0;
+        int32_t horiz_off_n = 0;
+        int32_t horiz_off_d = 0;
+        int32_t vert_off_n  = 0;
+        int32_t vert_off_d  = 0;
+    };
+
     struct ColrProp final {
         uint32_t index                    = 0;  // 1-based ipco index
         uint32_t color_type               = 0;
@@ -610,6 +664,17 @@ namespace {
 
         bool have_mirror = false;
         uint8_t mirror   = 0;
+
+        bool have_pixel_aspect          = false;
+        uint32_t pixel_aspect_h_spacing = 0;
+        uint32_t pixel_aspect_v_spacing = 0;
+
+        bool have_pixel_depth = false;
+        std::array<uint8_t, 16> pixel_depth_bits_per_channel {};
+        uint8_t pixel_depth_channel_count = 0;
+
+        bool have_clean_aperture = false;
+        ClapProp clean_aperture {};
 
         bool have_color                   = false;
         uint32_t color_type               = 0;
@@ -1772,11 +1837,15 @@ namespace {
         std::array<U8Prop, 64>* out_irot, uint32_t* out_irot_count,
         std::array<U8Prop, 64>* out_imir, uint32_t* out_imir_count,
         std::array<ColrProp, 64>* out_colr, uint32_t* out_colr_count,
-        std::array<AuxCProp, 64>* out_auxc, uint32_t* out_auxc_count) noexcept
+        std::array<AuxCProp, 64>* out_auxc, uint32_t* out_auxc_count,
+        std::array<PaspProp, 64>* out_pasp, uint32_t* out_pasp_count,
+        std::array<PixiProp, 64>* out_pixi, uint32_t* out_pixi_count,
+        std::array<ClapProp, 64>* out_clap, uint32_t* out_clap_count) noexcept
     {
         if (!out_ispe || !out_ispe_count || !out_irot || !out_irot_count
             || !out_imir || !out_imir_count || !out_colr || !out_colr_count
-            || !out_auxc || !out_auxc_count) {
+            || !out_auxc || !out_auxc_count || !out_pasp || !out_pasp_count
+            || !out_pixi || !out_pixi_count || !out_clap || !out_clap_count) {
             return;
         }
 
@@ -1785,6 +1854,9 @@ namespace {
         *out_imir_count = 0;
         *out_colr_count = 0;
         *out_auxc_count = 0;
+        *out_pasp_count = 0;
+        *out_pixi_count = 0;
+        *out_clap_count = 0;
 
         const uint64_t payload_off = ipco.offset + ipco.header_size;
         const uint64_t payload_end = ipco.offset + ipco.size;
@@ -1962,6 +2034,68 @@ namespace {
                             }
                         }
                     }
+                } else if (child.type == fourcc('p', 'a', 's', 'p')) {
+                    if (child_payload_size >= 8
+                        && *out_pasp_count < out_pasp->size()) {
+                        uint32_t h_spacing = 0;
+                        uint32_t v_spacing = 0;
+                        if (read_u32be(bytes, child_payload_off + 0U, &h_spacing)
+                            && read_u32be(bytes, child_payload_off + 4U,
+                                          &v_spacing)) {
+                            (*out_pasp)[*out_pasp_count]
+                                = PaspProp { prop_index, h_spacing, v_spacing };
+                            *out_pasp_count += 1;
+                        }
+                    }
+                } else if (child.type == fourcc('p', 'i', 'x', 'i')) {
+                    if (child_payload_size >= 5
+                        && *out_pixi_count < out_pixi->size()) {
+                        const uint8_t channel_count = u8(
+                            bytes[child_payload_off + 4U]);
+                        if (channel_count != 0U
+                            && static_cast<uint64_t>(channel_count)
+                                   <= child_payload_size - 5U) {
+                            PixiProp prop {};
+                            prop.index = prop_index;
+                            const uint8_t copy_count
+                                = (channel_count < prop.bits_per_channel.size())
+                                      ? channel_count
+                                      : static_cast<uint8_t>(
+                                            prop.bits_per_channel.size());
+                            for (uint8_t ci = 0U; ci < copy_count; ++ci) {
+                                prop.bits_per_channel[ci] = u8(
+                                    bytes[child_payload_off + 5U + ci]);
+                            }
+                            prop.channel_count           = copy_count;
+                            (*out_pixi)[*out_pixi_count] = prop;
+                            *out_pixi_count += 1;
+                        }
+                    }
+                } else if (child.type == fourcc('c', 'l', 'a', 'p')) {
+                    if (child_payload_size >= 32
+                        && *out_clap_count < out_clap->size()) {
+                        ClapProp prop {};
+                        prop.index = prop_index;
+                        if (read_i32be(bytes, child_payload_off + 0U,
+                                       &prop.width_n)
+                            && read_i32be(bytes, child_payload_off + 4U,
+                                          &prop.width_d)
+                            && read_i32be(bytes, child_payload_off + 8U,
+                                          &prop.height_n)
+                            && read_i32be(bytes, child_payload_off + 12U,
+                                          &prop.height_d)
+                            && read_i32be(bytes, child_payload_off + 16U,
+                                          &prop.horiz_off_n)
+                            && read_i32be(bytes, child_payload_off + 20U,
+                                          &prop.horiz_off_d)
+                            && read_i32be(bytes, child_payload_off + 24U,
+                                          &prop.vert_off_n)
+                            && read_i32be(bytes, child_payload_off + 28U,
+                                          &prop.vert_off_d)) {
+                            (*out_clap)[*out_clap_count] = prop;
+                            *out_clap_count += 1;
+                        }
+                    }
                 }
             }
 
@@ -2021,6 +2155,39 @@ namespace {
         return nullptr;
     }
 
+    static const PaspProp* find_pasp(std::span<const PaspProp> props,
+                                     uint32_t index) noexcept
+    {
+        for (size_t i = 0; i < props.size(); ++i) {
+            if (props[i].index == index) {
+                return &props[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static const PixiProp* find_pixi(std::span<const PixiProp> props,
+                                     uint32_t index) noexcept
+    {
+        for (size_t i = 0; i < props.size(); ++i) {
+            if (props[i].index == index) {
+                return &props[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static const ClapProp* find_clap(std::span<const ClapProp> props,
+                                     uint32_t index) noexcept
+    {
+        for (size_t i = 0; i < props.size(); ++i) {
+            if (props[i].index == index) {
+                return &props[i];
+            }
+        }
+        return nullptr;
+    }
+
     static void set_primary_color(PrimaryProps* out,
                                   const ColrProp& prop) noexcept
     {
@@ -2038,6 +2205,42 @@ namespace {
         out->color_profile_bytes      = prop.profile_bytes;
     }
 
+    static void set_primary_pixel_aspect(PrimaryProps* out,
+                                         const PaspProp& prop) noexcept
+    {
+        if (!out || out->have_pixel_aspect) {
+            return;
+        }
+        out->have_pixel_aspect      = true;
+        out->pixel_aspect_h_spacing = prop.h_spacing;
+        out->pixel_aspect_v_spacing = prop.v_spacing;
+    }
+
+    static void set_primary_pixel_depth(PrimaryProps* out,
+                                        const PixiProp& prop) noexcept
+    {
+        if (!out || out->have_pixel_depth) {
+            return;
+        }
+        out->have_pixel_depth          = true;
+        out->pixel_depth_channel_count = prop.channel_count;
+        for (uint8_t i = 0U; i < prop.channel_count
+                             && i < out->pixel_depth_bits_per_channel.size();
+             ++i) {
+            out->pixel_depth_bits_per_channel[i] = prop.bits_per_channel[i];
+        }
+    }
+
+    static void set_primary_clean_aperture(PrimaryProps* out,
+                                           const ClapProp& prop) noexcept
+    {
+        if (!out || out->have_clean_aperture) {
+            return;
+        }
+        out->have_clean_aperture = true;
+        out->clean_aperture      = prop;
+    }
+
     static bool is_primary_auxl_item(const PrimaryProps& out,
                                      uint32_t item_id) noexcept
     {
@@ -2050,7 +2253,8 @@ namespace {
         uint32_t primary_item_id, std::span<const IspeProp> ispe,
         std::span<const U8Prop> irot, std::span<const U8Prop> imir,
         std::span<const ColrProp> colr, std::span<const AuxCProp> auxc,
-        PrimaryProps* out) noexcept
+        std::span<const PaspProp> pasp, std::span<const PixiProp> pixi,
+        std::span<const ClapProp> clap, PrimaryProps* out) noexcept
     {
         if (!out) {
             return;
@@ -2138,6 +2342,18 @@ namespace {
                                                               prop_index)) {
                                 set_primary_color(out, *p);
                             }
+                            if (const PaspProp* p = find_pasp(pasp,
+                                                              prop_index)) {
+                                set_primary_pixel_aspect(out, *p);
+                            }
+                            if (const PixiProp* p = find_pixi(pixi,
+                                                              prop_index)) {
+                                set_primary_pixel_depth(out, *p);
+                            }
+                            if (const ClapProp* p = find_clap(clap,
+                                                              prop_index)) {
+                                set_primary_clean_aperture(out, *p);
+                            }
                         }
                         if (is_primary_aux) {
                             if (const AuxCProp* p = find_auxc(auxc,
@@ -2216,6 +2432,18 @@ namespace {
                             if (const ColrProp* p = find_colr(colr,
                                                               prop_index)) {
                                 set_primary_color(out, *p);
+                            }
+                            if (const PaspProp* p = find_pasp(pasp,
+                                                              prop_index)) {
+                                set_primary_pixel_aspect(out, *p);
+                            }
+                            if (const PixiProp* p = find_pixi(pixi,
+                                                              prop_index)) {
+                                set_primary_pixel_depth(out, *p);
+                            }
+                            if (const ClapProp* p = find_clap(clap,
+                                                              prop_index)) {
+                                set_primary_clean_aperture(out, *p);
                             }
                         }
                         if (is_primary_aux) {
@@ -2500,15 +2728,23 @@ namespace {
         std::array<U8Prop, 64> imir {};
         std::array<ColrProp, 64> colr {};
         std::array<AuxCProp, 64> auxc {};
+        std::array<PaspProp, 64> pasp {};
+        std::array<PixiProp, 64> pixi {};
+        std::array<ClapProp, 64> clap {};
         uint32_t ispe_count = 0;
         uint32_t irot_count = 0;
         uint32_t imir_count = 0;
         uint32_t colr_count = 0;
         uint32_t auxc_count = 0;
+        uint32_t pasp_count = 0;
+        uint32_t pixi_count = 0;
+        uint32_t clap_count = 0;
         if (has_ipco) {
             bmff_collect_ipco_props(bytes, ipco, &ispe, &ispe_count, &irot,
                                     &irot_count, &imir, &imir_count, &colr,
-                                    &colr_count, &auxc, &auxc_count);
+                                    &colr_count, &auxc, &auxc_count, &pasp,
+                                    &pasp_count, &pixi, &pixi_count, &clap,
+                                    &clap_count);
         }
 
         bmff_apply_ipma_primary(
@@ -2517,7 +2753,10 @@ namespace {
             std::span<const U8Prop>(irot.data(), irot_count),
             std::span<const U8Prop>(imir.data(), imir_count),
             std::span<const ColrProp>(colr.data(), colr_count),
-            std::span<const AuxCProp>(auxc.data(), auxc_count), out);
+            std::span<const AuxCProp>(auxc.data(), auxc_count),
+            std::span<const PaspProp>(pasp.data(), pasp_count),
+            std::span<const PixiProp>(pixi.data(), pixi_count),
+            std::span<const ClapProp>(clap.data(), clap_count), out);
         return true;
     }
 
@@ -2700,6 +2939,65 @@ namespace {
                             emit_u8_field(*ctx->store, ctx->block,
                                           (*ctx->order)++, "primary.mirror",
                                           p.mirror);
+                        }
+                        if (p.have_pixel_aspect) {
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.pixel_aspect_h_spacing",
+                                           p.pixel_aspect_h_spacing);
+                            emit_u32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.pixel_aspect_v_spacing",
+                                           p.pixel_aspect_v_spacing);
+                        }
+                        if (p.have_pixel_depth) {
+                            emit_u8_field(*ctx->store, ctx->block,
+                                          (*ctx->order)++,
+                                          "primary.pixel_depth_channel_count",
+                                          p.pixel_depth_channel_count);
+                            for (uint8_t ci = 0U;
+                                 ci < p.pixel_depth_channel_count
+                                 && ci < p.pixel_depth_bits_per_channel.size();
+                                 ++ci) {
+                                emit_u8_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.pixel_depth_bits_per_channel",
+                                    p.pixel_depth_bits_per_channel[ci]);
+                            }
+                        }
+                        if (p.have_clean_aperture) {
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_width_n",
+                                           p.clean_aperture.width_n);
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_width_d",
+                                           p.clean_aperture.width_d);
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_height_n",
+                                           p.clean_aperture.height_n);
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_height_d",
+                                           p.clean_aperture.height_d);
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_horiz_off_n",
+                                           p.clean_aperture.horiz_off_n);
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_horiz_off_d",
+                                           p.clean_aperture.horiz_off_d);
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_vert_off_n",
+                                           p.clean_aperture.vert_off_n);
+                            emit_i32_field(*ctx->store, ctx->block,
+                                           (*ctx->order)++,
+                                           "primary.clean_aperture_vert_off_d",
+                                           p.clean_aperture.vert_off_d);
                         }
                         if (p.have_color) {
                             emit_u32_field(*ctx->store, ctx->block,

@@ -2,8 +2,10 @@
 
 #pragma once
 
+#include "openmeta/icc_decode.h"
 #include "openmeta/iptc_iim_decode.h"
 #include "openmeta/meta_store.h"
+#include "openmeta/xmp_decode.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -44,9 +46,13 @@ struct PhotoshopIrbDecodeLimits final {
 /// Decoder options for \ref decode_photoshop_irb.
 struct PhotoshopIrbDecodeOptions final {
     bool decode_iptc_iim                     = true;
+    bool decode_xmp_packet                   = true;
+    bool decode_icc_profile                  = true;
     PhotoshopIrbStringCharset string_charset = PhotoshopIrbStringCharset::Latin;
     PhotoshopIrbDecodeLimits limits;
     IptcIimDecodeOptions iptc;
+    XmpDecodeOptions xmp;
+    IccDecodeOptions icc;
 };
 
 struct PhotoshopIrbDecodeResult final {
@@ -54,6 +60,8 @@ struct PhotoshopIrbDecodeResult final {
     uint32_t resources_decoded      = 0;
     uint32_t entries_decoded        = 0;
     uint32_t iptc_entries_decoded   = 0;
+    uint32_t xmp_entries_decoded    = 0;
+    uint32_t icc_entries_decoded    = 0;
 };
 
 /**
@@ -90,6 +98,10 @@ struct PhotoshopIrbDecodeResult final {
  * - WorkflowURL (0x041B)
  * - AlphaIdentifiers (0x041D)
  * - URL_List (0x041E)
+ * - ICC_Profile byte count (0x040F)
+ * - EXIFInfo byte count (0x0422)
+ * - ExifInfo2 byte count (0x0423)
+ * - XMP byte count (0x0424)
  * - IPTCDigest (0x0425)
  * - PrintScaleInfo (0x0426)
  * - PixelInfo / PixelAspectRatio (0x0428)
@@ -99,8 +111,9 @@ struct PhotoshopIrbDecodeResult final {
  * - PrintFlagsInfo (0x2710)
  * - ClippingPathName (0x0BB7)
  *
- * If enabled, IPTC-IIM is additionally decoded from resource id 0x0404
- * (IPTC/NAA) into separate \ref MetaKeyKind::IptcDataset entries marked as
+ * If enabled, embedded IPTC-IIM, XMP, and ICC payloads are additionally
+ * decoded from resource ids 0x0404, 0x0424, and 0x040F into their regular
+ * OpenMeta entry families. IPTC-IIM and XMP entries are marked as
  * \ref EntryFlags::Derived.
  */
 PhotoshopIrbDecodeResult

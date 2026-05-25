@@ -71,10 +71,10 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved plus a bounded interpreted subset |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `iref`, graph summaries, aux semantics, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `iref`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
@@ -131,6 +131,10 @@ subset. That subset includes common fixed-layout resources such as:
 - `ChannelOptions`
 - `PrintFlagsInfo`
 - `ClippingPathName`
+- embedded ICC, EXIF, EXIF2, and XMP resource byte counts
+
+When enabled, embedded IPTC-IIM, XMP, and ICC payloads in IRB resources are
+also decoded into their regular OpenMeta entry families.
 
 This is useful, but it is still not full Photoshop-resource parity.
 
@@ -148,6 +152,8 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
 - bounded primary-linked image-role fields
 - primary `colr` summaries for `nclx`/`nclc` color fields and ICC profile-size
   carriers
+- primary `pasp`, `pixi`, and `clap` item-property summaries for pixel aspect
+  ratio, pixel component bit depth, and clean aperture
 
 This is intentionally smaller than a full QuickTime/BMFF semantic model.
 

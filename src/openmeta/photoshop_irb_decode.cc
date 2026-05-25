@@ -327,6 +327,22 @@ namespace {
     }
 
 
+    static void decode_payload_size_resource(std::span<const std::byte> payload,
+                                             uint16_t resource_id,
+                                             std::string_view field,
+                                             MetaStore& store, BlockId block,
+                                             uint32_t order,
+                                             PhotoshopIrbDecodeResult* result)
+    {
+        const uint64_t size    = payload.size();
+        const uint32_t clamped = (size > UINT32_MAX)
+                                     ? UINT32_MAX
+                                     : static_cast<uint32_t>(size);
+        emit_derived_field(store, block, order, resource_id, field,
+                           make_u32(clamped), result);
+    }
+
+
     static void decode_u16_scalar_resource(std::span<const std::byte> payload,
                                            uint16_t resource_id,
                                            std::string_view field,
@@ -933,6 +949,18 @@ namespace {
         case 0x041EU:
             decode_url_list(payload, store, block, order, result);
             break;
+        case 0x0422U:
+            decode_payload_size_resource(payload, resource_id, "EXIFInfoBytes",
+                                         store, block, order, result);
+            break;
+        case 0x0423U:
+            decode_payload_size_resource(payload, resource_id, "EXIFInfo2Bytes",
+                                         store, block, order, result);
+            break;
+        case 0x0424U:
+            decode_payload_size_resource(payload, resource_id, "XMPPacketBytes",
+                                         store, block, order, result);
+            break;
         case 0x0425U:
             decode_iptc_digest(payload, store, block, order, result);
             break;
@@ -952,6 +980,11 @@ namespace {
         case 0x040DU:
             decode_u32_scalar_resource(payload, resource_id, "GlobalAngle",
                                        store, block, order, result);
+            break;
+        case 0x040FU:
+            decode_payload_size_resource(payload, resource_id,
+                                         "ICCProfileBytes", store, block, order,
+                                         result);
             break;
         case 0x0412U:
             decode_u8_scalar_resource(payload, resource_id, "EffectsVisible",
@@ -1215,6 +1248,23 @@ decode_photoshop_irb(std::span<const std::byte> irb_bytes, MetaStore& store,
                                   options.iptc);
             if (iptc.status == IptcIimDecodeStatus::Ok) {
                 result.iptc_entries_decoded += iptc.entries_decoded;
+            }
+        }
+        if (options.decode_xmp_packet && resource_id == 0x0424U) {
+            const XmpDecodeResult xmp = decode_xmp_packet(payload, store,
+                                                          EntryFlags::Derived,
+                                                          options.xmp);
+            if (xmp.status == XmpDecodeStatus::Ok
+                || xmp.status == XmpDecodeStatus::OutputTruncated) {
+                result.xmp_entries_decoded += xmp.entries_decoded;
+            }
+        }
+        if (options.decode_icc_profile && resource_id == 0x040FU) {
+            const IccDecodeResult icc = decode_icc_profile(payload, store,
+                                                           options.icc);
+            if (icc.status == IccDecodeStatus::Ok
+                || icc.status == IccDecodeStatus::Malformed) {
+                result.icc_entries_decoded += icc.entries_decoded;
             }
         }
 

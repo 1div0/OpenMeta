@@ -89,6 +89,15 @@ Host-facing API map
        balance, scene capture type, gain control, CFA layout, and DNG
        calibration illuminants. Unknown values return an empty string and
        remain lossless numeric metadata.
+   * - Photoshop IRB decode: ``decode_photoshop_irb(...)`` and
+       ``measure_photoshop_irb(...)``
+     - ``openmeta/photoshop_irb_decode.h``
+     - Experimental
+     - Bounded resource traversal with stable raw resource preservation
+       behavior, but the interpreted subset can still grow. Current
+       interpretation includes fixed-layout resource fields, embedded
+       ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded IPTC-IIM,
+       XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``

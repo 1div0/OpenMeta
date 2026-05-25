@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 87%** for the public target scope.
+Current overall status: **medium-high, about 89%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -165,16 +165,18 @@ Coverage matrix
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
      - BMFF derived fields, item-info rows, item type/semantic labels for
        common metadata carriers, bounded relations, primary-linked roles, aux
-       semantics, primary color/profile property summaries, and draft
-       C2PA/JUMBF structural fields are exposed.
-     - Medium, about 63-73%.
+       semantics, primary color/profile property summaries, primary pixel
+       aspect ratio, primary pixel component bit depth, clean-aperture
+       rationals, and draft C2PA/JUMBF structural fields are exposed.
+     - Medium, about 66-76%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including resolution/version/print data,
        alpha names/identifiers, captions, QuickMask info, URL/list data,
-       channel options, and clipping-path names.
-     - Medium, about 62-72%.
+       channel options, clipping-path names, embedded ICC/XMP/EXIF resource
+       byte counts, and embedded IPTC/XMP/ICC payload decode where enabled.
+     - Medium, about 66-75%.
      - Broader resource-specific interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
@@ -226,14 +228,16 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Deepen transfer diagnostics with optional host localization/formatting hooks
+1. Deepen BMFF/CR3/HEIF/AVIF item graph semantics beyond primary item
+   properties only where hosts can use the result safely.
+2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
+   layouts and embedded metadata carriers.
+3. Deepen transfer diagnostics with optional host localization/formatting hooks
    for GUI workflows.
-2. Expand GPS policy beyond current coordinate tolerance, altitude-reference
+4. Expand GPS policy beyond current coordinate tolerance, altitude-reference
    display, and EXIF timestamp assembly into broader cross-family
    reconciliation.
-3. Expand MakerNote meaning depth in vendor order: Nikon, Canon, Sony,
+5. Expand MakerNote meaning depth in vendor order: Nikon, Canon, Sony,
    Fujifilm, Phase One/Leaf, then remaining active vendors.
-4. Deepen BMFF/CR3/HEIF/AVIF item graph semantics only where hosts can use the
-   result safely.
-5. Keep transfer-safety classification conservative when interpretation is
+6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

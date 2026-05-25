@@ -33,8 +33,9 @@ model should stay compact:
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, exposure adjustment,
        color/profile/source-color-transform evidence, lens-correction, sensor,
-       computational, thermal, stitch/panorama capture state, and
-       vendor-private fields.
+       BMFF primary item properties, Photoshop IRB embedded carriers,
+       computational, thermal, stitch/panorama capture state, and vendor-private
+       fields.
      - Medium-high, about 89%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose

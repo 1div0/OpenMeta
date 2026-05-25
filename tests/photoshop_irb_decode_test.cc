@@ -2,6 +2,8 @@
 
 #include "openmeta/photoshop_irb_decode.h"
 
+#include "openmeta/container_scan.h"
+
 #include <bit>
 #include <gtest/gtest.h>
 
@@ -38,6 +40,26 @@ namespace {
             std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) });
         out->push_back(
             std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) });
+    }
+
+    static void write_u16be(uint16_t v, size_t off, std::vector<std::byte>* out)
+    {
+        (*out)[off + 0]
+            = std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) };
+        (*out)[off + 1]
+            = std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) };
+    }
+
+    static void write_u32be(uint32_t v, size_t off, std::vector<std::byte>* out)
+    {
+        (*out)[off + 0]
+            = std::byte { static_cast<unsigned char>((v >> 24) & 0xFF) };
+        (*out)[off + 1]
+            = std::byte { static_cast<unsigned char>((v >> 16) & 0xFF) };
+        (*out)[off + 2]
+            = std::byte { static_cast<unsigned char>((v >> 8) & 0xFF) };
+        (*out)[off + 3]
+            = std::byte { static_cast<unsigned char>((v >> 0) & 0xFF) };
     }
 
     static void append_utf16be_string32(const char* s,
@@ -113,6 +135,58 @@ namespace {
         const std::span<const std::byte> bytes = store.arena().span(span);
         return std::string_view(reinterpret_cast<const char*>(bytes.data()),
                                 bytes.size());
+    }
+
+    static std::vector<std::byte> make_minimal_icc_profile()
+    {
+        std::vector<std::byte> icc(132U, std::byte { 0x00 });
+        write_u32be(static_cast<uint32_t>(icc.size()), 0U, &icc);
+        write_u32be(0x04300000U, 8U, &icc);
+        write_u32be(fourcc('m', 'n', 't', 'r'), 12U, &icc);
+        write_u32be(fourcc('R', 'G', 'B', ' '), 16U, &icc);
+        write_u32be(fourcc('X', 'Y', 'Z', ' '), 20U, &icc);
+        write_u16be(2026U, 24U, &icc);
+        write_u16be(5U, 26U, &icc);
+        write_u16be(24U, 28U, &icc);
+        icc[36] = std::byte { 'a' };
+        icc[37] = std::byte { 'c' };
+        icc[38] = std::byte { 's' };
+        icc[39] = std::byte { 'p' };
+        write_u32be(fourcc('o', 'm', 'e', 't'), 80U, &icc);
+        write_u32be(0U, 128U, &icc);
+        return icc;
+    }
+
+    static const Entry* find_icc_header_field(const MetaStore& store,
+                                              uint32_t offset) noexcept
+    {
+        for (size_t i = 0; i < store.entries().size(); ++i) {
+            const Entry& e = store.entry(static_cast<EntryId>(i));
+            if (e.key.kind == MetaKeyKind::IccHeaderField
+                && e.key.data.icc_header_field.offset == offset) {
+                return &e;
+            }
+        }
+        return nullptr;
+    }
+
+    static const Entry* find_xmp_property(const MetaStore& store,
+                                          std::string_view schema_ns,
+                                          std::string_view path) noexcept
+    {
+        for (size_t i = 0; i < store.entries().size(); ++i) {
+            const Entry& e = store.entry(static_cast<EntryId>(i));
+            if (e.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+            if (arena_string(store, e.key.data.xmp_property.schema_ns)
+                    == schema_ns
+                && arena_string(store, e.key.data.xmp_property.property_path)
+                       == path) {
+                return &e;
+            }
+        }
+        return nullptr;
     }
 
 
@@ -283,6 +357,103 @@ TEST(PhotoshopIrbDecodeTest, DecodesResourcesAndOptionalIptc)
     }
     EXPECT_EQ(irb_entries, 2U);
     EXPECT_EQ(iptc_entries, 1U);
+}
+
+TEST(PhotoshopIrbDecodeTest, DecodesEmbeddedXmpAndIccResources)
+{
+    const std::string xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/' "
+          "xmp:CreatorTool='OpenMeta'/>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+    const std::span<const std::byte> xmp_bytes(
+        reinterpret_cast<const std::byte*>(xmp.data()), xmp.size());
+
+    const std::vector<std::byte> icc = make_minimal_icc_profile();
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x0424U, xmp_bytes, &irb);
+    append_irb_resource(0x040FU,
+                        std::span<const std::byte>(icc.data(), icc.size()),
+                        &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 2U);
+    EXPECT_GT(r.icc_entries_decoded, 0U);
+
+    const Entry* xmp_bytes_field = find_photoshop_irb_field(store, 0x0424U,
+                                                            "XMPPacketBytes");
+    ASSERT_NE(xmp_bytes_field, nullptr);
+    EXPECT_EQ(xmp_bytes_field->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(xmp_bytes_field->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(xmp_bytes_field->value.data.u64, xmp.size());
+
+    const Entry* icc_bytes_field = find_photoshop_irb_field(store, 0x040FU,
+                                                            "ICCProfileBytes");
+    ASSERT_NE(icc_bytes_field, nullptr);
+    EXPECT_EQ(icc_bytes_field->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(icc_bytes_field->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(icc_bytes_field->value.data.u64, icc.size());
+
+    const Entry* icc_size = find_icc_header_field(store, 0U);
+    ASSERT_NE(icc_size, nullptr);
+    EXPECT_EQ(icc_size->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(icc_size->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(icc_size->value.data.u64, icc.size());
+
+#if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
+    EXPECT_EQ(r.xmp_entries_decoded, 1U);
+    const Entry* creator_tool
+        = find_xmp_property(store, "http://ns.adobe.com/xap/1.0/",
+                            "CreatorTool");
+    ASSERT_NE(creator_tool, nullptr);
+    EXPECT_TRUE(any(creator_tool->flags, EntryFlags::Derived));
+    EXPECT_EQ(creator_tool->value.kind, MetaValueKind::Text);
+    EXPECT_EQ(arena_string(store, creator_tool->value.data.span), "OpenMeta");
+#else
+    EXPECT_EQ(r.xmp_entries_decoded, 0U);
+#endif
+}
+
+TEST(PhotoshopIrbDecodeTest, DecodesEmbeddedExifResourceByteCounts)
+{
+    const std::array<std::byte, 4> exif_a = {
+        std::byte { 'E' },
+        std::byte { 'x' },
+        std::byte { 'i' },
+        std::byte { 'f' },
+    };
+    const std::array<std::byte, 2> exif_b = {
+        std::byte { 'I' },
+        std::byte { 'I' },
+    };
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x0422U, exif_a, &irb);
+    append_irb_resource(0x0423U, exif_b, &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 2U);
+
+    const Entry* exif_info = find_photoshop_irb_field(store, 0x0422U,
+                                                      "EXIFInfoBytes");
+    ASSERT_NE(exif_info, nullptr);
+    EXPECT_EQ(exif_info->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(exif_info->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(exif_info->value.data.u64, 4U);
+
+    const Entry* exif_info2 = find_photoshop_irb_field(store, 0x0423U,
+                                                       "EXIFInfo2Bytes");
+    ASSERT_NE(exif_info2, nullptr);
+    EXPECT_EQ(exif_info2->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(exif_info2->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(exif_info2->value.data.u64, 2U);
 }
 
 TEST(PhotoshopIrbDecodeTest, EstimateMatchesDecodeCounters)

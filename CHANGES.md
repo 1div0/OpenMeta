@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.30 - 2026-05-24
+
+Changes compared with `0.4.29`.
+
+### Added
+
+- Added bounded BMFF primary item-property interpretation for `pasp`, `pixi`,
+  and `clap`, exposing primary pixel aspect ratio, pixel component bit depth,
+  and clean-aperture rationals as derived `BmffField` entries.
+- Added Photoshop IRB derived byte-count fields for embedded ICC, EXIF,
+  EXIF2, and XMP resource payloads.
+- Added optional Photoshop IRB embedded XMP and ICC decode paths, with result
+  counters and focused regression tests.
+
+### Changed
+
+- Public interpretation/support docs now describe the expanded BMFF item
+  property surface and the broader Photoshop IRB embedded-carrier handling.
+
 ## 0.4.29 - 2026-05-22
 
 Changes compared with `0.4.28`.
