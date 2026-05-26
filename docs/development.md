@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF item-property associations and primary item properties, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, path-record, byte-count, and descriptor-header summaries, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 90%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF brand/item-property associations, item semantic counts, and primary item properties, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, and descriptor-header summaries, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 90%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 77-83%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -662,7 +662,8 @@ This policy surface is intentionally marked draft and may be refined.
   plus `format_icc_tag_display_value(...)` for shared CLI/Python rendering)
 - ISO-BMFF (HEIF/AVIF/CR3) container-derived fields: `src/openmeta/bmff_fields_decode.cc`
   - Emitted during `simple_meta_read(...)` as `MetaKeyKind::BmffField` entries.
-  - Current fields: `ftyp.*`, primary item properties
+  - Current fields: `ftyp.*` brand codes/names and compatible-brand counts,
+    primary item properties
     (`meta.primary_item_id`, `primary.width`, `primary.height`,
     `primary.rotation_degrees`, `primary.mirror` from `pitm` + `iprp/ipco
     ispe/irot/imir` + `ipma`), primary `colr` summaries
@@ -676,7 +677,8 @@ This policy surface is intentionally marked draft and may be refined.
     `ipma.property_type_name`), item-info rows from `iinf/infe`
     (`item.info_count`, `item.id`, `item.type`,
     `item.type_name`, `item.semantic`, `item.name`, `item.content_type`,
-    `item.content_encoding`, `item.uri_type`; emitted even when `meta` has no
+    `item.content_encoding`, `item.uri_type`, and `item.semantic_*_count`
+    aggregate rows for common item roles; emitted even when `meta` has no
     `pitm`, plus `primary.item_type`, `primary.item_type_name`,
     `primary.item_semantic`, `primary.item_name`, `primary.content_type`,
     `primary.content_encoding`, `primary.uri_type` aliases when `pitm` is
@@ -914,8 +916,8 @@ Internal helper conventions (used by vendor decoders):
   `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
   `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`, `IPTCDigest`,
   `PrintScaleInfo`, `PixelInfo`, `AutoSaveFilePath`, `AutoSaveFormat`,
-  `ImageReadyVariables`, `ImageReadyDataSets`, path-resource record summaries,
-  descriptor-header summaries for
+  `XMLData`, `ImageReadyVariables`, `ImageReadyDataSets`, path-resource record
+  summaries, descriptor-header summaries for
   `LayerComps`, `MeasurementScale`, `TimelineInfo`, `SheetDisclosure`,
   `OnionSkins`, `CountInfo`, `PrintInfo2`, `PrintStyle`,
   `PathSelectionState`, and `OriginPathInfo`, `PhotoshopBGRThumbnail`,

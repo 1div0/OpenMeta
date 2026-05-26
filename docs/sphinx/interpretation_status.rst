@@ -110,11 +110,12 @@ Coverage matrix
        sensitivity, exposure bias, exposure index, gain control, selected DNG
        baseline/raw-preview gain fields, matching XMP paths, and selected
        decoded vendor/MakerNote exposure names are queryable and promoted into
-       cross-family exposure roles. Standard EXIF exposure program and
-       gain-control values carry human-readable labels in concept candidates.
-       Capture exposure facts are marked safe, while raw/DNG exposure
-       adjustments are marked unsafe for rendered-image transfer.
-     - Medium-high, about 87-91%.
+       cross-family exposure roles. Standard EXIF exposure program/gain-control
+       values and selected Canon MakerNote exposure-mode values carry
+       human-readable labels in concept candidates. Capture exposure facts are
+       marked safe, while raw/DNG exposure adjustments are marked unsafe for
+       rendered-image transfer.
+     - Medium-high, about 88-92%.
      - More vendor MakerNote exposure print conversions and richer per-vendor
        exposure/gain labels.
    * - Color, white balance, profiles, and matrices
@@ -163,13 +164,14 @@ Coverage matrix
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
-     - BMFF derived fields, item-info rows, item type/semantic labels for
-       common metadata carriers, bounded ``ipma`` item-property association
-       rows, bounded relations, primary-linked roles, aux semantics, primary
+     - BMFF derived fields, brand-name fields, item-info rows,
+       item type/semantic labels and semantic aggregate counters for common
+       metadata carriers, bounded ``ipma`` item-property association rows,
+       bounded relations, primary-linked roles, aux semantics, primary
        color/profile property summaries, primary pixel aspect ratio, primary
        pixel component bit depth, clean-aperture rationals, JUMBF box labels,
        and draft C2PA/JUMBF structural fields are exposed.
-     - Medium, about 69-79%.
+     - Medium, about 70-80%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -178,11 +180,12 @@ Coverage matrix
        border/background/effective-BW data, display info, grid/guide info,
        color sampler headers/records, descriptor-header summaries, path record
        summaries, alpha names/identifiers, captions, QuickMask info, URL/list
-       data, autosave strings, ImageReady XML text, thumbnail headers, channel
-       options, clipping-path names, legacy halftone/transfer/duotone/EPS byte
-       summaries, embedded ICC/XMP/EXIF resource byte counts, and embedded
-       IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 74-83%.
+       data, autosave strings, ``XMLData``, ImageReady XML text, thumbnail
+       headers, channel options, clipping-path names, legacy
+       halftone/transfer/duotone/EPS byte summaries, embedded ICC/XMP/EXIF
+       resource byte counts, and embedded IPTC/XMP/ICC payload decode where
+       enabled.
+     - Medium, about 75-84%.
      - Broader resource-specific descriptor parsing and long-tail resource
        interpretation.
    * - Semantic query/search and records

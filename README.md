@@ -31,7 +31,8 @@ OpenMeta currently covers these major families:
 - Photoshop IRB, with raw preservation plus a bounded interpreted subset.
 - IPTC-IIM datasets.
 - JPEG comments, GIF comments, and PNG text chunks.
-- ISO-BMFF derived fields for primary-item, relation, and auxiliary semantics.
+- ISO-BMFF derived fields for brand, primary-item, item-semantic, relation,
+  and auxiliary semantics.
 - JUMBF / C2PA draft structural and semantic projection.
 - EXR header attributes.
 

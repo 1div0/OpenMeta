@@ -144,6 +144,7 @@ summaries such as:
 - `PixelInfo`
 - `AutoSaveFilePath`
 - `AutoSaveFormat`
+- `XMLData`
 - `ImageReadyVariables`
 - `ImageReadyDataSets`
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
@@ -166,7 +167,7 @@ Current Photoshop IRB interpretation status:
 | --- | --- | --- |
 | Raw IRB resources | Preserved | Every accepted resource keeps a lossless `PhotoshopIrb` raw entry. |
 | Embedded IPTC/XMP/ICC/EXIF carriers | Interpreted where enabled | Payload bytes remain preserved; enabled decoders also emit regular family entries. |
-| Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, and similar bounded fields. |
+| Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, `XMLData`, and similar bounded fields. |
 | Geometry/display/color-sampler/path headers | Interpreted / record-summary | Display/grid/thumbnail/color-sampler headers are decoded; path resources expose record counts and selectors without interpreting Bezier payloads. |
 | Descriptor-backed Photoshop resources | Descriptor-header only | Descriptor version and remaining byte count are emitted; descriptor body parsing remains out of scope for this subset. |
 | Legacy halftone/transfer/duotone/EPS resources | Header / byte-count only | OpenMeta emits byte counts and first header words where safe, without claiming full Photoshop semantics. |
@@ -177,13 +178,16 @@ This is useful, but it is still not full Photoshop-resource parity.
 ### BMFF (`HEIF` / `AVIF` / `CR3`)
 
 OpenMeta now has a bounded semantic model on top of raw item discovery:
-- `ftyp.*`
+- `ftyp.*`, including brand names and compatible-brand counts
 - primary item properties
 - `ipma` item-property association rows with item ids, property indices,
   essential flags, and known property type names
 - `iinf/infe` item-info rows
 - item type-name and semantic labels for EXIF, XMP, JUMBF, C2PA, ICC profile,
   image, URI, auxiliary, thumbnail, derived-image, and content-description items
+- aggregate item semantic counters for known, metadata, image, EXIF, XMP,
+  JUMBF, C2PA, ICC profile, auxiliary, derived, thumbnail,
+  content-description, URI, and JSON roles
 - typed `iref.<type>.*` rows
 - graph summaries
 - `auxC`-typed auxiliary semantics

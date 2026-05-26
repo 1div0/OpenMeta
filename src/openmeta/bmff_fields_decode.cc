@@ -607,6 +607,23 @@ namespace {
         Json               = 12,
     };
 
+    struct ItemSemanticCounts final {
+        uint32_t known               = 0;
+        uint32_t metadata            = 0;
+        uint32_t image               = 0;
+        uint32_t exif                = 0;
+        uint32_t xmp                 = 0;
+        uint32_t jumbf               = 0;
+        uint32_t c2pa                = 0;
+        uint32_t icc_profile         = 0;
+        uint32_t auxiliary           = 0;
+        uint32_t derived             = 0;
+        uint32_t thumbnail           = 0;
+        uint32_t content_description = 0;
+        uint32_t uri                 = 0;
+        uint32_t json                = 0;
+    };
+
     struct AuxCProp final {
         uint32_t index       = 0;  // 1-based ipco index
         AuxSemantic semantic = AuxSemantic::Unknown;
@@ -914,6 +931,98 @@ namespace {
     static bool item_semantic_is_known(ItemSemantic semantic) noexcept
     {
         return semantic != ItemSemantic::Unknown;
+    }
+
+    static bool item_semantic_is_metadata(ItemSemantic semantic) noexcept
+    {
+        switch (semantic) {
+        case ItemSemantic::Exif:
+        case ItemSemantic::Xmp:
+        case ItemSemantic::Jumbf:
+        case ItemSemantic::C2pa:
+        case ItemSemantic::IccProfile:
+        case ItemSemantic::ContentDescription:
+        case ItemSemantic::Uri:
+        case ItemSemantic::Json: return true;
+        case ItemSemantic::Unknown:
+        case ItemSemantic::Image:
+        case ItemSemantic::Auxiliary:
+        case ItemSemantic::DerivedImage:
+        case ItemSemantic::Thumbnail: return false;
+        }
+        return false;
+    }
+
+    static void count_item_semantic(ItemSemantic semantic,
+                                    ItemSemanticCounts* out) noexcept
+    {
+        if (!out || !item_semantic_is_known(semantic)) {
+            return;
+        }
+        out->known += 1U;
+        if (item_semantic_is_metadata(semantic)) {
+            out->metadata += 1U;
+        }
+        switch (semantic) {
+        case ItemSemantic::Image: out->image += 1U; break;
+        case ItemSemantic::Exif: out->exif += 1U; break;
+        case ItemSemantic::Xmp: out->xmp += 1U; break;
+        case ItemSemantic::Jumbf: out->jumbf += 1U; break;
+        case ItemSemantic::C2pa: out->c2pa += 1U; break;
+        case ItemSemantic::IccProfile: out->icc_profile += 1U; break;
+        case ItemSemantic::Auxiliary: out->auxiliary += 1U; break;
+        case ItemSemantic::DerivedImage: out->derived += 1U; break;
+        case ItemSemantic::Thumbnail: out->thumbnail += 1U; break;
+        case ItemSemantic::ContentDescription:
+            out->content_description += 1U;
+            break;
+        case ItemSemantic::Uri: out->uri += 1U; break;
+        case ItemSemantic::Json: out->json += 1U; break;
+        case ItemSemantic::Unknown: break;
+        }
+    }
+
+    static void emit_item_semantic_counts(MetaStore& store, BlockId block,
+                                          uint32_t* io_order,
+                                          const ItemSemanticCounts& counts)
+    {
+        if (!io_order || counts.known == 0U) {
+            return;
+        }
+        emit_u32_field(store, block, (*io_order)++, "item.semantic_known_count",
+                       counts.known);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_metadata_count",
+                                    counts.metadata);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_image_count", counts.image);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_exif_count", counts.exif);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_xmp_count", counts.xmp);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_jumbf_count", counts.jumbf);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_c2pa_count", counts.c2pa);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_icc_profile_count",
+                                    counts.icc_profile);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_auxiliary_count",
+                                    counts.auxiliary);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_derived_count",
+                                    counts.derived);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_thumbnail_count",
+                                    counts.thumbnail);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_content_description_count",
+                                    counts.content_description);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_uri_count", counts.uri);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "item.semantic_json_count", counts.json);
     }
 
     static bool item_content_type_matches(const ItemInfo& info,
@@ -2905,6 +3014,7 @@ namespace {
                     if (p.item_info_count > 0) {
                         emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
                                        "item.info_count", p.item_info_count);
+                        ItemSemanticCounts semantic_counts {};
                         for (uint32_t i = 0; i < p.item_info_count; ++i) {
                             const ItemInfo& info = p.item_infos[i];
                             emit_u32_field(*ctx->store, ctx->block,
@@ -2955,6 +3065,7 @@ namespace {
                             }
                             const ItemSemantic semantic
                                 = classify_item_semantic(info);
+                            count_item_semantic(semantic, &semantic_counts);
                             if (item_semantic_is_known(semantic)) {
                                 emit_text_field(*ctx->store, ctx->block,
                                                 (*ctx->order)++,
@@ -2962,6 +3073,8 @@ namespace {
                                                 item_semantic_name(semantic));
                             }
                         }
+                        emit_item_semantic_counts(*ctx->store, ctx->block,
+                                                  ctx->order, semantic_counts);
                     }
                     if (p.ipma_association_total > 0U) {
                         emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
@@ -3853,12 +3966,20 @@ namespace bmff_internal {
 
         uint32_t order = 0;
         emit_u32_field(store, block, order++, "ftyp.major_brand", major_brand);
+        emit_text_field(store, block, order++, "ftyp.major_brand_name",
+                        bmff_fourcc_display_name(major_brand));
         emit_u32_field(store, block, order++, "ftyp.minor_version",
                        minor_version);
+        emit_u32_field(store, block, order++, "ftyp.compat_brand_count",
+                       compat_count);
         if (compat_count > 0) {
             emit_u32_array_field(store, block, order++, "ftyp.compat_brands",
                                  std::span<const uint32_t>(compat.data(),
                                                            compat_count));
+            for (uint32_t i = 0; i < compat_count; ++i) {
+                emit_text_field(store, block, order++, "ftyp.compat_brand_name",
+                                bmff_fourcc_display_name(compat[i]));
+            }
         }
 
         ScanCtx ctx;

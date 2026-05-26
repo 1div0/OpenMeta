@@ -97,9 +97,10 @@ Host-facing API map
        behavior, but the interpreted subset can still grow. Current
        interpretation includes fixed-layout resource fields,
        display/grid/thumbnail/color-sampler headers, path-record summaries,
-       descriptor-header summaries, legacy halftone/transfer/duotone/EPS byte
-       summaries, embedded ICC/EXIF/EXIF2/XMP byte-count fields, and optional
-       embedded IPTC-IIM, XMP, and ICC payload decode.
+       descriptor-header summaries, ``XMLData`` and ImageReady ASCII text
+       resources, legacy halftone/transfer/duotone/EPS byte summaries,
+       embedded ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
+       IPTC-IIM, XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``
@@ -174,9 +175,10 @@ Host-facing API map
        candidates cover exposure time, aperture, ISO sensitivity, exposure
        bias, exposure program, gain, and raw exposure-adjustment roles across
        standard EXIF/DNG/XMP evidence and selected decoded vendor/MakerNote
-       exposure names. Standard EXIF exposure program and gain-control values
-       include human-readable labels. Capture exposure facts are safe, while
-       raw/DNG exposure adjustments stay rendered-unsafe. Geometry
+       exposure names. Standard EXIF exposure program/gain-control values and
+       selected Canon MakerNote exposure-mode values include human-readable
+       labels. Capture exposure facts are safe, while raw/DNG exposure
+       adjustments stay rendered-unsafe. Geometry
        candidates cover crop, active area, border, and sensor geometry with
        canonical origin, size, rect, and margin fields when available,
        including normalized DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon

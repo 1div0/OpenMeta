@@ -54,5 +54,30 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0x9999U, 1U), "");
     }
 
+    TEST(ExifValueNames, DispatchesCanonMakerNoteCameraSettingsEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_camerasettings_0",
+                                                 0x0004U, 16U),
+                     "External flash");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_camerasettings_0",
+                                                 0x0007U, 0U),
+                     "One-shot AF");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_camerasettings_0",
+                                                 0x0011U, 3U),
+                     "Evaluative");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_camerasettings_0",
+                                                 0x0014U, 4U),
+                     "Manual");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_camerasettings_0",
+                                                 0x0027U, 1U),
+                     "AF Point");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_camerasettings_0",
+                                                 0x0103U, 1U),
+                     "");
+        EXPECT_STREQ(exif_tag_numeric_value_name(
+                         "makernote:canon:camerasettings", 0x0014U, 8U),
+                     "Flexible-priority AE");
+    }
+
 }  // namespace
 }  // namespace openmeta

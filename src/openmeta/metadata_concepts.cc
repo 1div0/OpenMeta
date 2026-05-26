@@ -1906,10 +1906,6 @@ namespace {
         if (entry.key.kind != MetaKeyKind::ExifTag) {
             return "";
         }
-        const uint16_t tag = entry.key.data.exif_tag.tag;
-        if (tag != kExifExposureProgramTag && tag != kExifGainControlTag) {
-            return "";
-        }
 
         double value = 0.0;
         if (candidate.has_values && candidate.values.size() == 1U) {
@@ -1927,6 +1923,7 @@ namespace {
         if (!double_to_u64_enum(value, &enum_value)) {
             return "";
         }
+        const uint16_t tag         = entry.key.data.exif_tag.tag;
         const std::string_view ifd = arena_string(store.arena(),
                                                   entry.key.data.exif_tag.ifd);
         return exif_tag_numeric_value_name(ifd, tag, enum_value);

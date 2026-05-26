@@ -334,6 +334,22 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
         EXPECT_EQ(static_cast<uint32_t>(e.value.data.u64),
                   fourcc('h', 'e', 'i', 'c'));
     }
+    {
+        const std::vector<std::string> major_brand_names
+            = collect_text_values(store, "ftyp.major_brand_name");
+        ASSERT_EQ(major_brand_names.size(), 1U);
+        EXPECT_EQ(major_brand_names[0], "heic");
+
+        const std::vector<uint32_t> compat_counts
+            = collect_u32_values(store, "ftyp.compat_brand_count");
+        ASSERT_EQ(compat_counts.size(), 1U);
+        EXPECT_EQ(compat_counts[0], 1U);
+
+        const std::vector<std::string> compat_brand_names
+            = collect_text_values(store, "ftyp.compat_brand_name");
+        ASSERT_EQ(compat_brand_names.size(), 1U);
+        EXPECT_EQ(compat_brand_names[0], "mif1");
+    }
 
     // primary.width/height/rotation/mirror
     {
@@ -2619,6 +2635,23 @@ TEST(BmffDerivedFieldsDecode, EmitsItemInfoRowsAndPrimaryAliases)
     EXPECT_EQ(item_semantics[0], "image");
     EXPECT_EQ(item_semantics[1], "exif");
 
+    const std::vector<uint32_t> semantic_known_count
+        = collect_u32_values(store, "item.semantic_known_count");
+    ASSERT_EQ(semantic_known_count.size(), 1U);
+    EXPECT_EQ(semantic_known_count[0], 2U);
+    const std::vector<uint32_t> semantic_metadata_count
+        = collect_u32_values(store, "item.semantic_metadata_count");
+    ASSERT_EQ(semantic_metadata_count.size(), 1U);
+    EXPECT_EQ(semantic_metadata_count[0], 1U);
+    const std::vector<uint32_t> semantic_image_count
+        = collect_u32_values(store, "item.semantic_image_count");
+    ASSERT_EQ(semantic_image_count.size(), 1U);
+    EXPECT_EQ(semantic_image_count[0], 1U);
+    const std::vector<uint32_t> semantic_exif_count
+        = collect_u32_values(store, "item.semantic_exif_count");
+    ASSERT_EQ(semantic_exif_count.size(), 1U);
+    EXPECT_EQ(semantic_exif_count[0], 1U);
+
     const std::vector<std::string> item_names
         = collect_text_values(store, "item.name");
     ASSERT_EQ(item_names.size(), 2U);
@@ -2730,6 +2763,35 @@ TEST(BmffDerivedFieldsDecode, EmitsItemSemanticLabelsForMetadataCarrierItems)
     EXPECT_EQ(item_semantics[2], "c2pa");
     EXPECT_EQ(item_semantics[3], "icc_profile");
     EXPECT_EQ(item_semantics[4], "jumbf");
+
+    const std::vector<uint32_t> semantic_known_count
+        = collect_u32_values(store, "item.semantic_known_count");
+    ASSERT_EQ(semantic_known_count.size(), 1U);
+    EXPECT_EQ(semantic_known_count[0], 5U);
+    const std::vector<uint32_t> semantic_metadata_count
+        = collect_u32_values(store, "item.semantic_metadata_count");
+    ASSERT_EQ(semantic_metadata_count.size(), 1U);
+    EXPECT_EQ(semantic_metadata_count[0], 5U);
+    const std::vector<uint32_t> semantic_exif_count
+        = collect_u32_values(store, "item.semantic_exif_count");
+    ASSERT_EQ(semantic_exif_count.size(), 1U);
+    EXPECT_EQ(semantic_exif_count[0], 1U);
+    const std::vector<uint32_t> semantic_xmp_count
+        = collect_u32_values(store, "item.semantic_xmp_count");
+    ASSERT_EQ(semantic_xmp_count.size(), 1U);
+    EXPECT_EQ(semantic_xmp_count[0], 1U);
+    const std::vector<uint32_t> semantic_c2pa_count
+        = collect_u32_values(store, "item.semantic_c2pa_count");
+    ASSERT_EQ(semantic_c2pa_count.size(), 1U);
+    EXPECT_EQ(semantic_c2pa_count[0], 1U);
+    const std::vector<uint32_t> semantic_icc_count
+        = collect_u32_values(store, "item.semantic_icc_profile_count");
+    ASSERT_EQ(semantic_icc_count.size(), 1U);
+    EXPECT_EQ(semantic_icc_count[0], 1U);
+    const std::vector<uint32_t> semantic_jumbf_count
+        = collect_u32_values(store, "item.semantic_jumbf_count");
+    ASSERT_EQ(semantic_jumbf_count.size(), 1U);
+    EXPECT_EQ(semantic_jumbf_count[0], 1U);
 
     const std::vector<std::string> primary_semantic
         = collect_text_values(store, "primary.item_semantic");

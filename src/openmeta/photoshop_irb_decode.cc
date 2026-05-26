@@ -1443,6 +1443,10 @@ namespace {
         case 0x03E8U:
             decode_photoshop2_info(payload, store, block, order, result);
             break;
+        case 0x03EAU:
+            decode_ascii_text_resource(payload, resource_id, "XMLData", store,
+                                       block, order, result);
+            break;
         case 0x03EBU:
             decode_photoshop2_color_table(payload, store, block, order, result);
             break;

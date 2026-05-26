@@ -1073,7 +1073,8 @@ namespace {
                                                 0x0006U, -2, 3);
         const EntryId iso  = add_exif_u16(&store, "mk_ricoh_imageinfo_0",
                                           0x0027U, 400U);
-        const EntryId program = add_exif_u16(&store, "mk_ricoh0", 0x1001U, 3U);
+        const EntryId program
+            = add_exif_u16(&store, "mk_canon_camerasettings_0", 0x0014U, 4U);
         store.finalize();
 
         const MetadataConceptResolution exposure
@@ -1114,7 +1115,9 @@ namespace {
         ASSERT_NE(exposure_program, nullptr);
         EXPECT_TRUE(contains_entry(exposure_program->source_entries, program));
         ASSERT_TRUE(exposure_program->has_values);
-        EXPECT_DOUBLE_EQ(exposure_program->values[0], 3.0);
+        EXPECT_DOUBLE_EQ(exposure_program->values[0], 4.0);
+        EXPECT_EQ(exposure_program->text, "Manual");
+        EXPECT_EQ(exposure_program->value_key, "manual");
     }
 
     TEST(MetadataConcepts, MarksDngExposureAdjustmentsRenderedUnsafe)

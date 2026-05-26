@@ -55,7 +55,8 @@ const char*
 dng_calibration_illuminant_name(uint64_t value) noexcept;
 
 /**
- * \brief Interprets common numeric enum-like values by EXIF/TIFF/DNG tag id.
+ * \brief Interprets common numeric enum-like values by EXIF/TIFF/DNG tag id
+ * and selected bounded MakerNote contexts.
  *
  * Returns an empty string when OpenMeta has no stable public interpretation for
  * the value. Unknown values remain numeric and lossless in the underlying

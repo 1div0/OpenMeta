@@ -1,5 +1,23 @@
 # OpenMeta Changes
 
+## 0.4.35 - 2026-05-26
+
+Changes compared with `0.4.34`.
+
+### Added
+
+- Added BMFF brand-name fields for `ftyp.major_brand` and compatible brands,
+  plus an explicit `ftyp.compat_brand_count`.
+- Added BMFF item-semantic aggregate counters for known, metadata, image,
+  EXIF, XMP, JUMBF, C2PA, ICC profile, auxiliary, derived, thumbnail,
+  content-description, URI, and JSON item roles.
+- Added bounded Photoshop IRB `XMLData` ASCII text interpretation while keeping
+  the raw resource entry lossless.
+- Added Canon MakerNote camera-setting numeric labels for common flash, focus,
+  metering, exposure-mode, and spot-metering fields through the existing
+  `exif_tag_numeric_value_name(...)` helper. Exposure concept candidates now
+  reuse those labels when the decoded vendor field has a safe enum mapping.
+
 ## 0.4.34 - 2026-05-25
 
 Changes compared with `0.4.33`.

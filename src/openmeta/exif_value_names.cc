@@ -222,11 +222,134 @@ dng_calibration_illuminant_name(uint64_t value) noexcept
     return exif_light_source_name(value);
 }
 
+static bool
+ifd_has_prefix(std::string_view ifd, std::string_view prefix) noexcept
+{
+    return ifd.size() >= prefix.size()
+           && ifd.substr(0U, prefix.size()) == prefix;
+}
+
+static bool
+is_makernote_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_") || ifd_has_prefix(ifd, "makernote:");
+}
+
+static bool
+is_canon_camera_settings_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_camerasettings")
+           || ifd == "makernote:canon:camerasettings";
+}
+
+static const char*
+canon_flash_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "Auto";
+    case 2U: return "On";
+    case 3U: return "Red-eye reduction";
+    case 4U: return "Slow-sync";
+    case 5U: return "Red-eye reduction (Auto)";
+    case 6U: return "Red-eye reduction (On)";
+    case 16U: return "External flash";
+    default: return "";
+    }
+}
+
+static const char*
+canon_focus_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "One-shot AF";
+    case 1U: return "AI Servo AF";
+    case 2U: return "AI Focus AF";
+    case 3U: return "Manual Focus (3)";
+    case 4U: return "Single";
+    case 5U: return "Continuous";
+    case 6U: return "Manual Focus (6)";
+    case 16U: return "Pan Focus";
+    case 256U: return "One-shot AF (Live View)";
+    case 257U: return "AI Servo AF (Live View)";
+    case 258U: return "AI Focus AF (Live View)";
+    case 512U: return "Movie Snap Focus";
+    case 519U: return "Movie Servo AF";
+    default: return "";
+    }
+}
+
+static const char*
+canon_metering_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Default";
+    case 1U: return "Spot";
+    case 2U: return "Average";
+    case 3U: return "Evaluative";
+    case 4U: return "Partial";
+    case 5U: return "Center-weighted average";
+    default: return "";
+    }
+}
+
+static const char*
+canon_exposure_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Easy";
+    case 1U: return "Program AE";
+    case 2U: return "Shutter speed priority AE";
+    case 3U: return "Aperture-priority AE";
+    case 4U: return "Manual";
+    case 5U: return "Depth-of-field AE";
+    case 6U: return "M-Dep";
+    case 7U: return "Bulb";
+    case 8U: return "Flexible-priority AE";
+    default: return "";
+    }
+}
+
+static const char*
+canon_spot_metering_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Center";
+    case 1U: return "AF Point";
+    default: return "";
+    }
+}
+
+static const char*
+canon_camera_settings_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0004U: return canon_flash_mode_name(value);
+    case 0x0007U: return canon_focus_mode_name(value);
+    case 0x0011U: return canon_metering_mode_name(value);
+    case 0x0014U: return canon_exposure_mode_name(value);
+    case 0x0027U: return canon_spot_metering_mode_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
+                                 uint64_t value) noexcept
+{
+    if (is_canon_camera_settings_ifd(ifd)) {
+        return canon_camera_settings_value_name(tag, value);
+    }
+    return "";
+}
+
 const char*
 exif_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
                             uint64_t value) noexcept
 {
-    (void)ifd;
+    if (is_makernote_ifd(ifd)) {
+        return makernote_tag_numeric_value_name(ifd, tag, value);
+    }
     switch (tag) {
     case 0x0103U: return tiff_compression_name(value);
     case 0x0106U: return tiff_photometric_interpretation_name(value);
