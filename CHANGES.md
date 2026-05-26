@@ -1,5 +1,50 @@
 # OpenMeta Changes
 
+## 0.4.38 - 2026-05-26
+
+Changes compared with `0.4.37`.
+
+### Added
+
+- Added bounded Pentax MakerNote numeric labels for selected main, AEInfo,
+  FlashInfo, and Type2 exposure, metering, focus, flash, white-balance, and
+  picture/recording mode fields.
+- Added Pentax MakerNote compat tag names for the selected main, AEInfo,
+  FlashInfo, and Type2 contexts used by the new value labels.
+- Added bounded Olympus MakerNote numeric labels for selected CameraSettings,
+  RawDevelopment, RawDevelopment2, and ImageProcessing exposure, metering,
+  focus, flash, white-balance, scene, picture, and multiple-exposure fields.
+- Added bounded Panasonic MakerNote numeric labels for selected main and
+  subdirectory white-balance, focus, macro, shooting, burst, film, flash,
+  intelligent-exposure, multi-exposure, video-burst, scene, and dark-focus
+  fields.
+- Added bounded Phase One/Leaf-style MakerNote numeric labels for camera
+  orientation, RAW format, and sequence-kind fields.
+- Added bounded Kodak, Minolta, Sigma, Samsung, and Ricoh MakerNote numeric
+  labels for selected exposure, metering, focus, flash, white-balance, scene,
+  style, drive, quality, color, and image-effect fields.
+- Added focused C++ coverage for Pentax/Olympus/Panasonic value-name dispatch
+  and Pentax/Olympus exposure-label concept promotion.
+- Added focused C++ coverage for Phase One/Leaf, Kodak, Minolta, Sigma,
+  Samsung, and Ricoh value-name dispatch plus Ricoh exposure-label concept
+  promotion.
+- Added `AEProgramMode` exposure-query recognition so compatible MakerNote
+  auto-exposure program fields can flow into exposure concept candidates.
+
+## 0.4.37 - 2026-05-26
+
+Changes compared with `0.4.36`.
+
+### Added
+
+- Added bounded Fujifilm MakerNote numeric labels for flash mode, focus mode,
+  AF mode, picture mode, multiple exposure, and focus/exposure warning fields.
+- Added bounded Sony MakerNote numeric labels for selected main,
+  CameraSettings, CameraSettings2, CameraSettings3, MoreSettings, and Tag2010
+  exposure, metering, focus, flash, drive, and release-mode fields.
+- Added focused C++ coverage for Sony/Fujifilm value-name dispatch and Sony
+  MakerNote exposure-label concept promotion.
+
 ## 0.4.36 - 2026-05-26
 
 Changes compared with `0.4.35`.

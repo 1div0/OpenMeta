@@ -60,8 +60,9 @@ Exposure/gain concept resolution promotes exposure time, aperture, ISO,
 exposure bias, exposure program/mode, gain, and raw exposure-adjustment records
 into host-visible roles, with raw exposure adjustments kept unsafe for rendered
 targets. Standard EXIF exposure program/mode and gain-control values and
-selected Canon/Nikon MakerNote exposure-adjacent print conversions are exposed
-as bounded labels when a stable enum mapping is available.
+selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/
+Minolta/Sigma/Samsung/Ricoh MakerNote exposure-adjacent print conversions are
+exposed as bounded labels when a stable enum mapping is available.
 Current source-private aliases include camera-to-XYZ/RGB matrices, creative and
 picture styles, film simulation, dynamic-range processing, optical/lens
 correction, white-balance gains, and raw-development terms.

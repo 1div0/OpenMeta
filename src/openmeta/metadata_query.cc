@@ -867,6 +867,8 @@ namespace {
     {
         uint32_t terms = 0U;
         if (term_matches(name, "exposure", enable_fuzzy, provenance)
+            || term_matches(name, "aeprogram", enable_fuzzy, provenance)
+            || term_matches(name, "ae program", enable_fuzzy, provenance)
             || term_matches(name, "shutter", enable_fuzzy, provenance)
             || term_matches(name, "aperture", enable_fuzzy, provenance)
             || term_matches(name, "fnumber", enable_fuzzy, provenance)

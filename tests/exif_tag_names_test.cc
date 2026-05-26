@@ -417,12 +417,22 @@ TEST(ExifTagNames, MapsPentaxMainAndSubtablePlaceholders)
 
     EXPECT_EQ(exif_tag_name("mk_pentax0", 0x003E),
               std::string_view("PreviewImageBorders"));
+    EXPECT_EQ(exif_tag_name("mk_pentax0", 0x000B),
+              std::string_view("PictureMode"));
     EXPECT_EQ(exif_tag_name("mk_pentax0", 0x005E),
               std::string_view("Pentax_0x005e"));
     EXPECT_EQ(exif_tag_name("mk_pentax0", 0x0227),
               std::string_view("Pentax_0x0227"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_aeinfo_0", 0x0006),
+              std::string_view("AEProgramMode"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_aeinfo_0", 0x000C),
+              std::string_view("AEMeteringMode"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_flashinfo_0", 0x0002),
+              std::string_view("ExternalFlashMode"));
     EXPECT_EQ(exif_tag_name("mk_pentax_type2_0", 0x0005),
               std::string_view("Pentax_Type2_0x0005"));
+    EXPECT_EQ(exif_tag_name("mk_pentax_type2_0", 0x0007),
+              std::string_view("WhiteBalance"));
     EXPECT_EQ(exif_tag_name("mk_pentax_faceinfo_0", 0x0001),
               std::string_view("Pentax_0x0001"));
     EXPECT_EQ(exif_tag_name("mk_pentax_facepos_0", 0x0011),

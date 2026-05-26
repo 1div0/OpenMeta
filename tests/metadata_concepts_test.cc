@@ -1143,6 +1143,92 @@ namespace {
         EXPECT_EQ(exposure_program->value_key, "manual");
     }
 
+    TEST(MetadataConcepts, ResolvesSonyMakerNoteExposureNameLabels)
+    {
+        MetaStore store;
+        const EntryId program = add_exif_u16(&store, "mk_sony_tag2010i_0",
+                                             0x024CU, 5U);
+        store.finalize();
+
+        const MetadataConceptResolution exposure
+            = resolve_metadata_concept(store, MetadataConceptKind::Exposure);
+
+        EXPECT_TRUE(exposure.found);
+
+        const MetadataConceptCandidate* exposure_program
+            = find_role(exposure, MetadataConceptRole::ExposureProgram);
+        ASSERT_NE(exposure_program, nullptr);
+        EXPECT_TRUE(contains_entry(exposure_program->source_entries, program));
+        ASSERT_TRUE(exposure_program->has_values);
+        EXPECT_DOUBLE_EQ(exposure_program->values[0], 5.0);
+        EXPECT_EQ(exposure_program->text, "iAuto");
+        EXPECT_EQ(exposure_program->value_key, "iauto");
+    }
+
+    TEST(MetadataConcepts, ResolvesAdditionalMakerNoteExposureNameLabels)
+    {
+        MetaStore store;
+        const EntryId pentax_program
+            = add_exif_u16(&store, "mk_pentax_aeinfo_0", 0x0006U, 216U);
+        const EntryId olympus_program
+            = add_exif_u16(&store, "mk_olympus_camerasettings_0", 0x0200U, 3U);
+        store.finalize();
+
+        const MetadataConceptResolution exposure
+            = resolve_metadata_concept(store, MetadataConceptKind::Exposure);
+
+        EXPECT_TRUE(exposure.found);
+
+        const MetadataConceptCandidate* pentax  = nullptr;
+        const MetadataConceptCandidate* olympus = nullptr;
+        for (size_t i = 0U; i < exposure.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = exposure.candidates[i];
+            if (contains_entry(candidate.source_entries, pentax_program)) {
+                pentax = &candidate;
+            }
+            if (contains_entry(candidate.source_entries, olympus_program)) {
+                olympus = &candidate;
+            }
+        }
+
+        ASSERT_NE(pentax, nullptr);
+        EXPECT_EQ(pentax->role, MetadataConceptRole::ExposureProgram);
+        ASSERT_TRUE(pentax->has_values);
+        EXPECT_DOUBLE_EQ(pentax->values[0], 216.0);
+        EXPECT_EQ(pentax->text, "HDR");
+        EXPECT_EQ(pentax->value_key, "hdr");
+
+        ASSERT_NE(olympus, nullptr);
+        EXPECT_EQ(olympus->role, MetadataConceptRole::ExposureProgram);
+        ASSERT_TRUE(olympus->has_values);
+        EXPECT_DOUBLE_EQ(olympus->values[0], 3.0);
+        EXPECT_EQ(olympus->text, "Aperture-priority AE");
+        EXPECT_EQ(olympus->value_key, "aperturepriorityae");
+    }
+
+    TEST(MetadataConcepts, ResolvesLongTailMakerNoteExposureNameLabels)
+    {
+        MetaStore store;
+        const EntryId ricoh_program = add_exif_u16(&store, "mk_ricoh0", 0x1001U,
+                                                   5U);
+        store.finalize();
+
+        const MetadataConceptResolution exposure
+            = resolve_metadata_concept(store, MetadataConceptKind::Exposure);
+
+        EXPECT_TRUE(exposure.found);
+
+        const MetadataConceptCandidate* exposure_program
+            = find_role(exposure, MetadataConceptRole::ExposureProgram);
+        ASSERT_NE(exposure_program, nullptr);
+        EXPECT_TRUE(
+            contains_entry(exposure_program->source_entries, ricoh_program));
+        ASSERT_TRUE(exposure_program->has_values);
+        EXPECT_DOUBLE_EQ(exposure_program->values[0], 5.0);
+        EXPECT_EQ(exposure_program->text, "Shutter/aperture priority AE");
+        EXPECT_EQ(exposure_program->value_key, "shutteraperturepriorityae");
+    }
+
     TEST(MetadataConcepts, MarksDngExposureAdjustmentsRenderedUnsafe)
     {
         MetaStore store;

@@ -216,9 +216,10 @@ returns the index, human-readable label, clockwise rotation degrees, mirrored
 state, width/height-swap flag, and nearest rotation-only orientation.
 
 For common enum-like TIFF/EXIF/DNG numeric values, and selected bounded
-Canon/Nikon MakerNote contexts, use `openmeta/exif_value_names.h`. Unknown
-values return an empty string and remain available as numeric `MetaStore`
-values.
+Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/
+Sigma/Samsung/Ricoh MakerNote contexts, use
+`openmeta/exif_value_names.h`. Unknown values return an empty string and remain
+available as numeric `MetaStore` values.
 
 ## 5. Build A `MetaStore` Manually
 

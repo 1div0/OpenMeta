@@ -112,13 +112,12 @@ Coverage matrix
        baseline/raw-preview gain fields, matching XMP paths, and selected
        decoded vendor/MakerNote exposure names are queryable and promoted into
        cross-family exposure roles. Standard EXIF exposure program/mode and
-       gain-control values, selected Canon MakerNote exposure/flash-metering
-       values,
-       and selected Nikon MakerNote flash/metering/focus/multiple-exposure
-       values carry human-readable labels in concept candidates. Capture
-       exposure facts are marked safe, while raw/DNG exposure adjustments are
-       marked unsafe for rendered-image transfer.
-     - Medium-high, about 89-92%.
+       gain-control values plus selected Canon/Nikon/Sony/Fujifilm/
+       Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh
+       MakerNote values carry human-readable labels where stable. Capture
+       exposure facts are marked safe, while raw/DNG
+       exposure adjustments are marked unsafe for rendered-image transfer.
+     - Medium-high, about 91-94%.
      - More vendor MakerNote exposure print conversions and richer per-vendor
        exposure/gain labels.
    * - Color, white balance, profiles, and matrices
@@ -161,9 +160,10 @@ Coverage matrix
        handled by direct classification plus dedicated normalized helpers.
        Classified multi-field vendor groups now surface as grouped
        query/interpretation candidates where safe to expose structurally, and
-       selected Canon/Nikon print conversions expose bounded human-readable
-       labels for exposure-related UI.
-     - Medium-high, about 85-91%.
+       selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/
+       Kodak/Minolta/Sigma/Samsung/Ricoh print conversions expose bounded
+       human-readable labels for exposure-related UI.
+     - Medium-high, about 88-93%.
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
@@ -250,7 +250,7 @@ Next interpretation priorities
 4. Expand GPS policy beyond current coordinate tolerance, altitude-reference
    display, and EXIF timestamp assembly into broader cross-family
    reconciliation.
-5. Expand MakerNote meaning depth in vendor order: Nikon, Canon, Sony,
-   Fujifilm, Phase One/Leaf, then remaining active vendors.
+5. Expand MakerNote meaning depth in vendor order: Pentax, Olympus, Panasonic,
+   Phase One/Leaf, then remaining active vendors.
 6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

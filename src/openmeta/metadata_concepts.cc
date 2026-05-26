@@ -1748,6 +1748,7 @@ namespace {
             "RawDevExposureBiasValue",
         };
         static constexpr std::string_view kExposureProgramNames[] = {
+            "AEProgramMode",
             "CanonExposureMode",
             "ExposureMode",
             "ExposureProgram",

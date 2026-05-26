@@ -898,6 +898,46 @@ namespace {
         return std::string_view(buf, kPrefix.size() + 4);
     }
 
+    static std::string_view pentax_compat_name(std::string_view subtable,
+                                               uint16_t tag) noexcept
+    {
+        if (subtable.empty() || subtable == "main") {
+            switch (tag) {
+            case 0x000BU: return "PictureMode";
+            case 0x000CU: return "FlashMode";
+            case 0x000DU: return "FocusMode";
+            case 0x0017U: return "MeteringMode";
+            case 0x0019U: return "WhiteBalance";
+            default: return {};
+            }
+        }
+        if (subtable == "aeinfo") {
+            switch (tag) {
+            case 0x0006U: return "AEProgramMode";
+            case 0x000CU: return "AEMeteringMode";
+            default: return {};
+            }
+        }
+        if (subtable == "flashinfo") {
+            switch (tag) {
+            case 0x0000U: return "FlashStatus";
+            case 0x0001U: return "InternalFlashMode";
+            case 0x0002U: return "ExternalFlashMode";
+            default: return {};
+            }
+        }
+        if (subtable == "type2") {
+            switch (tag) {
+            case 0x0001U: return "RecordingMode";
+            case 0x0003U: return "FocusMode";
+            case 0x0004U: return "FlashMode";
+            case 0x0007U: return "WhiteBalance";
+            default: return {};
+            }
+        }
+        return {};
+    }
+
     static std::string_view
     synthesize_pentax_placeholder_name(std::string_view subtable,
                                        uint16_t tag) noexcept
@@ -1444,6 +1484,13 @@ makernote_tag_name(std::string_view ifd, uint16_t tag) noexcept
             = find_nikoncustom_extra_name(parts.subtable, tag);
         if (!extra_name.empty()) {
             return extra_name;
+        }
+    }
+    if (vendor_key == "pentax") {
+        const std::string_view compat_name = pentax_compat_name(parts.subtable,
+                                                                tag);
+        if (!compat_name.empty()) {
+            return compat_name;
         }
     }
 

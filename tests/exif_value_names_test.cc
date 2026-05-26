@@ -124,5 +124,299 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon0", 0x0103U, 1U), "");
     }
 
+    TEST(ExifValueNames, DispatchesFujifilmMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1010U,
+                                                 0xE920U),
+                     "High Speed Sync (HSS)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:fujifilm:main",
+                                                 0x1021U, 1U),
+                     "Manual");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm_main_0", 0x1022U,
+                                                 512U),
+                     "Wide/Tracking");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1031U,
+                                                 0x0100U),
+                     "Aperture-priority AE");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1037U, 2U),
+                     "Average");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1301U, 1U),
+                     "Out of focus");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1302U, 1U),
+                     "Bad exposure");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1022U, 9U),
+                     "");
+    }
+
+    TEST(ExifValueNames, DispatchesSonyMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony0", 0xB041U, 7U),
+                     "Aperture-priority AE");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:sony:main", 0x202CU,
+                                                 0x500U),
+                     "Highlight");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony0", 0xB049U, 6U),
+                     "White Balance Bracketing");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_camerasettings_0",
+                                                 0x0004U, 0x1107U),
+                     "Continuous Bracketing");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_camerasettings_0",
+                                                 0x0013U, 4U),
+                     "Fill-flash");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_camerasettings_0",
+                                                 0x0015U, 4U),
+                     "Spot");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_camerasettings2_0",
+                                                 0x007EU, 0x800BU),
+                     "Continuous Self-timer");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_camerasettings3_0",
+                                                 0x0005U, 56U),
+                     "Handheld Night Shot");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_camerasettings3_0",
+                                                 0x0034U, 0xD5U),
+                     "Continuous - Sweep Panorama");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:sony:moresettings",
+                                                 0x0003U, 3U),
+                     "Spot");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_tag2010i_0", 0x024CU,
+                                                 5U),
+                     "iAuto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_tag2010g_0", 0x0210U,
+                                                 23U),
+                     "Single-frame - Exposure Bracketing");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony_tag2010f_0", 0x1024U,
+                                                 6U),
+                     "Wireless");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sony0", 0xB043U, 14U), "");
+    }
+
+    TEST(ExifValueNames, DispatchesPentaxMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x000BU, 3U),
+                     "Manual");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:pentax:main",
+                                                 0x000CU, 0x102U),
+                     "On, Fired");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x000DU, 0x0111U),
+                     "AF-C (Release-priority)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0017U, 6U),
+                     "Highlight");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0019U, 14U),
+                     "Multi Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_aeinfo_0", 0x0006U,
+                                                 216U),
+                     "HDR");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_aeinfo_0", 0x000CU,
+                                                 32U),
+                     "Spot");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_flashinfo_0",
+                                                 0x0002U, 0xC4U),
+                     "On, P-TTL Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_type2_0", 0x0004U,
+                                                 6U),
+                     "Red-eye reduction");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0034U, 1U),
+                     "");
+    }
+
+    TEST(ExifValueNames, DispatchesOlympusMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0200U, 3U),
+                     "Aperture-priority AE");
+        EXPECT_STREQ(exif_tag_numeric_value_name(
+                         "makernote:olympus:camerasettings", 0x0202U, 515U),
+                     "Spot+Highlight control");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0301U, 10U),
+                     "MF");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0400U, 4U),
+                     "Red-eye");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0500U, 23U),
+                     "5500K (Flash)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0509U, 154U),
+                     "HDR");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0520U, 5U),
+                     "i-Enhance");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_rawdevelopment_0",
+                                                 0x0101U, 2U),
+                     "Gray Point");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_rawdevelopment2_0",
+                                                 0x010CU, 512U),
+                     "Sepia");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_imageprocessing_0",
+                                                 0x101CU, 1U),
+                     "Live Composite");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0600U, 1U),
+                     "");
+    }
+
+    TEST(ExifValueNames, DispatchesPanasonicMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x0003U, 19U),
+                     "Auto (cool)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:panasonic:main",
+                                                 0x0007U, 8U),
+                     "AF-F");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x001CU,
+                                                 0x0201U),
+                     "Macro Zoom");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x001FU, 51U),
+                     "HDR");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x002AU, 18U),
+                     "Aperture Bracketing");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x0042U, 11U),
+                     "Vibrant");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x0048U, 2U),
+                     "2nd");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x005DU, 3U),
+                     "High");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x0062U, 1U),
+                     "Yes (flash required but disabled)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x00BBU,
+                                                 0x408U),
+                     "Focus Stacking");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x8001U, 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic_subdir_0",
+                                                 0x3033U, 16U),
+                     "AWBc");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x000FU, 1U),
+                     "");
+    }
+
+    TEST(ExifValueNames, DispatchesPhaseOneKodakMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_phaseone0", 0x0100U, 5U),
+                     "Rotate 90 CW");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_phaseone0", 0x010EU, 6U),
+                     "IIQ Sv2");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_phaseone0", 0x0263U, 5U),
+                     "HDR");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak0", 0x0009U, 1U),
+                     "Fine");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak0", 0x001CU, 2U),
+                     "Spot");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak0", 0x0038U, 2U),
+                     "Macro");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak0", 0x0040U, 2U),
+                     "Tungsten");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak0", 0x005CU, 0x20U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak0", 0x005DU, 1U),
+                     "Yes");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak_type5_0", 0x001AU,
+                                                 3U),
+                     "Tungsten");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak_type5_0", 0x0027U,
+                                                 3U),
+                     "Red-Eye");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak_type11_0", 0x0203U,
+                                                 9U),
+                     "Kodachrome");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak_subifd0_0", 0xFA02U,
+                                                 34U),
+                     "High ISO");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak_subifd2_0", 0x6002U,
+                                                 22U),
+                     "Sunset");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak_kdc_ifd_0", 0xFA0DU,
+                                                 6U),
+                     "Shade");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_kodak_ifd_0", 0x03F2U, 1U),
+                     "");
+    }
+
+    TEST(ExifValueNames, DispatchesMinoltaSigmaMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_minolta_camerasettings_0",
+                                                 0x0001U, 2U),
+                     "Shutter Priority");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_minolta_camerasettings_0",
+                                                 0x0003U, 0x1800000U),
+                     "Daylight");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_minolta_camerasettings_0",
+                                                 0x0024U, 4U),
+                     "Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_minolta0", 0x0100U, 33U),
+                     "HDR");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_minolta0", 0x0115U, 0x50U),
+                     "Flash");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_minolta_camerasettings7d_0",
+                                                 0x000EU, 4U),
+                     "AF-A");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_minolta_camerasettings7d_0",
+                                                 0x0016U, 2U),
+                     "Rear flash sync");
+        EXPECT_STREQ(exif_tag_numeric_value_name(
+                         "mk_minolta_camerasettingsa100_0", 0x0000U, 0x1053U),
+                     "Landscape");
+        EXPECT_STREQ(exif_tag_numeric_value_name(
+                         "mk_minolta_camerasettingsa100_0", 0x000AU, 0x009U),
+                     "White Balance Bracketing High");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sigma0", 0x0008U,
+                                                 static_cast<uint64_t>('A')),
+                     "Aperture-priority AE");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sigma0", 0x0009U,
+                                                 static_cast<uint64_t>('C')),
+                     "Center-weighted average");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sigma0", 0x002CU, 7U),
+                     "Landscape");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sigma0", 0x0008U, 1U), "");
+    }
+
+    TEST(ExifValueNames, DispatchesSamsungRicohMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_samsung_ifd_0", 0x0002U,
+                                                 0x2000U),
+                     "High-end NX Camera");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_samsung_ifd_0", 0x0040U,
+                                                 1U),
+                     "Big-endian (Motorola, MM)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_samsung_type2_0", 0x0041U,
+                                                 1U),
+                     "Manual");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_samsung_type2_0", 0xA011U,
+                                                 1U),
+                     "Adobe RGB");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_samsung_picturewizard_0",
+                                                 0x0000U, 8U),
+                     "Classic");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1001U, 5U),
+                     "Shutter/aperture priority AE");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1002U, 8U),
+                     "AF-priority Continuous");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1003U, 12U),
+                     "Shade");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1006U, 9U),
+                     "Pinpoint AF");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x100AU, 4U),
+                     "Slow Sync");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1010U, 11U),
+                     "Positive Film");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1018U, 2U),
+                     "On (47mm)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1205U, 2U),
+                     "Manual");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh_imageinfo_0",
+                                                 0x0020U, 2U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh_imageinfo_0",
+                                                 0x0026U, 9U),
+                     "Multi-pattern Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh_imageinfo_0",
+                                                 0x0027U, 11U),
+                     "100 (Low)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh_imageinfo_0",
+                                                 0x0028U, 9U),
+                     "Vivid");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1012U, 0U), "");
+    }
+
 }  // namespace
 }  // namespace openmeta

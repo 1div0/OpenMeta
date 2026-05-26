@@ -111,7 +111,8 @@ OpenMeta splits host integration surfaces deliberately:
   checks, and width/height-swap checks
 - value-name utility:
   ``exif_value_names.h`` for common EXIF/TIFF/DNG enum-style numeric labels
-  and selected bounded Canon/Nikon MakerNote labels
+  and selected bounded Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/
+  Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh MakerNote labels
 - structured interpretation utility:
   ``metadata_interpretation.h`` for query-backed semantic records
 - concept-resolution utility:
