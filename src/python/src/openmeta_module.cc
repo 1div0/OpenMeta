@@ -6603,6 +6603,7 @@ NB_MODULE(_openmeta, m)
           "value"_a);
     m.def("tiff_resolution_unit_name", &tiff_resolution_unit_name, "value"_a);
     m.def("exif_exposure_program_name", &exif_exposure_program_name, "value"_a);
+    m.def("exif_exposure_mode_name", &exif_exposure_mode_name, "value"_a);
     m.def("exif_metering_mode_name", &exif_metering_mode_name, "value"_a);
     m.def("exif_light_source_name", &exif_light_source_name, "value"_a);
     m.def("exif_flash_name", &exif_flash_name, "value"_a);

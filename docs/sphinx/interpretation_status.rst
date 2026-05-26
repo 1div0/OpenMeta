@@ -67,9 +67,9 @@ Coverage matrix
      - Standard tag names, common scalar/vector values, DNG crop/color/
        exposure/RAW-processing fields, GeoTIFF key names, and common
        EXIF/TIFF/DNG numeric value-name helpers are available. Exposure time,
-       aperture, ISO sensitivity, exposure bias, exposure program, gain, and
-       raw exposure-adjustment records now flow into concept candidates.
-     - High, about 91-95%.
+       aperture, ISO sensitivity, exposure bias, exposure program/mode, gain,
+       and raw exposure-adjustment records now flow into concept candidates.
+     - High, about 92-95%.
      - More enum-style human-readable values and richer conflict handling
        between duplicated families.
    * - ICC profiles
@@ -106,16 +106,19 @@ Coverage matrix
      - More vendor-specific normalized rectangles and stronger output contracts
        for ambiguous multi-tag geometry.
    * - Exposure and gain
-     - Standard EXIF exposure time, f-number, exposure program, photographic
-       sensitivity, exposure bias, exposure index, gain control, selected DNG
+     - Standard EXIF exposure time, f-number, exposure program/mode,
+       photographic sensitivity, exposure bias, exposure index, gain control,
+       selected DNG
        baseline/raw-preview gain fields, matching XMP paths, and selected
        decoded vendor/MakerNote exposure names are queryable and promoted into
-       cross-family exposure roles. Standard EXIF exposure program/gain-control
-       values and selected Canon MakerNote exposure-mode values carry
-       human-readable labels in concept candidates. Capture exposure facts are
-       marked safe, while raw/DNG exposure adjustments are marked unsafe for
-       rendered-image transfer.
-     - Medium-high, about 88-92%.
+       cross-family exposure roles. Standard EXIF exposure program/mode and
+       gain-control values, selected Canon MakerNote exposure/flash-metering
+       values,
+       and selected Nikon MakerNote flash/metering/focus/multiple-exposure
+       values carry human-readable labels in concept candidates. Capture
+       exposure facts are marked safe, while raw/DNG exposure adjustments are
+       marked unsafe for rendered-image transfer.
+     - Medium-high, about 89-92%.
      - More vendor MakerNote exposure print conversions and richer per-vendor
        exposure/gain labels.
    * - Color, white balance, profiles, and matrices
@@ -158,9 +161,9 @@ Coverage matrix
        handled by direct classification plus dedicated normalized helpers.
        Classified multi-field vendor groups now surface as grouped
        query/interpretation candidates where safe to expose structurally, and
-       computational/thermal/stitch source-processing roles stay distinct for
-       host policy.
-     - Medium-high, about 84-91%.
+       selected Canon/Nikon print conversions expose bounded human-readable
+       labels for exposure-related UI.
+     - Medium-high, about 85-91%.
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA

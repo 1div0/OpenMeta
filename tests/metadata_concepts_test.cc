@@ -1120,6 +1120,29 @@ namespace {
         EXPECT_EQ(exposure_program->value_key, "manual");
     }
 
+    TEST(MetadataConcepts, ResolvesStandardExposureModeNameIntoRoles)
+    {
+        MetaStore store;
+        const EntryId exposure_mode = add_exif_u16(&store, "exififd", 0xA402U,
+                                                   1U);
+        store.finalize();
+
+        const MetadataConceptResolution exposure
+            = resolve_metadata_concept(store, MetadataConceptKind::Exposure);
+
+        EXPECT_TRUE(exposure.found);
+
+        const MetadataConceptCandidate* exposure_program
+            = find_role(exposure, MetadataConceptRole::ExposureProgram);
+        ASSERT_NE(exposure_program, nullptr);
+        EXPECT_TRUE(
+            contains_entry(exposure_program->source_entries, exposure_mode));
+        ASSERT_TRUE(exposure_program->has_values);
+        EXPECT_DOUBLE_EQ(exposure_program->values[0], 1.0);
+        EXPECT_EQ(exposure_program->text, "Manual");
+        EXPECT_EQ(exposure_program->value_key, "manual");
+    }
+
     TEST(MetadataConcepts, MarksDngExposureAdjustmentsRenderedUnsafe)
     {
         MetaStore store;

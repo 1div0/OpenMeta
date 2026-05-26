@@ -85,10 +85,11 @@ Host-facing API map
      - Stable
      - Small helper contract for common enum-like TIFF/EXIF/DNG numeric values
        such as compression, photometric interpretation, planar configuration,
-       exposure program, metering mode, light source, flash, color space, white
-       balance, scene capture type, gain control, CFA layout, and DNG
-       calibration illuminants. Unknown values return an empty string and
-       remain lossless numeric metadata.
+       exposure program/mode, metering mode, light source, flash, color space,
+       white balance, scene capture type, gain control, CFA layout, and DNG
+       calibration illuminants, plus selected bounded Canon/Nikon MakerNote
+       contexts. Unknown values return an empty string and remain lossless
+       numeric metadata.
    * - Photoshop IRB decode: ``decode_photoshop_irb(...)`` and
        ``measure_photoshop_irb(...)``
      - ``openmeta/photoshop_irb_decode.h``
@@ -173,12 +174,14 @@ Host-facing API map
        ICC, PNG text, and query-backed interpretation records where
        applicable. Exposure
        candidates cover exposure time, aperture, ISO sensitivity, exposure
-       bias, exposure program, gain, and raw exposure-adjustment roles across
-       standard EXIF/DNG/XMP evidence and selected decoded vendor/MakerNote
-       exposure names. Standard EXIF exposure program/gain-control values and
-       selected Canon MakerNote exposure-mode values include human-readable
-       labels. Capture exposure facts are safe, while raw/DNG exposure
-       adjustments stay rendered-unsafe. Geometry
+       bias, exposure program/mode, gain, and raw exposure-adjustment roles
+       across standard EXIF/DNG/XMP evidence and selected decoded
+       vendor/MakerNote exposure names. Standard EXIF exposure program/mode
+       and gain-control values, selected Canon MakerNote
+       exposure-mode/flash-metering values, and
+       selected Nikon MakerNote flash/metering/focus/multiple-exposure values
+       include human-readable labels. Capture exposure facts are safe, while
+       raw/DNG exposure adjustments stay rendered-unsafe. Geometry
        candidates cover crop, active area, border, and sensor geometry with
        canonical origin, size, rect, and margin fields when available,
        including normalized DNG, Phase One/Leaf, Fujifilm RAF, Canon, Nikon

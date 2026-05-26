@@ -37,8 +37,8 @@ Host inspection/search UI       ``openmeta/metadata_query.h`` focused query
 Structured interpreted records  ``openmeta/metadata_interpretation.h``
 Cross-family concept conflicts  ``openmeta/metadata_concepts.h``
 User-facing orientation display ``openmeta/orientation.h``
-Common EXIF/TIFF/DNG value      ``openmeta/exif_value_names.h``
-labels
+Common EXIF/TIFF/DNG and        ``openmeta/exif_value_names.h``
+selected MakerNote value labels
 JPEG/JXL/WebP/PNG/JP2/BMFF      ``prepare_metadata_for_target_file(...)`` +
 encoder path                    adapter view or backend emitter
 Adobe DNG SDK objects/files     ``dng_sdk_adapter.h``
@@ -111,6 +111,7 @@ OpenMeta splits host integration surfaces deliberately:
   checks, and width/height-swap checks
 - value-name utility:
   ``exif_value_names.h`` for common EXIF/TIFF/DNG enum-style numeric labels
+  and selected bounded Canon/Nikon MakerNote labels
 - structured interpretation utility:
   ``metadata_interpretation.h`` for query-backed semantic records
 - concept-resolution utility:

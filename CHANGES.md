@@ -1,5 +1,20 @@
 # OpenMeta Changes
 
+## 0.4.36 - 2026-05-26
+
+Changes compared with `0.4.35`.
+
+### Added
+
+- Added standard EXIF `ExposureMode` numeric labels and dispatch through
+  `exif_tag_numeric_value_name(...)`.
+- Added Canon MakerNote camera-info flash-metering labels for bounded
+  `FlashMeteringMode` contexts.
+- Added bounded Nikon MakerNote numeric labels for main `FlashMode`, selected
+  Z-series metering/focus/multiple-exposure contexts, and D500/D810 metering
+  contexts.
+- Added C++ and Python API coverage for the new value-name helper surface.
+
 ## 0.4.35 - 2026-05-26
 
 Changes compared with `0.4.34`.

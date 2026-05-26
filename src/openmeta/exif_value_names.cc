@@ -86,6 +86,17 @@ exif_exposure_program_name(uint64_t value) noexcept
 }
 
 const char*
+exif_exposure_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Auto";
+    case 1U: return "Manual";
+    case 2U: return "Auto bracket";
+    default: return "";
+    }
+}
+
+const char*
 exif_metering_mode_name(uint64_t value) noexcept
 {
     switch (value) {
@@ -230,6 +241,13 @@ ifd_has_prefix(std::string_view ifd, std::string_view prefix) noexcept
 }
 
 static bool
+ifd_matches_context(std::string_view ifd, std::string_view decoded_prefix,
+                    std::string_view registry_ifd) noexcept
+{
+    return ifd_has_prefix(ifd, decoded_prefix) || ifd == registry_ifd;
+}
+
+static bool
 is_makernote_ifd(std::string_view ifd) noexcept
 {
     return ifd_has_prefix(ifd, "mk_") || ifd_has_prefix(ifd, "makernote:");
@@ -240,6 +258,13 @@ is_canon_camera_settings_ifd(std::string_view ifd) noexcept
 {
     return ifd_has_prefix(ifd, "mk_canon_camerasettings")
            || ifd == "makernote:canon:camerasettings";
+}
+
+static bool
+is_canon_camera_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_camerainfo")
+           || ifd_has_prefix(ifd, "makernote:canon:camerainfo");
 }
 
 static const char*
@@ -321,6 +346,19 @@ canon_spot_metering_mode_name(uint64_t value) noexcept
 }
 
 static const char*
+canon_flash_metering_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "E-TTL";
+    case 3U: return "TTL";
+    case 4U: return "External Auto";
+    case 5U: return "External Manual";
+    case 6U: return "Off";
+    default: return "";
+    }
+}
+
+static const char*
 canon_camera_settings_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
@@ -334,11 +372,211 @@ canon_camera_settings_value_name(uint16_t tag, uint64_t value) noexcept
 }
 
 static const char*
+canon_camera_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0015U: return canon_flash_metering_mode_name(value);
+    default: return "";
+    }
+}
+
+static bool
+is_nikon_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_nikon0" || ifd_has_prefix(ifd, "mk_nikon_main")
+           || ifd == "makernote:nikon:main";
+}
+
+static const char*
+nikon_flash_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Did Not Fire";
+    case 1U: return "Fired, Manual";
+    case 3U: return "Not Ready";
+    case 7U: return "Fired, External";
+    case 8U: return "Fired, Commander Mode";
+    case 9U: return "Fired, TTL Mode";
+    case 18U: return "LED Light";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_metering_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Matrix";
+    case 1U: return "Center";
+    case 2U: return "Spot";
+    case 3U: return "Highlight";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_movie_focus_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Manual";
+    case 1U: return "AF-S";
+    case 2U: return "AF-C";
+    case 4U: return "AF-F";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_menu_multiple_exposure_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On";
+    case 2U: return "On (Series)";
+    default: return "";
+    }
+}
+
+static bool
+is_nikon_metering_ifd_tag(std::string_view ifd, uint16_t tag) noexcept
+{
+    if (tag == 0x0017U
+        && ifd_matches_context(ifd, "mk_nikon_bracketinginfod810_",
+                               "makernote:nikon:bracketinginfod810")) {
+        return true;
+    }
+    if (tag == 0x0214U
+        && ifd_matches_context(ifd, "mk_nikon_otherinfod500_",
+                               "makernote:nikon:otherinfod500")) {
+        return true;
+    }
+    if (tag == 0x02D2U
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz6iii_",
+                               "makernote:nikon:menusettingsz6iii")) {
+        return true;
+    }
+    if (tag == 0x0146U
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz7ii_",
+                               "makernote:nikon:menusettingsz7ii")) {
+        return true;
+    }
+    if (tag == 0x033EU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz8_",
+                               "makernote:nikon:menusettingsz8")) {
+        return true;
+    }
+    if (tag == 0x02C2U
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9_",
+                               "makernote:nikon:menusettingsz9")) {
+        return true;
+    }
+    if (tag == 0x02EAU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9v3_",
+                               "makernote:nikon:menusettingsz9v3")) {
+        return true;
+    }
+    if (tag == 0x02EAU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9v4_",
+                               "makernote:nikon:menusettingsz9v4")) {
+        return true;
+    }
+    return false;
+}
+
+static bool
+is_nikon_movie_focus_ifd_tag(std::string_view ifd, uint16_t tag) noexcept
+{
+    if (tag == 0x0248U
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz7ii_",
+                               "makernote:nikon:menusettingsz7ii")) {
+        return true;
+    }
+    if (tag == 0x0340U
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz8_",
+                               "makernote:nikon:menusettingsz8")) {
+        return true;
+    }
+    if (tag == 0x02C4U
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9_",
+                               "makernote:nikon:menusettingsz9")) {
+        return true;
+    }
+    if (tag == 0x02ECU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9v3_",
+                               "makernote:nikon:menusettingsz9v3")) {
+        return true;
+    }
+    if (tag == 0x02ECU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9v4_",
+                               "makernote:nikon:menusettingsz9v4")) {
+        return true;
+    }
+    return false;
+}
+
+static bool
+is_nikon_menu_multiple_exposure_ifd_tag(std::string_view ifd,
+                                        uint16_t tag) noexcept
+{
+    if (tag == 0x01BCU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz6iii_",
+                               "makernote:nikon:menusettingsz6iii")) {
+        return true;
+    }
+    if (tag == 0x0098U
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz8_",
+                               "makernote:nikon:menusettingsz8")) {
+        return true;
+    }
+    if (tag == 0x008CU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9_",
+                               "makernote:nikon:menusettingsz9")) {
+        return true;
+    }
+    if (tag == 0x009AU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9v3_",
+                               "makernote:nikon:menusettingsz9v3")) {
+        return true;
+    }
+    if (tag == 0x009AU
+        && ifd_matches_context(ifd, "mk_nikon_menusettingsz9v4_",
+                               "makernote:nikon:menusettingsz9v4")) {
+        return true;
+    }
+    return false;
+}
+
+static const char*
+nikon_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (is_nikon_main_ifd(ifd) && tag == 0x0087U) {
+        return nikon_flash_mode_name(value);
+    }
+    if (is_nikon_metering_ifd_tag(ifd, tag)) {
+        return nikon_metering_mode_name(value & 0x03U);
+    }
+    if (is_nikon_movie_focus_ifd_tag(ifd, tag)) {
+        return nikon_movie_focus_mode_name(value);
+    }
+    if (is_nikon_menu_multiple_exposure_ifd_tag(ifd, tag)) {
+        return nikon_menu_multiple_exposure_mode_name(value);
+    }
+    return "";
+}
+
+static const char*
 makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
                                  uint64_t value) noexcept
 {
     if (is_canon_camera_settings_ifd(ifd)) {
         return canon_camera_settings_value_name(tag, value);
+    }
+    if (is_canon_camera_info_ifd(ifd)) {
+        return canon_camera_info_value_name(tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_nikon")
+        || ifd_has_prefix(ifd, "makernote:nikon:")) {
+        return nikon_value_name(ifd, tag, value);
     }
     return "";
 }
@@ -360,6 +598,7 @@ exif_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     case 0x9208U: return exif_light_source_name(value);
     case 0x9209U: return exif_flash_name(value);
     case 0xA001U: return exif_color_space_name(value);
+    case 0xA402U: return exif_exposure_mode_name(value);
     case 0xA403U: return exif_white_balance_name(value);
     case 0xA406U: return exif_scene_capture_type_name(value);
     case 0xA407U: return exif_gain_control_name(value);

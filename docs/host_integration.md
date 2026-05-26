@@ -34,7 +34,7 @@ Use the narrowest public API that matches your host:
 | Structured interpreted metadata records | `openmeta/metadata_interpretation.h` |
 | Cross-family concept conflicts | `openmeta/metadata_concepts.h` |
 | User-facing orientation display | `openmeta/orientation.h` |
-| Common EXIF/TIFF/DNG value labels | `openmeta/exif_value_names.h` |
+| Common EXIF/TIFF/DNG and selected MakerNote value labels | `openmeta/exif_value_names.h` |
 | JPEG/JXL/WebP/PNG/JP2/BMFF encoder path | `prepare_metadata_for_target_file(...)` + adapter view or backend emitter |
 | Adobe DNG SDK objects/files | `dng_sdk_adapter.h` |
 
@@ -102,7 +102,8 @@ OpenMeta splits host integration surfaces deliberately:
   `orientation.h` for EXIF/TIFF labels, rotation degrees, mirrored-state
   checks, and width/height-swap checks
 - value-name utility:
-  `exif_value_names.h` for common EXIF/TIFF/DNG enum-style numeric labels
+  `exif_value_names.h` for common EXIF/TIFF/DNG enum-style numeric labels and
+  selected bounded Canon/Nikon MakerNote labels
 - structured interpretation utility:
   `metadata_interpretation.h` for query-backed semantic records
 - concept-resolution utility:

@@ -7,7 +7,8 @@
 
 /**
  * \file exif_value_names.h
- * \brief Human-readable names for common EXIF/TIFF/DNG numeric values.
+ * \brief Human-readable names for common EXIF/TIFF/DNG numeric values and
+ * selected bounded MakerNote contexts.
  */
 
 namespace openmeta {
@@ -26,6 +27,9 @@ tiff_resolution_unit_name(uint64_t value) noexcept;
 
 const char*
 exif_exposure_program_name(uint64_t value) noexcept;
+
+const char*
+exif_exposure_mode_name(uint64_t value) noexcept;
 
 const char*
 exif_metering_mode_name(uint64_t value) noexcept;
