@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF item-property associations and primary item properties, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout and descriptor-header summaries, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 90%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, lens-correction, sensor, BMFF item-property associations and primary item properties, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, path-record, byte-count, and descriptor-header summaries, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 90%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 77-83%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -904,14 +904,18 @@ Internal helper conventions (used by vendor decoders):
   entries instead of weakening the raw payload surface. The current bounded
   interpreted subset includes `ResolutionInfo`,
   `AlphaChannelsNames`, `DisplayInfo`, `PStringCaption`, `BorderInformation`,
-  `BackgroundColor`, `VersionInfo`, `PrintFlags`, `EffectiveBW`,
-  `QuickMaskInfo`, `TargetLayerID`, `LayersGroupInfo`, `JPEG_Quality`,
-  `GridGuidesInfo`, `CopyrightFlag`, `URL`, `GlobalAngle`,
+  `BackgroundColor`, `Photoshop2Info`, `Photoshop2ColorTable`, `VersionInfo`,
+  `PrintFlags`, print-flag byte fields, `EffectiveBW`, `QuickMaskInfo`,
+  `RawImageMode`, `TargetLayerID`, `LayersGroupInfo`, `JPEG_Quality`,
+  `GridGuidesInfo`, legacy halftone/transfer/duotone/EPS byte summaries,
+  `CopyrightFlag`, `URL`, `GlobalAngle`, `SpotHalftone`, `JumpToXPEP`,
   `ColorSamplersResource`, `ColorSamplersResource2`, `Watermark`,
   `ICC_Untagged`, `EffectsVisible`, `IDsBaseValue`, `UnicodeAlphaNames`,
   `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
   `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`, `IPTCDigest`,
-  `PrintScaleInfo`, `PixelInfo`, descriptor-header summaries for
+  `PrintScaleInfo`, `PixelInfo`, `AutoSaveFilePath`, `AutoSaveFormat`,
+  `ImageReadyVariables`, `ImageReadyDataSets`, path-resource record summaries,
+  descriptor-header summaries for
   `LayerComps`, `MeasurementScale`, `TimelineInfo`, `SheetDisclosure`,
   `OnionSkins`, `CountInfo`, `PrintInfo2`, `PrintStyle`,
   `PathSelectionState`, and `OriginPathInfo`, `PhotoshopBGRThumbnail`,
@@ -974,6 +978,12 @@ ctest --test-dir build-tests -R openmeta_cli_metavalidate_smoke --output-on-fail
 Fast public smoke gate for `metaread` safe-text placeholder behavior:
 ```bash
 cmake --build build-tests --target openmeta_gate_metaread_safe_text_smoke
+```
+
+Fast public smoke gate for `metaread` Photoshop IRB field visibility:
+```bash
+cmake --build build-tests --target openmeta_gate_metaread_photoshop_irb_smoke
+ctest --test-dir build-tests -R openmeta_cli_metaread_photoshop_irb_smoke --output-on-failure
 ```
 
 Fast public smoke gate for `metatransfer` thin wrapper behavior:
@@ -1061,6 +1071,7 @@ ctest --test-dir build-tests -R openmeta_read_release_gate --output-on-failure
 CLI release gate:
 - self-contained non-transfer CLI smokes:
   - `openmeta_cli_metaread_safe_text_smoke`
+  - `openmeta_cli_metaread_photoshop_irb_smoke`
   - `openmeta_cli_metavalidate_smoke`
   - `openmeta_cli_numeric_parse_smoke`
 

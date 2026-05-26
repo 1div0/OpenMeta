@@ -497,6 +497,16 @@ if(OPENMETA_BUILD_TOOLS)
       COMMENT "Running metaread safe-text smoke gate"
       VERBATIM
     )
+
+    add_custom_target(openmeta_gate_metaread_photoshop_irb_smoke
+      DEPENDS metaread
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAREAD_BIN=$<TARGET_FILE:metaread>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metaread_photoshop_irb_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metaread_photoshop_irb_smoke_test.cmake"
+      COMMENT "Running metaread Photoshop IRB smoke gate"
+      VERBATIM
+    )
   endif()
 
   if(TARGET metatransfer)
@@ -900,6 +910,16 @@ if(OPENMETA_BUILD_TESTS)
         "-DMETAVALIDATE_BIN=$<TARGET_FILE:metavalidate>"
         "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metavalidate_smoke"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metavalidate_smoke_test.cmake"
+    )
+  endif()
+
+  if(TARGET metaread)
+    add_test(
+      NAME openmeta_cli_metaread_photoshop_irb_smoke
+      COMMAND ${CMAKE_COMMAND}
+        "-DMETAREAD_BIN=$<TARGET_FILE:metaread>"
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/_cli_metaread_photoshop_irb_smoke"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_metaread_photoshop_irb_smoke_test.cmake"
     )
   endif()
 

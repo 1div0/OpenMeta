@@ -96,7 +96,8 @@ Host-facing API map
      - Bounded resource traversal with stable raw resource preservation
        behavior, but the interpreted subset can still grow. Current
        interpretation includes fixed-layout resource fields,
-       display/grid/thumbnail/color-sampler headers, descriptor-header
+       display/grid/thumbnail/color-sampler headers, path-record summaries,
+       descriptor-header summaries, legacy halftone/transfer/duotone/EPS byte
        summaries, embedded ICC/EXIF/EXIF2/XMP byte-count fields, and optional
        embedded IPTC-IIM, XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,

@@ -751,6 +751,251 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     EXPECT_EQ(path_bytes[0], 1U);
 }
 
+TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
+{
+    std::vector<std::byte> photoshop2_info;
+    append_u16be(3U, &photoshop2_info);
+    append_u16be(200U, &photoshop2_info);
+    append_u16be(300U, &photoshop2_info);
+    append_u16be(8U, &photoshop2_info);
+    append_u16be(3U, &photoshop2_info);
+
+    const std::array<std::byte, 6> photoshop2_color_table = {
+        std::byte { 0U },   std::byte { 0U },   std::byte { 0U },
+        std::byte { 255U }, std::byte { 255U }, std::byte { 255U },
+    };
+
+    std::vector<std::byte> raw_image_mode;
+    append_u16be(3U, &raw_image_mode);
+
+    std::vector<std::byte> spot_halftone;
+    append_u32be(1U, &spot_halftone);
+    append_u32be(4U, &spot_halftone);
+    append_u32be(0x01020304U, &spot_halftone);
+
+    std::vector<std::byte> jump_to_xpep;
+    append_u16be(2U, &jump_to_xpep);
+    append_u16be(1U, &jump_to_xpep);
+    append_u32be(7U, &jump_to_xpep);
+
+    std::vector<std::byte> auto_save_path;
+    append_utf16be_string32("autosave.psd", &auto_save_path);
+
+    std::vector<std::byte> auto_save_format;
+    append_utf16be_string32("PSD", &auto_save_format);
+
+    const std::array<std::byte, 7> image_ready_variables = {
+        std::byte { '<' }, std::byte { 'v' }, std::byte { 'a' },
+        std::byte { 'r' }, std::byte { 's' }, std::byte { '/' },
+        std::byte { '>' },
+    };
+
+    const std::array<std::byte, 7> image_ready_data_sets = {
+        std::byte { '<' }, std::byte { 's' }, std::byte { 'e' },
+        std::byte { 't' }, std::byte { 's' }, std::byte { '/' },
+        std::byte { '>' },
+    };
+
+    std::vector<std::byte> working_path(26U, std::byte { 0x00 });
+    working_path[1] = std::byte { 0x01 };
+
+    std::vector<std::byte> halftone;
+    append_u16be(0x1234U, &halftone);
+
+    std::vector<std::byte> transfer_function(28U, std::byte { 0x00 });
+    transfer_function[0] = std::byte { 0x12 };
+    transfer_function[1] = std::byte { 0x34 };
+
+    const std::array<std::byte, 4> duotone_info = {
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
+        std::byte { 0x04 },
+    };
+    const std::array<std::byte, 2> eps_options = {
+        std::byte { 0xAA },
+        std::byte { 0x55 },
+    };
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x03E8U, photoshop2_info, &irb);
+    append_irb_resource(0x03EBU, photoshop2_color_table, &irb);
+    append_irb_resource(0x0405U, raw_image_mode, &irb);
+    append_irb_resource(0x0413U, spot_halftone, &irb);
+    append_irb_resource(0x041CU, jump_to_xpep, &irb);
+    append_irb_resource(0x043EU, auto_save_path, &irb);
+    append_irb_resource(0x043FU, auto_save_format, &irb);
+    append_irb_resource(0x1B58U, image_ready_variables, &irb);
+    append_irb_resource(0x1B59U, image_ready_data_sets, &irb);
+    append_irb_resource(0x0401U, working_path, &irb);
+    append_irb_resource(0x03F4U, halftone, &irb);
+    append_irb_resource(0x03F7U, transfer_function, &irb);
+    append_irb_resource(0x03FAU, duotone_info, &irb);
+    append_irb_resource(0x03FDU, eps_options, &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 14U);
+    EXPECT_EQ(r.entries_decoded, 41U);
+
+    const Entry* channels = find_photoshop_irb_field(store, 0x03E8U,
+                                                     "Photoshop2ChannelCount");
+    ASSERT_NE(channels, nullptr);
+    EXPECT_EQ(channels->value.elem_type, MetaElementType::U16);
+    EXPECT_EQ(channels->value.data.u64, 3U);
+
+    const Entry* rows = find_photoshop_irb_field(store, 0x03E8U,
+                                                 "Photoshop2Rows");
+    ASSERT_NE(rows, nullptr);
+    EXPECT_EQ(rows->value.data.u64, 200U);
+
+    const Entry* color_bytes
+        = find_photoshop_irb_field(store, 0x03EBU, "Photoshop2ColorTableBytes");
+    ASSERT_NE(color_bytes, nullptr);
+    EXPECT_EQ(color_bytes->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(color_bytes->value.data.u64, 6U);
+
+    const Entry* color_count = find_photoshop_irb_field(store, 0x03EBU,
+                                                        "Photoshop2ColorCount");
+    ASSERT_NE(color_count, nullptr);
+    EXPECT_EQ(color_count->value.data.u64, 2U);
+
+    const Entry* raw_mode = find_photoshop_irb_field(store, 0x0405U,
+                                                     "RawImageMode");
+    ASSERT_NE(raw_mode, nullptr);
+    EXPECT_EQ(raw_mode->value.data.u64, 3U);
+
+    const Entry* spot_version = find_photoshop_irb_field(store, 0x0413U,
+                                                         "SpotHalftoneVersion");
+    ASSERT_NE(spot_version, nullptr);
+    EXPECT_EQ(spot_version->value.data.u64, 1U);
+
+    const Entry* jump_count = find_photoshop_irb_field(store, 0x041CU,
+                                                       "JumpToXPEPJumpCount");
+    ASSERT_NE(jump_count, nullptr);
+    EXPECT_EQ(jump_count->value.data.u64, 7U);
+
+    const std::vector<std::string_view> save_paths
+        = collect_photoshop_irb_text_fields(store, 0x043EU, "AutoSaveFilePath");
+    ASSERT_EQ(save_paths.size(), 1U);
+    EXPECT_EQ(save_paths[0], "autosave.psd");
+
+    const std::vector<std::string_view> save_formats
+        = collect_photoshop_irb_text_fields(store, 0x043FU, "AutoSaveFormat");
+    ASSERT_EQ(save_formats.size(), 1U);
+    EXPECT_EQ(save_formats[0], "PSD");
+
+    const std::vector<std::string_view> variables
+        = collect_photoshop_irb_text_fields(store, 0x1B58U,
+                                            "ImageReadyVariables");
+    const std::vector<std::string_view> data_sets
+        = collect_photoshop_irb_text_fields(store, 0x1B59U,
+                                            "ImageReadyDataSets");
+    ASSERT_EQ(variables.size(), 1U);
+    ASSERT_EQ(data_sets.size(), 1U);
+    EXPECT_EQ(variables[0], "<vars/>");
+    EXPECT_EQ(data_sets[0], "<sets/>");
+
+    const Entry* path_count = find_photoshop_irb_field(store, 0x0401U,
+                                                       "PathRecordCount");
+    ASSERT_NE(path_count, nullptr);
+    EXPECT_EQ(path_count->value.data.u64, 1U);
+    const std::vector<uint16_t> selectors
+        = collect_photoshop_irb_u16_fields(store, 0x0401U,
+                                           "PathRecordSelector");
+    ASSERT_EQ(selectors.size(), 1U);
+    EXPECT_EQ(selectors[0], 1U);
+
+    const Entry* halftone_word
+        = find_photoshop_irb_field(store, 0x03F4U, "HalftoneInfoFirstWord");
+    ASSERT_NE(halftone_word, nullptr);
+    EXPECT_EQ(halftone_word->value.data.u64, 0x1234U);
+
+    const Entry* transfer_curves
+        = find_photoshop_irb_field(store, 0x03F7U,
+                                   "TransferFunctionCurveCount");
+    ASSERT_NE(transfer_curves, nullptr);
+    EXPECT_EQ(transfer_curves->value.data.u64, 1U);
+
+    const Entry* duotone_bytes
+        = find_photoshop_irb_field(store, 0x03FAU, "DuotoneImageInfoBytes");
+    ASSERT_NE(duotone_bytes, nullptr);
+    EXPECT_EQ(duotone_bytes->value.data.u64, 4U);
+
+    const Entry* eps_bytes = find_photoshop_irb_field(store, 0x03FDU,
+                                                      "EPSOptionsBytes");
+    ASSERT_NE(eps_bytes, nullptr);
+    EXPECT_EQ(eps_bytes->value.data.u64, 2U);
+}
+
+TEST(PhotoshopIrbDecodeTest, AvoidsStructuredFieldsForShortAdditionalResources)
+{
+    const std::array<std::byte, 8> short_photoshop2_info = {};
+    const std::array<std::byte, 1> short_raw_image_mode  = {};
+    const std::array<std::byte, 7> short_spot_halftone   = {};
+    const std::array<std::byte, 7> short_jump_to_xpep    = {};
+    const std::array<std::byte, 3> short_unicode_text    = {};
+    const std::array<std::byte, 3> non_ascii_xml         = {
+        std::byte { '<' },
+        std::byte { 0x80 },
+        std::byte { '>' },
+    };
+    const std::array<std::byte, 0> empty_xml      = {};
+    const std::array<std::byte, 25> short_path    = {};
+    const std::array<std::byte, 1> short_halftone = {
+        std::byte { 0x12 },
+    };
+    const std::array<std::byte, 1> short_transfer = {
+        std::byte { 0x12 },
+    };
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x03E8U, short_photoshop2_info, &irb);
+    append_irb_resource(0x0405U, short_raw_image_mode, &irb);
+    append_irb_resource(0x0413U, short_spot_halftone, &irb);
+    append_irb_resource(0x041CU, short_jump_to_xpep, &irb);
+    append_irb_resource(0x043EU, short_unicode_text, &irb);
+    append_irb_resource(0x043FU, short_unicode_text, &irb);
+    append_irb_resource(0x1B58U, non_ascii_xml, &irb);
+    append_irb_resource(0x1B59U, empty_xml, &irb);
+    append_irb_resource(0x0401U, short_path, &irb);
+    append_irb_resource(0x03F4U, short_halftone, &irb);
+    append_irb_resource(0x03F7U, short_transfer, &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 11U);
+
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03E8U, "Photoshop2ChannelCount"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0405U, "RawImageMode"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0413U, "SpotHalftoneVersion"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x041CU, "JumpToXPEPJumpCount"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x043EU, "AutoSaveFilePath"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x043FU, "AutoSaveFormat"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x1B58U, "ImageReadyVariables"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x1B59U, "ImageReadyDataSets"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0401U, "PathRecordCount"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03F4U, "HalftoneInfoFirstWord"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03F7U,
+                                       "TransferFunctionFirstWord"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x03F7U,
+                                       "TransferFunctionCurveCount"),
+              nullptr);
+}
+
 TEST(PhotoshopIrbDecodeTest, EstimateMatchesDecodeCounters)
 {
     const std::array<std::byte, 3> payload = {
@@ -997,7 +1242,7 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
     EXPECT_EQ(r.resources_decoded, 30U);
-    EXPECT_EQ(r.entries_decoded, 86U);
+    EXPECT_EQ(r.entries_decoded, 87U);
 
     const Entry* x_resolution = find_photoshop_irb_field(store, 0x03EDU,
                                                          "XResolution");
@@ -1131,6 +1376,13 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_EQ(print_flags_field->value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(print_flags_field->value.elem_type, MetaElementType::U8);
     EXPECT_EQ(print_flags_field->value.data.u64, 7U);
+
+    const Entry* print_flag_labels
+        = find_photoshop_irb_field(store, 0x03F3U, "PrintFlagLabels");
+    ASSERT_NE(print_flag_labels, nullptr);
+    EXPECT_EQ(print_flag_labels->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(print_flag_labels->value.elem_type, MetaElementType::U8);
+    EXPECT_EQ(print_flag_labels->value.data.u64, 7U);
 
     const Entry* effective_bw_field = find_photoshop_irb_field(store, 0x03FBU,
                                                                "EffectiveBW");
@@ -1762,16 +2014,20 @@ TEST(PhotoshopIrbDecodeTest, KeepsShortPrintFlagsInfoRawOnly)
 
 TEST(PhotoshopIrbDecodeTest, NamesAdditionalKnownResources)
 {
+    EXPECT_EQ(photoshop_irb_resource_name(0x03E8U), "Photoshop2Info");
     EXPECT_EQ(photoshop_irb_resource_name(0x03E9U), "MacintoshPrintInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x03EAU), "XMLData");
+    EXPECT_EQ(photoshop_irb_resource_name(0x03EBU), "Photoshop2ColorTable");
     EXPECT_EQ(photoshop_irb_resource_name(0x0421U), "VersionInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x0408U), "GridGuidesInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x040AU), "CopyrightFlag");
     EXPECT_EQ(photoshop_irb_resource_name(0x040BU), "URL");
     EXPECT_EQ(photoshop_irb_resource_name(0x040FU), "ICC_Profile");
     EXPECT_EQ(photoshop_irb_resource_name(0x040DU), "GlobalAngle");
+    EXPECT_EQ(photoshop_irb_resource_name(0x0405U), "RawImageMode");
     EXPECT_EQ(photoshop_irb_resource_name(0x0BB7U), "ClippingPathName");
     EXPECT_EQ(photoshop_irb_resource_name(0x0412U), "EffectsVisible");
+    EXPECT_EQ(photoshop_irb_resource_name(0x0413U), "SpotHalftone");
     EXPECT_EQ(photoshop_irb_resource_name(0x03F3U), "PrintFlags");
     EXPECT_EQ(photoshop_irb_resource_name(0x03FBU), "EffectiveBW");
     EXPECT_EQ(photoshop_irb_resource_name(0x0400U), "TargetLayerID");
@@ -1785,6 +2041,7 @@ TEST(PhotoshopIrbDecodeTest, NamesAdditionalKnownResources)
     EXPECT_EQ(photoshop_irb_resource_name(0x0419U), "GlobalAltitude");
     EXPECT_EQ(photoshop_irb_resource_name(0x041AU), "SliceInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x041BU), "WorkflowURL");
+    EXPECT_EQ(photoshop_irb_resource_name(0x041CU), "JumpToXPEP");
     EXPECT_EQ(photoshop_irb_resource_name(0x041EU), "URL_List");
     EXPECT_EQ(photoshop_irb_resource_name(0x0424U), "XMP");
     EXPECT_EQ(photoshop_irb_resource_name(0x0426U), "PrintScaleInfo");

@@ -34,6 +34,22 @@ endif()
 
 execute_process(
   COMMAND ${CMAKE_COMMAND}
+    "-DMETAREAD_BIN=${METAREAD_BIN}"
+    "-DWORK_DIR=${WORK_DIR}/cli_metaread_photoshop_irb_smoke"
+    -P "${CMAKE_CURRENT_LIST_DIR}/cli_metaread_photoshop_irb_smoke_test.cmake"
+  RESULT_VARIABLE _rv_metaread_irb
+  OUTPUT_VARIABLE _out_metaread_irb
+  ERROR_VARIABLE _err_metaread_irb
+)
+if(NOT _rv_metaread_irb EQUAL 0)
+  message(FATAL_ERROR
+    "CLI release gate metaread Photoshop IRB smoke failed (${_rv_metaread_irb})\n"
+    "stdout:\n${_out_metaread_irb}\n"
+    "stderr:\n${_err_metaread_irb}")
+endif()
+
+execute_process(
+  COMMAND ${CMAKE_COMMAND}
     "-DMETAVALIDATE_BIN=${METAVALIDATE_BIN}"
     "-DWORK_DIR=${WORK_DIR}/cli_metavalidate_smoke"
     -P "${CMAKE_CURRENT_LIST_DIR}/cli_metavalidate_smoke_test.cmake"

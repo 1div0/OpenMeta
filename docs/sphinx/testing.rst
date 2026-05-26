@@ -168,6 +168,7 @@ The CLI release gate rolls up the self-contained public CLI smokes that are
 not already part of the transfer gate:
 
 - ``openmeta_cli_metaread_safe_text_smoke``
+- ``openmeta_cli_metaread_photoshop_irb_smoke``
 - ``openmeta_cli_metavalidate_smoke``
 - ``openmeta_cli_numeric_parse_smoke``
 

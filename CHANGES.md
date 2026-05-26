@@ -1,5 +1,27 @@
 # OpenMeta Changes
 
+## 0.4.34 - 2026-05-25
+
+Changes compared with `0.4.33`.
+
+### Added
+
+- Added bounded Photoshop IRB interpretation for `Photoshop2Info`,
+  `Photoshop2ColorTable`, `RawImageMode`, `SpotHalftone`, `JumpToXPEP`,
+  `AutoSaveFilePath`, `AutoSaveFormat`, ImageReady variable/data-set text,
+  legacy halftone/transfer/duotone/EPS byte summaries, print-flag byte fields,
+  and path-resource record counts/selectors.
+- Added focused short-payload regressions for the new Photoshop IRB structured
+  fields.
+- Added a self-contained `metaread` Photoshop IRB CLI smoke and included it in
+  the CLI release gate.
+
+### Changed
+
+- Public support/status docs now separate Photoshop IRB interpreted resources,
+  descriptor-header summaries, record summaries, byte-count summaries, and
+  raw-only resources.
+
 ## 0.4.33 - 2026-05-25
 
 Changes compared with `0.4.32`.

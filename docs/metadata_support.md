@@ -118,6 +118,8 @@ promoted when fields can be typed, named, and safety-classified.
 OpenMeta preserves raw IRB resources and also decodes a bounded interpreted
 subset. That subset includes common fixed-layout resources and descriptor-header
 summaries such as:
+- `Photoshop2Info`
+- `Photoshop2ColorTable`
 - `ResolutionInfo`
 - `AlphaChannelsNames`
 - `DisplayInfo`
@@ -126,16 +128,26 @@ summaries such as:
 - `BackgroundColor`
 - `VersionInfo`
 - `PrintFlags`
+- print-flag byte fields
 - `EffectiveBW`
 - `QuickMaskInfo`
+- `RawImageMode`
 - `JPEG_Quality`
 - `GridGuidesInfo`
+- legacy halftone, transfer-function, duotone-image, and EPS byte summaries
 - `PhotoshopBGRThumbnail` / `PhotoshopThumbnail` headers
+- `SpotHalftone`
 - `UnicodeAlphaNames`
 - `AlphaIdentifiers`
+- `JumpToXPEP`
 - `PrintScaleInfo`
 - `PixelInfo`
+- `AutoSaveFilePath`
+- `AutoSaveFormat`
+- `ImageReadyVariables`
+- `ImageReadyDataSets`
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
+- `WorkingPath` and numbered path resources as record counts/selectors
 - descriptor-header summaries for resources such as `LayerComps`,
   `MeasurementScale`, `TimelineInfo`, `SheetDisclosure`, `OnionSkins`,
   `CountInfo`, `PrintInfo2`, `PrintStyle`, `PathSelectionState`, and
@@ -147,6 +159,18 @@ summaries such as:
 
 When enabled, embedded IPTC-IIM, XMP, and ICC payloads in IRB resources are
 also decoded into their regular OpenMeta entry families.
+
+Current Photoshop IRB interpretation status:
+
+| Resource area | Status | Notes |
+| --- | --- | --- |
+| Raw IRB resources | Preserved | Every accepted resource keeps a lossless `PhotoshopIrb` raw entry. |
+| Embedded IPTC/XMP/ICC/EXIF carriers | Interpreted where enabled | Payload bytes remain preserved; enabled decoders also emit regular family entries. |
+| Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, and similar bounded fields. |
+| Geometry/display/color-sampler/path headers | Interpreted / record-summary | Display/grid/thumbnail/color-sampler headers are decoded; path resources expose record counts and selectors without interpreting Bezier payloads. |
+| Descriptor-backed Photoshop resources | Descriptor-header only | Descriptor version and remaining byte count are emitted; descriptor body parsing remains out of scope for this subset. |
+| Legacy halftone/transfer/duotone/EPS resources | Header / byte-count only | OpenMeta emits byte counts and first header words where safe, without claiming full Photoshop semantics. |
+| Proprietary, obsolete, or OS-specific resources | Raw-only | Kept losslessly until a bounded public layout is implemented. |
 
 This is useful, but it is still not full Photoshop-resource parity.
 

@@ -173,14 +173,16 @@ Coverage matrix
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
-       for fixed-layout resources, including resolution/version/print data,
+       for fixed-layout resources, including Photoshop 2 info/color-table
+       summaries, resolution/version/print data, print-flag bytes,
        border/background/effective-BW data, display info, grid/guide info,
-       color sampler headers/records, descriptor-header summaries, alpha
-       names/identifiers, captions, QuickMask info, URL/list data, thumbnail
-       headers, channel options, clipping-path names, embedded ICC/XMP/EXIF
-       resource byte counts, and embedded IPTC/XMP/ICC payload decode where
-       enabled.
-     - Medium, about 72-81%.
+       color sampler headers/records, descriptor-header summaries, path record
+       summaries, alpha names/identifiers, captions, QuickMask info, URL/list
+       data, autosave strings, ImageReady XML text, thumbnail headers, channel
+       options, clipping-path names, legacy halftone/transfer/duotone/EPS byte
+       summaries, embedded ICC/XMP/EXIF resource byte counts, and embedded
+       IPTC/XMP/ICC payload decode where enabled.
+     - Medium, about 74-83%.
      - Broader resource-specific descriptor parsing and long-tail resource
        interpretation.
    * - Semantic query/search and records
