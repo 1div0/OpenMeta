@@ -159,11 +159,14 @@ Coverage matrix
        raw-level processing data, and Phase One/Leaf RAW-processing fields
        handled by direct classification plus dedicated normalized helpers.
        Classified multi-field vendor groups now surface as grouped
-       query/interpretation candidates where safe to expose structurally, and
-       selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/
+       query/interpretation candidates where safe to expose structurally.
+       Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/
        Kodak/Minolta/Sigma/Samsung/Ricoh print conversions expose bounded
-       human-readable labels for exposure-related UI.
-     - Medium-high, about 88-93%.
+       human-readable labels, including expanded Canon CameraSettings/
+       ShotInfo/main/MyColors, decoded Fujifilm ``mk_fuji*``, and Panasonic
+       main-table labels. Ambiguous per-model or value-type-dependent labels
+       intentionally remain empty instead of guessing.
+     - Medium-high, about 89-94%.
      - ExifTool-style long-tail print conversions, encrypted/custom settings,
        and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
@@ -250,7 +253,8 @@ Next interpretation priorities
 4. Expand GPS policy beyond current coordinate tolerance, altitude-reference
    display, and EXIF timestamp assembly into broader cross-family
    reconciliation.
-5. Expand MakerNote meaning depth in vendor order: Pentax, Olympus, Panasonic,
-   Phase One/Leaf, then remaining active vendors.
+5. Expand MakerNote meaning depth in vendor order: remaining Canon sub-IFDs,
+   Olympus, Nikon, Pentax, Casio, Panasonic long tail, CanonCustom/
+   NikonSettings, Fujifilm residuals, then other active vendors.
 6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

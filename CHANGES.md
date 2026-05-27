@@ -1,5 +1,32 @@
 # OpenMeta Changes
 
+## 0.4.39 - 2026-05-27
+
+Changes compared with `0.4.38`.
+
+### Added
+
+- Added bounded Canon MakerNote numeric labels for common CameraSettings,
+  ShotInfo, main, and MyColors scalar fields such as quality, drive, zoom,
+  contrast, saturation, focus range, image size, AE mode, white balance, slow
+  shutter, bracketing, control mode, ND filter, date stamp, and MyColors mode.
+- Added bounded Fujifilm MakerNote numeric labels for decoded real-file
+  `mk_fuji*` contexts, including sharpness, white balance, macro, slow sync,
+  auto bracketing, blur warning, color mode, and dynamic range fields.
+- Added bounded Panasonic MakerNote numeric labels for image quality, image
+  stabilization, audio, color effect, noise reduction, rotation, AF assist,
+  conversion lens, travel day, battery, text stamp, and related scalar fields.
+
+### Fixed
+
+- Fixed Fujifilm value-name dispatch for decoded `mk_fuji*` IFD tokens.
+- Stopped emitting ambiguous Ricoh `0x1003` and Minolta main `0x0103` labels
+  where the meaning depends on value type, model, or tag-name context that is
+  not available to the numeric value-name helper.
+- Tightened context-sensitive Panasonic contrast, Ricoh noise-reduction, and
+  Sony Tag2010B quality labels so ambiguous values remain unlabeled instead of
+  receiving a wrong stable label.
+
 ## 0.4.38 - 2026-05-26
 
 Changes compared with `0.4.37`.
