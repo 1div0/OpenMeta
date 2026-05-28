@@ -21254,6 +21254,16 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     source_processing.origin.order_in_block = 8U;
     ASSERT_NE(store.add_entry(source_processing), openmeta::kInvalidEntryId);
 
+    const std::array<uint32_t, 2> raw_curve_values = { 0U, 65535U };
+    openmeta::Entry raw_curve;
+    raw_curve.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC618U);
+    raw_curve.value = openmeta::make_u32_array(
+        store.arena(), std::span<const uint32_t>(raw_curve_values.data(),
+                                                 raw_curve_values.size()));
+    raw_curve.origin.block          = block;
+    raw_curve.origin.order_in_block = 9U;
+    ASSERT_NE(store.add_entry(raw_curve), openmeta::kInvalidEntryId);
+
     const std::array<uint32_t, 2> raf_full_size = { 4032U, 3024U };
     openmeta::Entry raf_full;
     raf_full.key = openmeta::make_exif_tag_key(store.arena(), "raf_0", 0x0100U);
@@ -21261,7 +21271,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         store.arena(),
         std::span<const uint32_t>(raf_full_size.data(), raf_full_size.size()));
     raf_full.origin.block               = block;
-    raf_full.origin.order_in_block      = 9U;
+    raf_full.origin.order_in_block      = 10U;
     const openmeta::EntryId raf_full_id = store.add_entry(raf_full);
     ASSERT_NE(raf_full_id, openmeta::kInvalidEntryId);
 
@@ -21273,7 +21283,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         store.arena(), std::span<const uint32_t>(raf_origin_value.data(),
                                                  raf_origin_value.size()));
     raf_origin.origin.block               = block;
-    raf_origin.origin.order_in_block      = 10U;
+    raf_origin.origin.order_in_block      = 11U;
     const openmeta::EntryId raf_origin_id = store.add_entry(raf_origin);
     ASSERT_NE(raf_origin_id, openmeta::kInvalidEntryId);
 
@@ -21284,7 +21294,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         store.arena(),
         std::span<const uint32_t>(raf_crop_size.data(), raf_crop_size.size()));
     raf_size.origin.block               = block;
-    raf_size.origin.order_in_block      = 11U;
+    raf_size.origin.order_in_block      = 12U;
     const openmeta::EntryId raf_size_id = store.add_entry(raf_size);
     ASSERT_NE(raf_size_id, openmeta::kInvalidEntryId);
 
@@ -21294,7 +21304,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                                                                 0x0001U);
     canon_crop_width.value        = openmeta::make_u32(4000U);
     canon_crop_width.origin.block = block;
-    canon_crop_width.origin.order_in_block = 12U;
+    canon_crop_width.origin.order_in_block = 13U;
     const openmeta::EntryId canon_width_id = store.add_entry(canon_crop_width);
     ASSERT_NE(canon_width_id, openmeta::kInvalidEntryId);
 
@@ -21304,7 +21314,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                                                                  0x0002U);
     canon_crop_height.value        = openmeta::make_u32(3000U);
     canon_crop_height.origin.block = block;
-    canon_crop_height.origin.order_in_block = 13U;
+    canon_crop_height.origin.order_in_block = 14U;
     const openmeta::EntryId canon_height_id = store.add_entry(
         canon_crop_height);
     ASSERT_NE(canon_height_id, openmeta::kInvalidEntryId);
@@ -21315,7 +21325,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                                                                0x0003U);
     canon_crop_left.value        = openmeta::make_u32(12U);
     canon_crop_left.origin.block = block;
-    canon_crop_left.origin.order_in_block = 14U;
+    canon_crop_left.origin.order_in_block = 15U;
     const openmeta::EntryId canon_left_id = store.add_entry(canon_crop_left);
     ASSERT_NE(canon_left_id, openmeta::kInvalidEntryId);
 
@@ -21325,7 +21335,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                                                               0x0004U);
     canon_crop_top.value        = openmeta::make_u32(8U);
     canon_crop_top.origin.block = block;
-    canon_crop_top.origin.order_in_block = 15U;
+    canon_crop_top.origin.order_in_block = 16U;
     const openmeta::EntryId canon_top_id = store.add_entry(canon_crop_top);
     ASSERT_NE(canon_top_id, openmeta::kInvalidEntryId);
 
@@ -21337,7 +21347,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         store.arena(), std::span<const uint32_t>(white_balance_neutral.data(),
                                                  white_balance_neutral.size()));
     wb_neutral.origin.block          = block;
-    wb_neutral.origin.order_in_block = 16U;
+    wb_neutral.origin.order_in_block = 17U;
     ASSERT_NE(store.add_entry(wb_neutral), openmeta::kInvalidEntryId);
 
     openmeta::Entry lens_distort;
@@ -21346,7 +21356,7 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                                                             0x0001U);
     lens_distort.value        = openmeta::make_u32(7U);
     lens_distort.origin.block = block;
-    lens_distort.origin.order_in_block = 17U;
+    lens_distort.origin.order_in_block = 18U;
     ASSERT_NE(store.add_entry(lens_distort), openmeta::kInvalidEntryId);
     store.finalize();
 
@@ -21519,6 +21529,19 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         "source computational processing metadata is bound to the source "
         "pipeline and will be dropped for this transfer mode");
 
+    const openmeta::TransferConceptDiagnostic* curve_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::RawValueCurve,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(curve_diag, nullptr);
+    EXPECT_EQ(curve_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::RenderedUnsafe);
+    EXPECT_TRUE(curve_diag->source_bound);
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(*curve_diag),
+                 "source RAW curve or linearity metadata is unsafe for "
+                 "rendered-image transfer and will be dropped");
+
     const openmeta::TransferConceptDiagnostics compatible
         = openmeta::transfer_concept_diagnostics_from_store(
             store, openmeta::TransferSafetyMode::CompatibleFile);
@@ -21530,6 +21553,14 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     ASSERT_NE(compatible_source_diag, nullptr);
     EXPECT_TRUE(compatible_source_diag->compatible_file_safe);
     EXPECT_FALSE(compatible_source_diag->rendered_image_safe);
+    const openmeta::TransferConceptDiagnostic* compatible_curve_diag
+        = find_transfer_concept_diagnostic(
+            compatible, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::RawValueCurve,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(compatible_curve_diag, nullptr);
+    EXPECT_TRUE(compatible_curve_diag->compatible_file_safe);
+    EXPECT_FALSE(compatible_curve_diag->rendered_image_safe);
 
     openmeta::PrepareTransferRequest request;
     request.include_iptc_app13   = false;

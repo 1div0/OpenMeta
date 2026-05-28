@@ -533,7 +533,7 @@ namespace {
         EXPECT_DOUBLE_EQ(black->values[0], 512.0);
         EXPECT_TRUE(contains_entry(black->source_entries, black_level));
         const MetadataConceptCandidate* linear
-            = find_role(*raw, MetadataConceptRole::Linearization);
+            = find_role(*raw, MetadataConceptRole::RawValueCurve);
         ASSERT_NE(linear, nullptr);
         ASSERT_TRUE(linear->has_values);
         EXPECT_DOUBLE_EQ(linear->values[1], 65535.0);
@@ -1304,6 +1304,14 @@ namespace {
                                       active_area_values.size()));
         (void)add_exif_u32(&store, "mk_nikon_distortinfo", 0x0001U, 7U);
         (void)add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+        const std::array<uint32_t, 2> linearization_values = {
+            0U,
+            65535U,
+        };
+        (void)add_exif_u32_array(
+            &store, "ifd0", 0xC618U,
+            std::span<const uint32_t>(linearization_values.data(),
+                                      linearization_values.size()));
         (void)add_exif_u32(&store, "mk_google_shotlogdata", 0x0001U, 7U);
         store.finalize();
 
@@ -1400,6 +1408,13 @@ namespace {
         ASSERT_NE(black, nullptr);
         EXPECT_EQ(black->transfer_hint,
                   MetadataConceptTransferHint::RenderedUnsafe);
+        const MetadataConceptCandidate* curve
+            = find_role(*raw, MetadataConceptRole::RawValueCurve);
+        ASSERT_NE(curve, nullptr);
+        EXPECT_EQ(curve->transfer_hint,
+                  MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_TRUE(curve->compatible_file_safe);
+        EXPECT_FALSE(curve->rendered_image_safe);
         const MetadataConceptCandidate* source
             = find_role(*raw, MetadataConceptRole::ComputationalProcessing);
         ASSERT_NE(source, nullptr);
@@ -1410,6 +1425,9 @@ namespace {
         EXPECT_STREQ(metadata_concept_transfer_hint_name(
                          MetadataConceptTransferHint::SourceBound),
                      "source_bound");
+        EXPECT_STREQ(metadata_concept_role_name(
+                         MetadataConceptRole::RawValueCurve),
+                     "raw_value_curve");
     }
 
     TEST(MetadataConcepts, SurfacesColorAndGeometryConflicts)

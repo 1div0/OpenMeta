@@ -75,6 +75,10 @@ enum class MetadataConceptRole : uint8_t {
     Gain,
     RawExposureAdjustment,
     SourceColorTransform,
+    RawValueCurve,
+    RawLinearityLimit,
+    RawCalibrationCurve,
+    RawCurveControlPoints,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {

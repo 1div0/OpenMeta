@@ -113,7 +113,9 @@ Host-facing API map
        exposure/gain, white balance, color/profile/source-color-transform,
        lens correction, orientation, descriptive EXIF/IPTC/XMP fields, and
        RAW/source-processing metadata across standard tags, selected DNG tags,
-       EXIF color-space evidence, ICC header/tag entries, XMP
+       RAW value curves, RAW linearity limits, RAW calibration curves, RAW
+       curve control points, EXIF color-space evidence, ICC header/tag
+       entries, XMP
        ICC/profile/color-space fields, XMP camera RAW profile/look/tone-curve
        fields, PNG profile text carriers, Fujifilm RAF raw crop/zoom
        rectangles, Canon aspect/crop metadata, Nikon Capture crop bounds, Sony
@@ -125,11 +127,13 @@ Host-facing API map
        ``OPENMETA_ENABLE_RAPIDFUZZ=ON`` adds optional near-miss
        XMP/property-path scoring. Grouped candidates
        include ``matrix_set``, ``vector_set``, and ``table`` shapes for related
-       non-crop metadata, including RAW black/white levels, linearization,
-       CFA/sensor layout, source geometry, raw-storage identifiers, and
-       source-processing buckets, and per-family vendor MakerNote/RAW
-       white-balance, source-color-transform, raw-storage, sensor,
-       computational, thermal, stitch/panorama, and source-processing groups.
+       non-crop metadata, including RAW black/white levels, linearization, raw
+       value curves, raw linearity limits, raw calibration curves, raw curve
+       control points, CFA/sensor layout, source geometry, raw-storage
+       identifiers, and source-processing buckets, and per-family vendor
+       MakerNote/RAW white-balance, source-color-transform, raw-storage,
+       sensor, computational, thermal, stitch/panorama, and source-processing
+       groups.
        Matrix/vector/table groups are promoted only when the available numeric
        payloads meet conservative minimum shapes, so malformed color matrices,
        white-balance vectors, and lens-correction records remain per-entry
@@ -138,7 +142,8 @@ Host-facing API map
        style, film simulation, dynamic-range, optical-correction, and
        raw-development terms are classified for query and transfer-policy
        inspection; camera RAW profiles, looks, tone curves, and vendor source
-       color tables use the explicit ``source_color_transform`` semantic, while
+       color tables use the explicit ``source_color_transform`` semantic, RAW
+       curve/linearity metadata uses dedicated RAW-processing semantics, and
        computational, thermal, and stitch/panorama fields use explicit
        source-processing subroles.
        Python ``Document`` and ``TransferSourceSnapshot`` mirror this as thin
@@ -154,7 +159,8 @@ Host-facing API map
        including Fujifilm RAF, Canon, Nikon Capture, and Sony panorama
        geometry patterns, exposure/gain,
        color/white-balance/profile/source-color-transform records,
-       lens-correction, and RAW/source-processing records including
+       lens-correction, and RAW/source-processing records including raw value
+       curves, linearity limits, calibration curves, curve control points,
        computational, thermal, and stitch/panorama subroles, and grouped
        vendor-family table/vector records where
        classification supports them. Python ``Document`` and
@@ -192,9 +198,10 @@ Host-facing API map
        compatible-file and rendered-image safety booleans.
        Color/white-balance, source-color-transform, lens-correction, and
        RAW-processing concepts preserve grouped matrix/vector/table values for
-       host inspection; source-bound color transforms are marked
-       rendered-unsafe and computational, thermal, and stitch/panorama
-       RAW-processing roles are marked source-bound.
+       host inspection; source-bound color transforms and RAW
+       curve/linearity/calibration roles are marked rendered-unsafe, while
+       computational, thermal, and stitch/panorama RAW-processing roles are
+       marked source-bound.
        GPS date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp``
        when both entries exist, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference
@@ -214,11 +221,12 @@ Host-facing API map
        token, default message text, conflict flag, source entries,
        compatible/rendered safety booleans, and GPS altitude-reference
        presentation fields. Rendered-transfer drop messages distinguish source
-       color transforms, white balance, lens-correction records, and
-       computational/thermal/stitch source-processing drops from generic
-       source-processing metadata. Intended for UI previews and host policy
-       messages before calling ``prepare_metadata_for_target(...)``; it does
-       not replace the actual transfer filter. Python ``Document`` and
+       color transforms, white balance, lens-correction records, source RAW
+       curves/linearity metadata, and computational/thermal/stitch
+       source-processing drops from generic source-processing metadata.
+       Intended for UI previews and host policy messages before calling
+       ``prepare_metadata_for_target(...)``; it does not replace the actual
+       transfer filter. Python ``Document`` and
        ``TransferSourceSnapshot`` expose ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name`` and ``message`` fields.
    * - Vendor RAW-processing summaries:

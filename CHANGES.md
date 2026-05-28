@@ -1,5 +1,28 @@
 # OpenMeta Changes
 
+## 0.4.41 - 2026-05-28
+
+Changes compared with `0.4.40`.
+
+### Added
+
+- Added dedicated semantic query and concept roles for RAW value curves, RAW
+  linearity limits, RAW calibration curves, and RAW curve control points.
+- Added conservative RAW curve classification for DNG linearization/linearity
+  tags plus selected Sony, Nikon, Kodak, Panasonic, and Phase One/Leaf-style
+  curve or calibration metadata names.
+- Added rendered-transfer diagnostics that drop source RAW curve/linearity
+  metadata while keeping it eligible for compatible RAW/DNG-style transfers.
+- Added C++ and Python enum exposure plus focused query, interpretation,
+  concept-resolution, and transfer-diagnostic tests for the new RAW curve
+  roles.
+
+### Changed
+
+- Updated public interpretation, API, host-integration, development, quick
+  start, and writer-contract docs to describe source-bound RAW curve metadata
+  and rendered-image transfer behavior.
+
 ## 0.4.40 - 2026-05-27
 
 Changes compared with `0.4.39`.

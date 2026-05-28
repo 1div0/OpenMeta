@@ -804,6 +804,10 @@ namespace {
             case MetadataConceptRole::BlackLevel:
             case MetadataConceptRole::WhiteLevel:
             case MetadataConceptRole::Linearization:
+            case MetadataConceptRole::RawValueCurve:
+            case MetadataConceptRole::RawLinearityLimit:
+            case MetadataConceptRole::RawCalibrationCurve:
+            case MetadataConceptRole::RawCurveControlPoints:
                 set_transfer_hint(candidate,
                                   MetadataConceptTransferHint::RenderedUnsafe,
                                   true, false);
@@ -883,6 +887,10 @@ namespace {
             case MetadataConceptRole::BlackLevel:
             case MetadataConceptRole::WhiteLevel:
             case MetadataConceptRole::Linearization:
+            case MetadataConceptRole::RawValueCurve:
+            case MetadataConceptRole::RawLinearityLimit:
+            case MetadataConceptRole::RawCalibrationCurve:
+            case MetadataConceptRole::RawCurveControlPoints:
             case MetadataConceptRole::CfaLayout:
             case MetadataConceptRole::RawStorage:
             case MetadataConceptRole::SourceProcessing:
@@ -1875,6 +1883,10 @@ namespace {
         case MetadataQuerySemanticKind::BlackLevel:
         case MetadataQuerySemanticKind::WhiteLevel:
         case MetadataQuerySemanticKind::Linearization:
+        case MetadataQuerySemanticKind::RawValueCurve:
+        case MetadataQuerySemanticKind::RawLinearityLimit:
+        case MetadataQuerySemanticKind::RawCalibrationCurve:
+        case MetadataQuerySemanticKind::RawCurveControlPoints:
         case MetadataQuerySemanticKind::CfaLayout:
         case MetadataQuerySemanticKind::SensorGeometry:
         case MetadataQuerySemanticKind::RawStorage:
@@ -2002,6 +2014,10 @@ namespace {
         case MetadataQuerySemanticKind::BlackLevel:
         case MetadataQuerySemanticKind::WhiteLevel:
         case MetadataQuerySemanticKind::Linearization:
+        case MetadataQuerySemanticKind::RawValueCurve:
+        case MetadataQuerySemanticKind::RawLinearityLimit:
+        case MetadataQuerySemanticKind::RawCalibrationCurve:
+        case MetadataQuerySemanticKind::RawCurveControlPoints:
         case MetadataQuerySemanticKind::CfaLayout:
         case MetadataQuerySemanticKind::SensorGeometry:
         case MetadataQuerySemanticKind::RawStorage:
@@ -2078,6 +2094,14 @@ namespace {
             return MetadataConceptRole::WhiteLevel;
         case MetadataQuerySemanticKind::Linearization:
             return MetadataConceptRole::Linearization;
+        case MetadataQuerySemanticKind::RawValueCurve:
+            return MetadataConceptRole::RawValueCurve;
+        case MetadataQuerySemanticKind::RawLinearityLimit:
+            return MetadataConceptRole::RawLinearityLimit;
+        case MetadataQuerySemanticKind::RawCalibrationCurve:
+            return MetadataConceptRole::RawCalibrationCurve;
+        case MetadataQuerySemanticKind::RawCurveControlPoints:
+            return MetadataConceptRole::RawCurveControlPoints;
         case MetadataQuerySemanticKind::CfaLayout:
             return MetadataConceptRole::CfaLayout;
         case MetadataQuerySemanticKind::SensorGeometry:
@@ -2376,7 +2400,11 @@ namespace {
         case MetadataQuerySemanticKind::Title:
         case MetadataQuerySemanticKind::Description:
         case MetadataQuerySemanticKind::Creator:
-        case MetadataQuerySemanticKind::Keywords: break;
+        case MetadataQuerySemanticKind::Keywords:
+        case MetadataQuerySemanticKind::RawValueCurve:
+        case MetadataQuerySemanticKind::RawLinearityLimit:
+        case MetadataQuerySemanticKind::RawCalibrationCurve:
+        case MetadataQuerySemanticKind::RawCurveControlPoints: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -2802,6 +2830,10 @@ namespace {
         case MetadataConceptRole::BlackLevel:
         case MetadataConceptRole::WhiteLevel:
         case MetadataConceptRole::Linearization:
+        case MetadataConceptRole::RawValueCurve:
+        case MetadataConceptRole::RawLinearityLimit:
+        case MetadataConceptRole::RawCalibrationCurve:
+        case MetadataConceptRole::RawCurveControlPoints:
         case MetadataConceptRole::CfaLayout:
         case MetadataConceptRole::RawStorage:
         case MetadataConceptRole::SourceProcessing:
@@ -2977,6 +3009,10 @@ namespace {
             MetadataConceptRole::BlackLevel,
             MetadataConceptRole::WhiteLevel,
             MetadataConceptRole::Linearization,
+            MetadataConceptRole::RawValueCurve,
+            MetadataConceptRole::RawLinearityLimit,
+            MetadataConceptRole::RawCalibrationCurve,
+            MetadataConceptRole::RawCurveControlPoints,
             MetadataConceptRole::CfaLayout,
             MetadataConceptRole::RawStorage,
             MetadataConceptRole::SourceProcessing,
@@ -3130,6 +3166,12 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::BlackLevel: return "black_level";
     case MetadataConceptRole::WhiteLevel: return "white_level";
     case MetadataConceptRole::Linearization: return "linearization";
+    case MetadataConceptRole::RawValueCurve: return "raw_value_curve";
+    case MetadataConceptRole::RawLinearityLimit: return "raw_linearity_limit";
+    case MetadataConceptRole::RawCalibrationCurve:
+        return "raw_calibration_curve";
+    case MetadataConceptRole::RawCurveControlPoints:
+        return "raw_curve_control_points";
     case MetadataConceptRole::CfaLayout: return "cfa_layout";
     case MetadataConceptRole::RawStorage: return "raw_storage";
     case MetadataConceptRole::SourceProcessing: return "source_processing";

@@ -146,7 +146,12 @@ namespace {
             = add_xmp_text(&store,
                            "http://ns.adobe.com/camera-raw-settings/1.0/",
                            "crs:CameraProfile", "Adobe Color");
-        const EntryId raw     = add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+        const EntryId raw = add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+        const std::array<uint32_t, 2> raw_curve_values = { 0U, 65535U };
+        const EntryId raw_curve                        = add_exif_u32_array(
+            &store, "ifd0", 0xC618U,
+            std::span<const uint32_t>(raw_curve_values.data(),
+                                                             raw_curve_values.size()));
         const EntryId source  = add_exif_u32(&store, "mk_google_shotlogdata",
                                              0x0001U, 7U);
         const EntryId caption = add_iptc_text(&store, 2U, 120U,
@@ -225,6 +230,14 @@ namespace {
         EXPECT_TRUE(contains_entry(black->source_entries, raw));
         ASSERT_TRUE(black->has_values);
         EXPECT_DOUBLE_EQ(black->values[0], 512.0);
+
+        const MetadataInterpretationRecord* curve
+            = find_record(result, MetadataQuerySemanticKind::RawValueCurve,
+                          MetadataQueryValueShape::Vec2);
+        ASSERT_NE(curve, nullptr);
+        EXPECT_TRUE(contains_entry(curve->source_entries, raw_curve));
+        ASSERT_TRUE(curve->has_values);
+        EXPECT_DOUBLE_EQ(curve->values[1], 65535.0);
 
         const MetadataInterpretationRecord* source_processing
             = find_record(result,

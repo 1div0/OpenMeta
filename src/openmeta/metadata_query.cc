@@ -22,78 +22,83 @@
 namespace openmeta {
 namespace {
 
-    static constexpr uint16_t kDngDefaultCropOriginTag        = 0xC61FU;
-    static constexpr uint16_t kDngDefaultCropSizeTag          = 0xC620U;
-    static constexpr uint16_t kDngActiveAreaTag               = 0xC68DU;
-    static constexpr uint16_t kDngMaskedAreasTag              = 0xC68EU;
-    static constexpr uint16_t kExifDocumentNameTag            = 0x010DU;
-    static constexpr uint16_t kExifImageDescriptionTag        = 0x010EU;
-    static constexpr uint16_t kExifOrientationTag             = 0x0112U;
-    static constexpr uint16_t kExifArtistTag                  = 0x013BU;
-    static constexpr uint16_t kExifThumbnailOrientationTag    = 0x5029U;
-    static constexpr uint16_t kExifExposureTimeTag            = 0x829AU;
-    static constexpr uint16_t kExifFNumberTag                 = 0x829DU;
-    static constexpr uint16_t kExifExposureProgramTag         = 0x8822U;
-    static constexpr uint16_t kExifPhotographicSensitivityTag = 0x8827U;
-    static constexpr uint16_t kExifShutterSpeedValueTag       = 0x9201U;
-    static constexpr uint16_t kExifApertureValueTag           = 0x9202U;
-    static constexpr uint16_t kExifBrightnessValueTag         = 0x9203U;
-    static constexpr uint16_t kExifExposureBiasValueTag       = 0x9204U;
-    static constexpr uint16_t kExifMaxApertureValueTag        = 0x9205U;
-    static constexpr uint16_t kExifLightSourceTag             = 0x9208U;
-    static constexpr uint16_t kExifExposureIndexTag           = 0x9215U;
-    static constexpr uint16_t kExifColorSpaceTag              = 0xA001U;
-    static constexpr uint16_t kExifWhiteBalanceTag            = 0xA403U;
-    static constexpr uint16_t kExifGainControlTag             = 0xA407U;
-    static constexpr uint16_t kExifCfaRepeatPatternDimTag     = 0x828DU;
-    static constexpr uint16_t kExifCfaPatternTag              = 0x828EU;
-    static constexpr uint16_t kExifCfaPattern2Tag             = 0xA302U;
-    static constexpr uint16_t kExifXpTitleTag                 = 0x9C9BU;
-    static constexpr uint16_t kExifXpCommentTag               = 0x9C9CU;
-    static constexpr uint16_t kExifXpAuthorTag                = 0x9C9DU;
-    static constexpr uint16_t kExifXpKeywordsTag              = 0x9C9EU;
-    static constexpr uint16_t kDngCfaPlaneColorTag            = 0xC616U;
-    static constexpr uint16_t kDngCfaLayoutTag                = 0xC617U;
-    static constexpr uint16_t kDngLinearizationTableTag       = 0xC618U;
-    static constexpr uint16_t kDngBlackLevelRepeatDimTag      = 0xC619U;
-    static constexpr uint16_t kDngBlackLevelTag               = 0xC61AU;
-    static constexpr uint16_t kDngBlackLevelDeltaHTag         = 0xC61BU;
-    static constexpr uint16_t kDngBlackLevelDeltaVTag         = 0xC61CU;
-    static constexpr uint16_t kDngWhiteLevelTag               = 0xC61DU;
-    static constexpr uint16_t kDngDefaultScaleTag             = 0xC61EU;
-    static constexpr uint16_t kDngColorMatrix1Tag             = 0xC621U;
-    static constexpr uint16_t kDngColorMatrix2Tag             = 0xC622U;
-    static constexpr uint16_t kDngCameraCalibration1Tag       = 0xC623U;
-    static constexpr uint16_t kDngCameraCalibration2Tag       = 0xC624U;
-    static constexpr uint16_t kDngReductionMatrix1Tag         = 0xC625U;
-    static constexpr uint16_t kDngReductionMatrix2Tag         = 0xC626U;
-    static constexpr uint16_t kDngAnalogBalanceTag            = 0xC627U;
-    static constexpr uint16_t kDngAsShotNeutralTag            = 0xC628U;
-    static constexpr uint16_t kDngAsShotWhiteXyTag            = 0xC629U;
-    static constexpr uint16_t kDngBaselineExposureTag         = 0xC62AU;
-    static constexpr uint16_t kDngCalibrationIlluminant1Tag   = 0xC65AU;
-    static constexpr uint16_t kDngCalibrationIlluminant2Tag   = 0xC65BU;
-    static constexpr uint16_t kDngForwardMatrix1Tag           = 0xC714U;
-    static constexpr uint16_t kDngForwardMatrix2Tag           = 0xC715U;
-    static constexpr uint16_t kDngOpcodeList1Tag              = 0xC740U;
-    static constexpr uint16_t kDngOpcodeList2Tag              = 0xC741U;
-    static constexpr uint16_t kDngOpcodeList3Tag              = 0xC74EU;
-    static constexpr uint16_t kDngBaselineExposureOffsetTag   = 0xC7A5U;
-    static constexpr uint16_t kDngRawToPreviewGainTag         = 0xC7A8U;
-    static constexpr uint16_t kDngProfileGainTableMapTag      = 0xCD2DU;
-    static constexpr uint16_t kDngCalibrationIlluminant3Tag   = 0xCD31U;
-    static constexpr uint16_t kDngCameraCalibration3Tag       = 0xCD32U;
-    static constexpr uint16_t kDngColorMatrix3Tag             = 0xCD33U;
-    static constexpr uint16_t kDngForwardMatrix3Tag           = 0xCD34U;
-    static constexpr uint16_t kDngReductionMatrix3Tag         = 0xCD3AU;
-    static constexpr uint16_t kDngProfileGainTableMap2Tag     = 0xCD40U;
-    static constexpr uint16_t kDngRawDataUniqueIdTag          = 0xC65DU;
-    static constexpr uint16_t kDngOriginalRawFileNameTag      = 0xC68BU;
-    static constexpr uint16_t kDngOriginalRawFileDataTag      = 0xC68CU;
-    static constexpr uint16_t kDngRawImageDigestTag           = 0xC71CU;
-    static constexpr uint16_t kDngOriginalRawFileDigestTag    = 0xC71DU;
-    static constexpr uint16_t kDngNewRawImageDigestTag        = 0xC7A7U;
-    static constexpr uint16_t kSamsungVignettingCorrParamsTag = 0x7032U;
+    static constexpr uint16_t kDngDefaultCropOriginTag         = 0xC61FU;
+    static constexpr uint16_t kDngDefaultCropSizeTag           = 0xC620U;
+    static constexpr uint16_t kDngActiveAreaTag                = 0xC68DU;
+    static constexpr uint16_t kDngMaskedAreasTag               = 0xC68EU;
+    static constexpr uint16_t kExifDocumentNameTag             = 0x010DU;
+    static constexpr uint16_t kExifImageDescriptionTag         = 0x010EU;
+    static constexpr uint16_t kExifOrientationTag              = 0x0112U;
+    static constexpr uint16_t kExifArtistTag                   = 0x013BU;
+    static constexpr uint16_t kExifThumbnailOrientationTag     = 0x5029U;
+    static constexpr uint16_t kExifExposureTimeTag             = 0x829AU;
+    static constexpr uint16_t kExifFNumberTag                  = 0x829DU;
+    static constexpr uint16_t kExifExposureProgramTag          = 0x8822U;
+    static constexpr uint16_t kExifPhotographicSensitivityTag  = 0x8827U;
+    static constexpr uint16_t kExifShutterSpeedValueTag        = 0x9201U;
+    static constexpr uint16_t kExifApertureValueTag            = 0x9202U;
+    static constexpr uint16_t kExifBrightnessValueTag          = 0x9203U;
+    static constexpr uint16_t kExifExposureBiasValueTag        = 0x9204U;
+    static constexpr uint16_t kExifMaxApertureValueTag         = 0x9205U;
+    static constexpr uint16_t kExifLightSourceTag              = 0x9208U;
+    static constexpr uint16_t kExifExposureIndexTag            = 0x9215U;
+    static constexpr uint16_t kExifColorSpaceTag               = 0xA001U;
+    static constexpr uint16_t kExifWhiteBalanceTag             = 0xA403U;
+    static constexpr uint16_t kExifGainControlTag              = 0xA407U;
+    static constexpr uint16_t kExifCfaRepeatPatternDimTag      = 0x828DU;
+    static constexpr uint16_t kExifCfaPatternTag               = 0x828EU;
+    static constexpr uint16_t kExifCfaPattern2Tag              = 0xA302U;
+    static constexpr uint16_t kExifXpTitleTag                  = 0x9C9BU;
+    static constexpr uint16_t kExifXpCommentTag                = 0x9C9CU;
+    static constexpr uint16_t kExifXpAuthorTag                 = 0x9C9DU;
+    static constexpr uint16_t kExifXpKeywordsTag               = 0x9C9EU;
+    static constexpr uint16_t kPanasonicLinearityLimitRedTag   = 0x000EU;
+    static constexpr uint16_t kPanasonicLinearityLimitGreenTag = 0x000FU;
+    static constexpr uint16_t kPanasonicLinearityLimitBlueTag  = 0x0010U;
+    static constexpr uint16_t kSonyToneCurveTag                = 0x7010U;
+    static constexpr uint16_t kDngCfaPlaneColorTag             = 0xC616U;
+    static constexpr uint16_t kDngCfaLayoutTag                 = 0xC617U;
+    static constexpr uint16_t kDngLinearizationTableTag        = 0xC618U;
+    static constexpr uint16_t kDngBlackLevelRepeatDimTag       = 0xC619U;
+    static constexpr uint16_t kDngBlackLevelTag                = 0xC61AU;
+    static constexpr uint16_t kDngBlackLevelDeltaHTag          = 0xC61BU;
+    static constexpr uint16_t kDngBlackLevelDeltaVTag          = 0xC61CU;
+    static constexpr uint16_t kDngWhiteLevelTag                = 0xC61DU;
+    static constexpr uint16_t kDngDefaultScaleTag              = 0xC61EU;
+    static constexpr uint16_t kDngColorMatrix1Tag              = 0xC621U;
+    static constexpr uint16_t kDngColorMatrix2Tag              = 0xC622U;
+    static constexpr uint16_t kDngCameraCalibration1Tag        = 0xC623U;
+    static constexpr uint16_t kDngCameraCalibration2Tag        = 0xC624U;
+    static constexpr uint16_t kDngReductionMatrix1Tag          = 0xC625U;
+    static constexpr uint16_t kDngReductionMatrix2Tag          = 0xC626U;
+    static constexpr uint16_t kDngAnalogBalanceTag             = 0xC627U;
+    static constexpr uint16_t kDngAsShotNeutralTag             = 0xC628U;
+    static constexpr uint16_t kDngAsShotWhiteXyTag             = 0xC629U;
+    static constexpr uint16_t kDngBaselineExposureTag          = 0xC62AU;
+    static constexpr uint16_t kDngLinearResponseLimitTag       = 0xC62EU;
+    static constexpr uint16_t kDngCalibrationIlluminant1Tag    = 0xC65AU;
+    static constexpr uint16_t kDngCalibrationIlluminant2Tag    = 0xC65BU;
+    static constexpr uint16_t kDngForwardMatrix1Tag            = 0xC714U;
+    static constexpr uint16_t kDngForwardMatrix2Tag            = 0xC715U;
+    static constexpr uint16_t kDngOpcodeList1Tag               = 0xC740U;
+    static constexpr uint16_t kDngOpcodeList2Tag               = 0xC741U;
+    static constexpr uint16_t kDngOpcodeList3Tag               = 0xC74EU;
+    static constexpr uint16_t kDngBaselineExposureOffsetTag    = 0xC7A5U;
+    static constexpr uint16_t kDngRawToPreviewGainTag          = 0xC7A8U;
+    static constexpr uint16_t kDngProfileGainTableMapTag       = 0xCD2DU;
+    static constexpr uint16_t kDngCalibrationIlluminant3Tag    = 0xCD31U;
+    static constexpr uint16_t kDngCameraCalibration3Tag        = 0xCD32U;
+    static constexpr uint16_t kDngColorMatrix3Tag              = 0xCD33U;
+    static constexpr uint16_t kDngForwardMatrix3Tag            = 0xCD34U;
+    static constexpr uint16_t kDngReductionMatrix3Tag          = 0xCD3AU;
+    static constexpr uint16_t kDngProfileGainTableMap2Tag      = 0xCD40U;
+    static constexpr uint16_t kDngRawDataUniqueIdTag           = 0xC65DU;
+    static constexpr uint16_t kDngOriginalRawFileNameTag       = 0xC68BU;
+    static constexpr uint16_t kDngOriginalRawFileDataTag       = 0xC68CU;
+    static constexpr uint16_t kDngRawImageDigestTag            = 0xC71CU;
+    static constexpr uint16_t kDngOriginalRawFileDigestTag     = 0xC71DU;
+    static constexpr uint16_t kDngNewRawImageDigestTag         = 0xC7A7U;
+    static constexpr uint16_t kSamsungVignettingCorrParamsTag  = 0x7032U;
     static constexpr uint16_t kSamsungChromaticAberrationCorrParamsTag = 0x7035U;
     static constexpr uint16_t kSamsungDistortionCorrParamsTag = 0x7037U;
 
@@ -1033,7 +1038,16 @@ namespace {
         if (term_matches(name, "linearization", enable_fuzzy, provenance)
             || term_matches(name, "linearity", enable_fuzzy, provenance)
             || term_matches(name, "linearresponse", enable_fuzzy, provenance)
-            || term_matches(name, "linear response", enable_fuzzy, provenance)) {
+            || term_matches(name, "linear response", enable_fuzzy, provenance)
+            || term_matches(name, "rawcurve", enable_fuzzy, provenance)
+            || term_matches(name, "raw curve", enable_fuzzy, provenance)
+            || term_matches(name, "neflinearizationtable", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "nef linearization table", enable_fuzzy,
+                            provenance)
+            || term_matches(name, "klut", enable_fuzzy, provenance)
+            || term_matches(name, "nonlinearity", enable_fuzzy, provenance)
+            || term_matches(name, "non linearity", enable_fuzzy, provenance)) {
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::Linearization);
         }
@@ -1344,6 +1358,82 @@ namespace {
         return 0U;
     }
 
+    static bool raw_curve_name_is_linearity_limit(std::string_view name) noexcept
+    {
+        return contains_ascii_case_insensitive(name, "linearitylimit")
+               || contains_ascii_case_insensitive(name, "linearity limit")
+               || contains_ascii_case_insensitive(name, "linearresponse")
+               || contains_ascii_case_insensitive(name, "linear response")
+               || contains_ascii_case_insensitive(name, "linearityuppermargin")
+               || contains_ascii_case_insensitive(name,
+                                                  "linearity upper margin")
+               || contains_ascii_case_insensitive(name,
+                                                  "highlightlinearitylimit")
+               || contains_ascii_case_insensitive(name,
+                                                  "highlight linearity limit");
+    }
+
+    static bool
+    raw_curve_name_is_calibration_curve(std::string_view name) noexcept
+    {
+        return contains_ascii_case_insensitive(name,
+                                               "linearizationcoefficients")
+               || contains_ascii_case_insensitive(name,
+                                                  "linearization coefficients")
+               || contains_ascii_case_insensitive(name, "nonlinearityspline")
+               || contains_ascii_case_insensitive(name, "non linearity spline")
+               || contains_ascii_case_insensitive(name, "linearityspline")
+               || contains_ascii_case_insensitive(name, "linearity spline");
+    }
+
+    static bool raw_curve_name_is_value_curve(std::string_view name) noexcept
+    {
+        return contains_ascii_case_insensitive(name, "linearizationtable")
+               || contains_ascii_case_insensitive(name, "linearization table")
+               || contains_ascii_case_insensitive(name, "neflinearizationtable")
+               || contains_ascii_case_insensitive(name,
+                                                  "nef linearization table")
+               || contains_ascii_case_insensitive(name, "klut")
+               || contains_ascii_case_insensitive(name, "lin12toklut")
+               || contains_ascii_case_insensitive(name, "klut12tolin12")
+               || contains_ascii_case_insensitive(name, "invnifnonlinearity");
+    }
+
+    static bool raw_curve_tag_is_panasonic_linearity_limit(uint16_t tag) noexcept
+    {
+        return tag == kPanasonicLinearityLimitRedTag
+               || tag == kPanasonicLinearityLimitGreenTag
+               || tag == kPanasonicLinearityLimitBlueTag;
+    }
+
+    static MetadataQuerySemanticKind
+    raw_curve_semantic_from_name(std::string_view group, std::string_view name,
+                                 uint16_t tag) noexcept
+    {
+        const bool panasonic_linearity_limit
+            = raw_curve_tag_is_panasonic_linearity_limit(tag)
+              && (contains_ascii_case_insensitive(group, "panasonic")
+                  || raw_curve_name_is_linearity_limit(name));
+        if (tag == kSonyToneCurveTag
+            && contains_ascii_case_insensitive(name, "sonytonecurve")) {
+            return MetadataQuerySemanticKind::RawCurveControlPoints;
+        }
+        if (tag == kDngLinearizationTableTag
+            || raw_curve_name_is_value_curve(name)) {
+            return MetadataQuerySemanticKind::RawValueCurve;
+        }
+        if (tag == kDngLinearResponseLimitTag || panasonic_linearity_limit
+            || raw_curve_name_is_linearity_limit(name)) {
+            return MetadataQuerySemanticKind::RawLinearityLimit;
+        }
+        if ((contains_ascii_case_insensitive(group, "phaseone")
+             && (tag == 0x0419U || tag == 0x041AU))
+            || raw_curve_name_is_calibration_curve(name)) {
+            return MetadataQuerySemanticKind::RawCalibrationCurve;
+        }
+        return MetadataQuerySemanticKind::Unknown;
+    }
+
     static MetadataQuerySemanticKind
     source_processing_semantic_from_name(std::string_view name) noexcept
     {
@@ -1548,6 +1638,8 @@ namespace {
                        | static_cast<uint32_t>(
                            MetadataQueryMatchTerm::WhiteLevel);
             case kDngLinearizationTableTag:
+            case kDngLinearResponseLimitTag:
+            case kSonyToneCurveTag:
                 return static_cast<uint32_t>(MetadataQueryMatchTerm::Sensor)
                        | static_cast<uint32_t>(
                            MetadataQueryMatchTerm::Linearization);
@@ -2046,6 +2138,14 @@ namespace {
             if (explicit_semantic == MetadataQuerySemanticKind::Unknown) {
                 explicit_semantic = source_processing_semantic_from_name(name);
             }
+        } else if (kind == MetadataQueryKind::RawProcessing
+                   && (terms
+                       & static_cast<uint32_t>(
+                           MetadataQueryMatchTerm::Linearization))
+                          != 0U) {
+            explicit_semantic
+                = raw_curve_semantic_from_name(ifd, name,
+                                               entry.key.data.exif_tag.tag);
         }
         append_match(result, entry_id, entry, ifd, name, kind, terms,
                      provenance, explicit_semantic);
@@ -2520,6 +2620,13 @@ namespace {
             return match.semantic == MetadataQuerySemanticKind::BlackLevel
                    || match.semantic == MetadataQuerySemanticKind::WhiteLevel
                    || match.semantic == MetadataQuerySemanticKind::Linearization
+                   || match.semantic == MetadataQuerySemanticKind::RawValueCurve
+                   || match.semantic
+                          == MetadataQuerySemanticKind::RawLinearityLimit
+                   || match.semantic
+                          == MetadataQuerySemanticKind::RawCalibrationCurve
+                   || match.semantic
+                          == MetadataQuerySemanticKind::RawCurveControlPoints
                    || match.semantic == MetadataQuerySemanticKind::CfaLayout
                    || match.semantic
                           == MetadataQuerySemanticKind::SensorGeometry
@@ -3667,6 +3774,13 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
     case MetadataQuerySemanticKind::Description: return "description";
     case MetadataQuerySemanticKind::Creator: return "creator";
     case MetadataQuerySemanticKind::Keywords: return "keywords";
+    case MetadataQuerySemanticKind::RawValueCurve: return "raw_value_curve";
+    case MetadataQuerySemanticKind::RawLinearityLimit:
+        return "raw_linearity_limit";
+    case MetadataQuerySemanticKind::RawCalibrationCurve:
+        return "raw_calibration_curve";
+    case MetadataQuerySemanticKind::RawCurveControlPoints:
+        return "raw_curve_control_points";
     }
     return "unknown";
 }

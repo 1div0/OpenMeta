@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 91%** for the public target scope.
+Current overall status: **medium-high, about 92%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -137,17 +137,21 @@ Coverage matrix
      - Deeper camera/vendor color science interpretation is intentionally
        conservative, especially for rendered-image transfer.
    * - Lens correction and RAW processing
-     - Lens-correction groups, black/white levels, linearization, CFA/sensor
-       layout, raw-storage identifiers, vendor RAW/source-processing buckets,
-       creative/picture style, film simulation, dynamic-range, optical
-       correction, raw-development, computational, thermal, and
-       stitch/panorama aliases, per-family vendor raw-storage/sensor/
-       computational/thermal/stitch/source-processing table candidates,
+     - Lens-correction groups, black/white levels, linearization, RAW value
+       curves, RAW linearity limits, RAW calibration curves, RAW curve control
+       points, CFA/sensor layout, raw-storage identifiers, vendor RAW/source-
+       processing buckets, creative/picture style, film simulation,
+       dynamic-range, optical correction, raw-development, computational,
+       thermal, and stitch/panorama aliases, per-family vendor raw-storage/
+       sensor/computational/thermal/stitch/source-processing table candidates,
        transfer hints, transfer diagnostics, and concept candidates with
        grouped table/vector values are classified for query and transfer
-       safety. Lens-correction grouped tables require numeric payloads before
-       promotion.
-     - Medium-high, about 83-90%.
+       safety. Current public RAW curve coverage includes DNG linearization/
+       linearity-limit tags plus conservative Sony, Nikon, Kodak, Panasonic,
+       and Phase One/Leaf-style curve or calibration names where decoded
+       metadata is visible. Lens-correction grouped tables require numeric
+       payloads before promotion.
+     - Medium-high, about 84-91%.
      - Long-tail per-model correction tables and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
@@ -205,10 +209,12 @@ Coverage matrix
        records, descriptive EXIF/IPTC/XMP concepts, explicit color-profile
        records for EXIF/ICC/XMP/PNG profile carriers, explicit
        source-color-transform records for camera RAW profiles, looks, tone
-       curves, and vendor source color tables, explicit
-       computational/thermal/stitch source-processing records, expanded source
-       color/style/lens/source-processing aliases, source-processing buckets,
-       optional RapidFuzz near-miss matching,
+       curves, and vendor source color tables, explicit ``raw_value_curve``,
+       ``raw_linearity_limit``, ``raw_calibration_curve``, and
+       ``raw_curve_control_points`` records, explicit computational/thermal/
+       stitch source-processing records, expanded source color/style/lens/
+       source-processing aliases, source-processing buckets, optional
+       RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,
        color/profile, GPS, geometry, lens-correction, and RAW-processing with
@@ -218,16 +224,17 @@ Coverage matrix
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, rendered/compatible safety
        booleans, and tolerance-aware GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 82-88%.
+     - Medium-high, about 83-89%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
-       source-specific image geometry, color/profile, RAW-processing, MakerNote,
-       JUMBF/C2PA, and vendor-private data, with concept-level diagnostics that
-       report keep/drop/requires-target-image-spec actions, severity, and
+       source-specific image geometry, color/profile, RAW curves/linearity
+       metadata, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private
+       data, with concept-level diagnostics that report
+       keep/drop/requires-target-image-spec actions, severity, and
        role-specific default message text before prepare.
-     - High, about 89-93%.
+     - High, about 90-94%.
      - More per-family policy tests and optional host localization hooks.
 
 Competitor position

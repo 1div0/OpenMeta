@@ -13555,6 +13555,17 @@ transfer_concept_diagnostic_message(
                 return "source lens-correction metadata is unsafe for "
                        "rendered-image transfer and will be dropped";
             }
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && (diagnostic.role == MetadataConceptRole::RawValueCurve
+                    || diagnostic.role
+                           == MetadataConceptRole::RawCalibrationCurve
+                    || diagnostic.role
+                           == MetadataConceptRole::RawCurveControlPoints
+                    || diagnostic.role
+                           == MetadataConceptRole::RawLinearityLimit)) {
+                return "source RAW curve or linearity metadata is unsafe for "
+                       "rendered-image transfer and will be dropped";
+            }
             return "source processing metadata is unsafe for rendered-image "
                    "transfer and will be dropped";
         case TransferConceptDiagnosticReason::SourceBound:

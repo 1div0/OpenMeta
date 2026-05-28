@@ -80,9 +80,10 @@ previews, `transfer_concept_diagnostics_from_store(...)` converts those hints
 into keep/drop/requires-target-image-spec actions for a selected
 `TransferSafetyMode`, plus stable severity tokens and default message text for
 host UI. Rendered-transfer drop messages distinguish source color transforms,
-white balance, lens correction, source-bound RAW processing, and target-owned
-image properties. Hosts can localize or replace the wording, but they do not
-need to invent the basic safe/drop/rewrite reasons.
+white balance, lens correction, source RAW curves/linearity metadata,
+source-bound RAW processing, and target-owned image properties. Hosts can
+localize or replace the wording, but they do not need to invent the basic
+safe/drop/rewrite reasons.
 
 ## Adapter Classes
 

@@ -32,13 +32,14 @@ model should stay compact:
    * - Interpretation
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, exposure adjustment,
-       color/profile/source-color-transform evidence, lens-correction, sensor,
-       BMFF brand/item-property associations, item semantic counts, and primary
-       item properties, JUMBF labels, Photoshop IRB embedded carriers plus
-       fixed-layout, XML/text, path-record, byte-count, and descriptor-header
-       summaries, computational, thermal, stitch/panorama
-       capture state, and vendor-private fields.
-     - Medium-high, about 91%.
+       color/profile/source-color-transform evidence, RAW curves/linearity
+       metadata, lens-correction, sensor, BMFF brand/item-property
+       associations, item semantic counts, and primary item properties, JUMBF
+       labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text,
+       path-record, byte-count, and descriptor-header summaries,
+       computational, thermal, stitch/panorama capture state, and
+       vendor-private fields.
+     - Medium-high, about 92%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
@@ -100,10 +101,12 @@ lens-correction table groups. Color queries expose a distinct
 entries, XMP ICC/profile/color-space fields, and PNG profile text carriers.
 Vendor-classified MakerNote/RAW fields can also form per-family grouped
 candidates for white balance, color, raw-storage, sensor, computational,
-thermal, stitch/panorama, and source-processing records. RAW-processing queries
-add conservative groups for black/white levels,
-linearization tables, CFA/sensor layout, source geometry, raw-storage
-identifiers, and source-private processing buckets.
+thermal, stitch/panorama, source-processing, raw value curve, linearity-limit,
+calibration-curve, and curve-control-point records. RAW-processing queries add
+conservative groups for black/white levels, linearization tables, RAW value
+curves, RAW linearity limits, RAW calibration curves, RAW curve control points,
+CFA/sensor layout, source geometry, raw-storage identifiers, and source-private
+processing buckets.
 Exposure/gain concept resolution promotes exposure time, aperture, ISO,
 exposure bias, exposure program/mode, gain, and raw exposure-adjustment records
 into host-visible roles, with raw exposure adjustments kept unsafe for rendered

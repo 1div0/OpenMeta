@@ -1307,7 +1307,7 @@ TEST(MetadataQuery, MatchesDngRawProcessingLevels)
         = find_match_for_entry(result, linearization_id);
     ASSERT_NE(linearization_match, nullptr);
     EXPECT_EQ(linearization_match->semantic,
-              MetadataQuerySemanticKind::Linearization);
+              MetadataQuerySemanticKind::RawValueCurve);
 
     const MetadataQueryCandidate* black_candidate
         = find_candidate_for_entry(result, black_id);
@@ -1315,6 +1315,75 @@ TEST(MetadataQuery, MatchesDngRawProcessingLevels)
     ASSERT_TRUE(black_candidate->has_values);
     ASSERT_EQ(black_candidate->values.size(), 1U);
     EXPECT_DOUBLE_EQ(black_candidate->values[0], 512.0);
+    const MetadataQueryCandidate* curve_candidate
+        = find_candidate_for_entry(result, linearization_id);
+    ASSERT_NE(curve_candidate, nullptr);
+    EXPECT_EQ(curve_candidate->semantic,
+              MetadataQuerySemanticKind::RawValueCurve);
+    EXPECT_EQ(curve_candidate->normalized_shape, MetadataQueryValueShape::Vec2);
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::RawValueCurve),
+                 "raw_value_curve");
+}
+
+TEST(MetadataQuery, ClassifiesRawCurveControlPointsAndLinearityLimits)
+{
+    MetaStore store;
+    const std::array<uint32_t, 4> sony_curve = {
+        1200U,
+        2400U,
+        3200U,
+        3800U,
+    };
+    const EntryId sony_curve_id
+        = add_exif_u32_array(&store, "exififd", 0x7010U,
+                             std::span<const uint32_t>(sony_curve.data(),
+                                                       sony_curve.size()));
+    const EntryId response_limit_id  = add_exif_u32(&store, "ifd0", 0xC62EU,
+                                                    95U);
+    const EntryId panasonic_limit_id = add_exif_u32(&store, "ifd0", 0x000EU,
+                                                    16320U);
+    const EntryId phaseone_coeff_id
+        = add_exif_u32_array(&store, "mk_phaseone_sensorcalibration", 0x0419U,
+                             std::span<const uint32_t>(sony_curve.data(),
+                                                       sony_curve.size()));
+    store.finalize();
+
+    const MetadataQueryResult result = query_raw_processing_metadata(store);
+
+    const MetadataQueryMatch* sony_curve_match
+        = find_match_for_entry(result, sony_curve_id);
+    ASSERT_NE(sony_curve_match, nullptr);
+    EXPECT_EQ(sony_curve_match->semantic,
+              MetadataQuerySemanticKind::RawCurveControlPoints);
+
+    const MetadataQueryMatch* response_limit_match
+        = find_match_for_entry(result, response_limit_id);
+    ASSERT_NE(response_limit_match, nullptr);
+    EXPECT_EQ(response_limit_match->semantic,
+              MetadataQuerySemanticKind::RawLinearityLimit);
+
+    const MetadataQueryMatch* panasonic_limit_match
+        = find_match_for_entry(result, panasonic_limit_id);
+    ASSERT_NE(panasonic_limit_match, nullptr);
+    EXPECT_EQ(panasonic_limit_match->semantic,
+              MetadataQuerySemanticKind::RawLinearityLimit);
+
+    const MetadataQueryMatch* phaseone_coeff_match
+        = find_match_for_entry(result, phaseone_coeff_id);
+    ASSERT_NE(phaseone_coeff_match, nullptr);
+    EXPECT_EQ(phaseone_coeff_match->semantic,
+              MetadataQuerySemanticKind::RawCalibrationCurve);
+
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::RawCurveControlPoints),
+                 "raw_curve_control_points");
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::RawLinearityLimit),
+                 "raw_linearity_limit");
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::RawCalibrationCurve),
+                 "raw_calibration_curve");
 }
 
 TEST(MetadataQuery, MatchesVendorSourceProcessingSubroles)

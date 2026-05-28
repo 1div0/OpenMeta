@@ -148,8 +148,10 @@ exposure/gain, white balance, color/profile, lens correction, orientation, and
 RAW-processing metadata. Color-profile matches include EXIF color-space
 evidence, ICC header/tag entries, XMP ICC/profile/color-space fields, and PNG
 profile text carriers. Source-bound camera RAW profile, look, tone-curve, and
-style metadata is reported separately as `source_color_transform`, so hosts can
-inspect it without treating it as a portable ICC/profile value.
+style metadata is reported separately as `source_color_transform`, while RAW
+value curves, linearity limits, calibration curves, and curve control points
+use dedicated RAW-processing semantic roles. Hosts can inspect these values
+without treating them as portable rendered-image color or profile metadata.
 `query_descriptive_metadata(...)` also exposes a
 bounded EXIF/IPTC/XMP reconciliation view for common descriptive fields:
 title/headline, description/caption, creator/author, and keywords/subject.
@@ -164,7 +166,8 @@ tag/name hits.
 For vendor MakerNote/RAW fields, the query layer also builds conservative
 per-family grouped candidates for related white-balance,
 source-color-transform, raw-storage, sensor, computational, thermal,
-stitch/panorama, and source-processing records. These records are for
+stitch/panorama, source-processing, raw value curve, linearity-limit,
+calibration-curve, and curve-control-point records. These records are for
 inspection and safe-transfer policy, not for writing source RAW transforms into
 rendered outputs.
 Grouped color, white-balance, and lens-correction records require numeric
@@ -201,11 +204,13 @@ from source RAW/correction data and target-owned image facts.
 selected transfer safety mode and returns keep/drop/requires-target-image-spec
 actions, severity tokens, and default message text for transfer-preview UI.
 Rendered-transfer drop messages distinguish source color transforms, white
-balance, lens correction, source-bound RAW processing, and target-owned image
-properties. Source color transforms cover camera RAW profiles, looks, tone
+balance, lens correction, source RAW curves/linearity metadata, source-bound
+RAW processing, and target-owned image properties. Source color transforms
+cover camera RAW profiles, looks, tone
 curves, and vendor style/rendering tables that should not be treated as
 portable rendered-image color profiles. Source-bound RAW processing diagnostics
-also keep computational, thermal, and stitch/panorama roles separate for UI
+also keep RAW value curves, linearity limits, calibration curves, curve control
+points, computational, thermal, and stitch/panorama roles separate for UI
 policy messages. GPS altitude reference codes can be
 displayed with
 `metadata_concept_gps_altitude_reference_name(...)`.

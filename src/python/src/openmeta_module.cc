@@ -6034,7 +6034,14 @@ NB_MODULE(_openmeta, m)
         .value("Creator", MetadataQuerySemanticKind::Creator)
         .value("Keywords", MetadataQuerySemanticKind::Keywords)
         .value("SourceColorTransform",
-               MetadataQuerySemanticKind::SourceColorTransform);
+               MetadataQuerySemanticKind::SourceColorTransform)
+        .value("RawValueCurve", MetadataQuerySemanticKind::RawValueCurve)
+        .value("RawLinearityLimit",
+               MetadataQuerySemanticKind::RawLinearityLimit)
+        .value("RawCalibrationCurve",
+               MetadataQuerySemanticKind::RawCalibrationCurve)
+        .value("RawCurveControlPoints",
+               MetadataQuerySemanticKind::RawCurveControlPoints);
 
     nb::enum_<MetadataQueryValueShape>(m, "MetadataQueryValueShape")
         .value("Unknown", MetadataQueryValueShape::Unknown)
@@ -6141,7 +6148,12 @@ NB_MODULE(_openmeta, m)
         .value("RawExposureAdjustment",
                MetadataConceptRole::RawExposureAdjustment)
         .value("SourceColorTransform",
-               MetadataConceptRole::SourceColorTransform);
+               MetadataConceptRole::SourceColorTransform)
+        .value("RawValueCurve", MetadataConceptRole::RawValueCurve)
+        .value("RawLinearityLimit", MetadataConceptRole::RawLinearityLimit)
+        .value("RawCalibrationCurve", MetadataConceptRole::RawCalibrationCurve)
+        .value("RawCurveControlPoints",
+               MetadataConceptRole::RawCurveControlPoints);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

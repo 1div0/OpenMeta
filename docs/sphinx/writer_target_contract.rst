@@ -58,7 +58,8 @@ target-owned image-layout filter above. ``RenderedImage`` is for exports whose
 pixels may have changed, including RAW-to-rendered outputs. It keeps general
 descriptive metadata, time fields, GPS, IPTC, and portable XMP, but filters
 source raw color calibration, profile/gain tables, raw digests/storage
-identifiers, linearization/crop/correction tags, vendor RAW
+identifiers, raw value curves, linearity limits, calibration curves,
+curve-control points, linearization/crop/correction tags, vendor RAW
 geometry/color/correction/private tags for Phase One/Leaf, Sony, Canon, Nikon,
 Fujifilm, Pentax, Panasonic, Olympus, Kodak, Minolta, Sigma, Samsung, Ricoh,
 Apple/Google computational capture fields, DJI/FLIR thermal processing fields,
@@ -140,8 +141,9 @@ message text for a selected transfer mode.
      - Rendered exports often need a new output profile such as sRGB, Display
        P3, or a host-managed working/output profile.
    * - RAW/DNG sensor and color pipeline
-     - CFA pattern, black/white levels, linearization tables,
-       ``ColorMatrix*``, ``ForwardMatrix*``, ``CameraCalibration*``,
+     - CFA pattern, black/white levels, linearization tables, linear response
+       limits, RAW value curves, RAW curve control points, RAW calibration
+       curves, ``ColorMatrix*``, ``ForwardMatrix*``, ``CameraCalibration*``,
        ``AsShotNeutral``, DNG private/profile tags, DNG XMP profile properties
        (``dng:*``), profile/gain tables, raw digests/storage identifiers,
        opcode/correction lists, Phase One/Leaf ``ColorMatrix1``,

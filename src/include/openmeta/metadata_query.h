@@ -56,6 +56,10 @@ enum class MetadataQuerySemanticKind : uint8_t {
     Creator,
     Keywords,
     SourceColorTransform,
+    RawValueCurve,
+    RawLinearityLimit,
+    RawCalibrationCurve,
+    RawCurveControlPoints,
 };
 
 enum class MetadataQueryValueShape : uint8_t {
