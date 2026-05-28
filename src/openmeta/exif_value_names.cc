@@ -253,6 +253,36 @@ is_makernote_ifd(std::string_view ifd) noexcept
     return ifd_has_prefix(ifd, "mk_") || ifd_has_prefix(ifd, "makernote:");
 }
 
+static const char*
+off_on_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On";
+    default: return "";
+    }
+}
+
+static const char*
+no_yes_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "No";
+    case 1U: return "Yes";
+    default: return "";
+    }
+}
+
+static const char*
+disable_enable_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Disable";
+    case 1U: return "Enable";
+    default: return "";
+    }
+}
+
 static bool
 is_canon_camera_settings_ifd(std::string_view ifd) noexcept
 {
@@ -286,6 +316,90 @@ is_canon_mycolors_ifd(std::string_view ifd) noexcept
 {
     return ifd_has_prefix(ifd, "mk_canon_mycolors_")
            || ifd == "makernote:canon:mycolors";
+}
+
+static bool
+is_canon_focal_length_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_focallength_")
+           || ifd == "makernote:canon:focallength";
+}
+
+static bool
+is_canon_af_info2_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_afinfo2_")
+           || ifd == "makernote:canon:afinfo2";
+}
+
+static bool
+is_canon_aspect_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_aspectinfo_")
+           || ifd == "makernote:canon:aspectinfo";
+}
+
+static bool
+is_canon_file_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_fileinfo_")
+           || ifd == "makernote:canon:fileinfo";
+}
+
+static bool
+is_canon_processing_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_processing_")
+           || ifd == "makernote:canon:processing";
+}
+
+static bool
+is_canon_lighting_opt_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_lightingopt_")
+           || ifd == "makernote:canon:lightingopt";
+}
+
+static bool
+is_canon_vignetting_corr_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_vignettingcorr_")
+           || ifd == "makernote:canon:vignettingcorr";
+}
+
+static bool
+is_canon_vignetting_corr2_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_vignettingcorr2_")
+           || ifd == "makernote:canon:vignettingcorr2";
+}
+
+static bool
+is_canon_time_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_timeinfo_")
+           || ifd == "makernote:canon:timeinfo";
+}
+
+static bool
+is_canon_filter_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_filterinfo_")
+           || ifd == "makernote:canon:filterinfo";
+}
+
+static bool
+is_canon_hdr_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canon_hdrinfo_")
+           || ifd == "makernote:canon:hdrinfo";
+}
+
+static bool
+is_canon_custom_functions2_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_canoncustom_functions2_")
+           || ifd == "makernote:canoncustom:functions2";
 }
 
 static const char*
@@ -554,7 +668,12 @@ canon_focus_range_name(uint64_t value) noexcept
 static const char*
 canon_flash_bits_name(uint64_t value) noexcept
 {
-    return value == 0U ? "(none)" : "";
+    switch (value) {
+    case 0U: return "(none)";
+    case 8U: return "E-TTL";
+    case 8200U: return "E-TTL, Built-in";
+    default: return "";
+    }
 }
 
 static const char*
@@ -595,6 +714,60 @@ canon_photo_effect_name(uint64_t value) noexcept
     case 100U: return "My Color Data";
     default: return "";
     }
+}
+
+static const char*
+canon_af_point_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 12289U:
+    case 16385U: return "Auto AF point selection";
+    case 8197U: return "Manual AF point selection";
+    case 16390U: return "Face Detect";
+    default: return "";
+    }
+}
+
+static const char*
+canon_lens_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 10U: return "Canon EF 50mm f/2.5 Macro or Sigma Lens";
+    case 48U: return "Canon EF-S 18-55mm f/3.5-5.6 IS";
+    case 61182U: return "Canon RF 50mm F1.2L USM or other Canon RF Lens";
+    case 65535U: return "n/a";
+    default: return "";
+    }
+}
+
+static const char*
+canon_focal_units_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "1/mm";
+    case 32U: return "32/mm";
+    case 100U: return "100/mm";
+    case 1000U: return "1000/mm";
+    default: return "";
+    }
+}
+
+static const char*
+canon_image_stabilization_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On";
+    case 256U: return "Off (2)";
+    case 257U: return "On (2)";
+    default: return "";
+    }
+}
+
+static const char*
+canon_sraw_quality_name(uint64_t value) noexcept
+{
+    return value == 0U ? "n/a" : "";
 }
 
 static const char*
@@ -681,6 +854,167 @@ canon_nd_filter_name(uint64_t value) noexcept
 }
 
 static const char*
+canon_focal_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "Fixed";
+    case 2U: return "Zoom";
+    default: return "";
+    }
+}
+
+static const char*
+canon_af_area_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off (Manual Focus)";
+    case 2U: return "Single-point AF";
+    case 4U: return "Auto";
+    case 5U: return "Face Detect AF";
+    case 6U: return "Face + Tracking";
+    case 13U: return "Flexizone Single";
+    default: return "";
+    }
+}
+
+static const char*
+canon_af_points_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "0";
+    case 16U: return "4";
+    case 511U: return "0,1,2,3,4,5,6,7,8";
+    case 12295U: return "All";
+    default: return "";
+    }
+}
+
+static const char*
+canon_aspect_ratio_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "3:2";
+    case 1U: return "1:1";
+    case 2U: return "4:3";
+    case 7U: return "16:9";
+    case 8U: return "4:5";
+    default: return "";
+    }
+}
+
+static const char*
+canon_bracket_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "AEB";
+    case 2U: return "FEB";
+    case 3U: return "ISO";
+    case 4U: return "WB";
+    default: return "";
+    }
+}
+
+static const char*
+canon_long_exposure_noise_reduction2_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On (1D)";
+    case 3U: return "On";
+    case 4U: return "Auto";
+    default: return "";
+    }
+}
+
+static const char*
+canon_wb_bracket_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On (shift AB)";
+    case 2U: return "On (shift GM)";
+    default: return "";
+    }
+}
+
+static const char*
+canon_filter_effect_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "None";
+    case 1U: return "Yellow";
+    case 2U: return "Orange";
+    case 3U: return "Red";
+    case 4U: return "Green";
+    default: return "";
+    }
+}
+
+static const char*
+canon_toning_effect_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "None";
+    case 1U: return "Sepia";
+    case 2U: return "Blue";
+    case 3U: return "Purple";
+    case 4U: return "Green";
+    default: return "";
+    }
+}
+
+static const char*
+canon_live_view_shooting_name(uint64_t value) noexcept
+{
+    return off_on_name(value);
+}
+
+static const char*
+canon_shutter_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Mechanical";
+    case 1U: return "Electronic First Curtain";
+    default: return "";
+    }
+}
+
+static const char*
+canon_focus_distance_lower_name(uint64_t value) noexcept
+{
+    return value == 0U ? "0 m" : "";
+}
+
+static const char*
+canon_optical_zoom_code_name(uint64_t value) noexcept
+{
+    return value == 8U ? "n/a" : "";
+}
+
+static const char*
+canon_color_space_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "sRGB";
+    case 2U: return "Adobe RGB";
+    default: return "";
+    }
+}
+
+static const char*
+canon_super_macro_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Off" : "";
+}
+
+static const char*
+canon_serial_number_format_name(uint64_t value) noexcept
+{
+    return value == 2684354560ULL ? "Format 2" : "";
+}
+
+static const char*
 canon_date_stamp_mode_name(uint64_t value) noexcept
 {
     switch (value) {
@@ -709,6 +1043,142 @@ canon_my_color_mode_name(uint64_t value) noexcept
     case 13U: return "Neutral";
     case 14U: return "Sepia";
     case 15U: return "B&W";
+    default: return "";
+    }
+}
+
+static const char*
+canon_picture_style_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 129U: return "Standard";
+    case 131U: return "Landscape";
+    case 135U: return "Auto";
+    default: return "";
+    }
+}
+
+static const char*
+canon_digital_lens_optimizer_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 2U: return "High";
+    default: return "";
+    }
+}
+
+static const char*
+canon_auto_lighting_optimizer_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Standard";
+    case 1U: return "Low";
+    case 2U: return "Strong";
+    case 3U: return "Off";
+    default: return "";
+    }
+}
+
+static const char*
+canon_noise_reduction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Standard";
+    case 1U: return "Low";
+    case 2U: return "Strong";
+    case 3U: return "Off";
+    default: return "";
+    }
+}
+
+static const char*
+canon_long_exposure_noise_reduction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "Auto";
+    case 2U: return "On";
+    default: return "";
+    }
+}
+
+static const char*
+canon_highlight_tone_priority_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On";
+    case 2U: return "Enhanced";
+    default: return "";
+    }
+}
+
+static const char*
+canon_time_zone_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "+00:00";
+    case 60U: return "+01:00";
+    case 540U: return "+09:00";
+    default: return "";
+    }
+}
+
+static const char*
+canon_time_zone_city_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "n/a";
+    case 6U: return "Tokyo";
+    case 20U: return "London";
+    case 27U: return "New York";
+    case 30U: return "Los Angeles";
+    case 32766U: return "(not set)";
+    default: return "";
+    }
+}
+
+static const char*
+canon_daylight_savings_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 60U: return "On";
+    default: return "";
+    }
+}
+
+static const char*
+canon_custom_functions2_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0103U: return off_on_name(value);
+    case 0x0104U: return value == 0U ? "On" : "";
+    case 0x0108U: return disable_enable_name(value);
+    case 0x010FU: return value == 0U ? "Auto" : "";
+    case 0x0112U: return disable_enable_name(value);
+    case 0x0113U: return value == 0U ? "Enable" : "";
+    case 0x0114U: return value == 1U ? "Evaluative" : "";
+    case 0x0203U: return value == 0U ? "Disable" : "";
+    case 0x0502U: return value == 0U ? "Standard" : "";
+    case 0x0505U: return value == 0U ? "Focus search on" : "";
+    case 0x050EU: return value == 0U ? "Emits" : "";
+    case 0x0516U: return value == 0U ? "Same for vertical and horizontal" : "";
+    case 0x051BU: return value == 0U ? "AF area selection button" : "";
+    case 0x051CU: return value == 0U ? "On-Shot AF only" : "";
+    case 0x051DU: return value == 0U ? "Auto" : "";
+    case 0x060FU: return disable_enable_name(value);
+    case 0x0702U:
+    case 0x0707U:
+    case 0x0711U: return disable_enable_name(value);
+    case 0x0706U: return value == 0U ? "Normal" : "";
+    case 0x070EU: return value == 0U ? "Raise built-in flash" : "";
+    case 0x0815U: return value == 0U ? "Disable" : "";
+    case 0x080FU: return value == 0U ? "Off" : "";
+    case 0x0811U: return value == 0U ? "Display" : "";
+    case 0x0813U: return value == 0U ? "Cancel selected" : "";
+    case 0x0816U: return value == 0U ? "Enable" : "";
     default: return "";
     }
 }
@@ -744,13 +1214,19 @@ canon_camera_settings_value_name(uint16_t tag, uint64_t value) noexcept
     case 0x000EU: return canon_parameter_name(value);
     case 0x0011U: return canon_metering_mode_name(value);
     case 0x0012U: return canon_focus_range_name(value);
+    case 0x0013U: return canon_af_point_name(value);
     case 0x0014U: return canon_exposure_mode_name(value);
+    case 0x0016U: return canon_lens_type_name(value);
+    case 0x0019U: return canon_focal_units_name(value);
     case 0x001DU: return canon_flash_bits_name(value);
     case 0x0020U: return canon_focus_continuous_name(value);
     case 0x0021U: return canon_ae_setting_name(value);
+    case 0x0022U: return canon_image_stabilization_name(value);
     case 0x0027U: return canon_spot_metering_mode_name(value);
     case 0x0028U: return canon_photo_effect_name(value);
     case 0x0029U: return canon_manual_flash_output_name(value);
+    case 0x002AU: return canon_parameter_name(value);
+    case 0x002EU: return canon_sraw_quality_name(value);
     default: return "";
     }
 }
@@ -770,8 +1246,11 @@ canon_shot_info_value_name(uint16_t tag, uint64_t value) noexcept
     switch (tag) {
     case 0x0007U: return canon_white_balance_name(value);
     case 0x0008U: return canon_slow_shutter_name(value);
+    case 0x000AU: return canon_optical_zoom_code_name(value);
+    case 0x000EU: return canon_af_points_name(value);
     case 0x0010U: return canon_auto_exposure_bracketing_name(value);
     case 0x0012U: return canon_control_mode_name(value);
+    case 0x0014U: return canon_focus_distance_lower_name(value);
     case 0x001AU: return canon_camera_type_name(value);
     case 0x001BU: return canon_auto_rotate_name(value);
     case 0x001CU: return canon_nd_filter_name(value);
@@ -783,7 +1262,10 @@ static const char*
 canon_main_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
+    case 0x0015U: return canon_serial_number_format_name(value);
+    case 0x001AU: return canon_super_macro_name(value);
     case 0x001CU: return canon_date_stamp_mode_name(value);
+    case 0x00B4U: return canon_color_space_name(value);
     default: return "";
     }
 }
@@ -797,11 +1279,245 @@ canon_mycolors_value_name(uint16_t tag, uint64_t value) noexcept
     }
 }
 
+static const char*
+canon_focal_length_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0000U: return canon_focal_type_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_af_info2_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0001U: return canon_af_area_mode_name(value);
+    case 0x000CU: return canon_af_points_name(value);
+    case 0x000DU: return canon_af_points_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_aspect_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0000U: return canon_aspect_ratio_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_file_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0003U: return canon_bracket_mode_name(value);
+    case 0x0007U: return canon_image_size_name(value);
+    case 0x0008U: return canon_long_exposure_noise_reduction2_name(value);
+    case 0x0009U: return canon_wb_bracket_mode_name(value);
+    case 0x000EU: return canon_filter_effect_name(value);
+    case 0x000FU: return canon_toning_effect_name(value);
+    case 0x0013U: return canon_live_view_shooting_name(value);
+    case 0x0017U: return canon_shutter_mode_name(value);
+    case 0x0019U: return off_on_name(value);
+    case 0x003DU: return value == 0U ? "n/a" : "";
+    default: return "";
+    }
+}
+
+static const char*
+canon_processing_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0001U: return value == 0U ? "Standard" : "";
+    case 0x0003U: return value == 0U ? "n/a" : "";
+    case 0x000AU: return canon_picture_style_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_lighting_opt_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0001U: return off_on_name(value);
+    case 0x0002U: return canon_auto_lighting_optimizer_name(value);
+    case 0x0003U: return canon_highlight_tone_priority_name(value);
+    case 0x0004U: return canon_long_exposure_noise_reduction_name(value);
+    case 0x0005U: return canon_noise_reduction_name(value);
+    case 0x000AU: return canon_digital_lens_optimizer_name(value);
+    case 0x000BU: return off_on_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_vignetting_corr_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0002U:
+    case 0x0003U:
+    case 0x0004U:
+    case 0x0005U: return off_on_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_vignetting_corr2_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0005U:
+    case 0x0006U:
+    case 0x0007U:
+    case 0x0009U: return off_on_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_time_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0001U: return canon_time_zone_name(value);
+    case 0x0002U: return canon_time_zone_city_name(value);
+    case 0x0003U: return canon_daylight_savings_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+canon_filter_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0402U:
+        switch (value) {
+        case 0U: return "Horizontal";
+        case 1U: return "Vertical";
+        default: return "";
+        }
+    default: return "";
+    }
+}
+
+static const char*
+canon_hdr_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0001U: return off_on_name(value);
+    case 0x0002U:
+        switch (value) {
+        case 0U: return "Natural";
+        default: return "";
+        }
+    default: return "";
+    }
+}
+
 static bool
 is_nikon_main_ifd(std::string_view ifd) noexcept
 {
     return ifd == "mk_nikon0" || ifd_has_prefix(ifd, "mk_nikon_main")
            || ifd == "makernote:nikon:main";
+}
+
+static bool
+is_nikon_af_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_afinfo_")
+           || ifd == "makernote:nikon:afinfo";
+}
+
+static bool
+is_nikon_af_info2v0100_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_afinfo2v0100_")
+           || ifd == "makernote:nikon:afinfo2v0100";
+}
+
+static bool
+is_nikon_iso_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_isoinfo_")
+           || ifd == "makernote:nikon:isoinfo";
+}
+
+static bool
+is_nikon_hdr_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_hdrinfo_")
+           || ifd == "makernote:nikon:hdrinfo";
+}
+
+static bool
+is_nikon_vr_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_vrinfo_")
+           || ifd == "makernote:nikon:vrinfo";
+}
+
+static bool
+is_nikon_flash_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_flashinfo")
+           || ifd_has_prefix(ifd, "makernote:nikon:flashinfo");
+}
+
+static bool
+is_nikon_picture_control_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_picturecontrol")
+           || ifd_has_prefix(ifd, "makernote:nikon:picturecontrol");
+}
+
+static bool
+is_nikon_multi_exposure_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_multiexposure_")
+           || ifd == "makernote:nikon:multiexposure";
+}
+
+static bool
+is_nikon_world_time_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_worldtime_")
+           || ifd == "makernote:nikon:worldtime";
+}
+
+static bool
+is_nikon_distort_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_distortinfo_")
+           || ifd == "makernote:nikon:distortinfo";
+}
+
+static bool
+is_nikon_af_tune_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_aftune_")
+           || ifd == "makernote:nikon:aftune";
+}
+
+static bool
+is_nikon_lens_data0800_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_lensdata0800_")
+           || ifd == "makernote:nikon:lensdata0800";
+}
+
+static bool
+is_nikon_location_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_locationinfo_")
+           || ifd == "makernote:nikon:locationinfo";
+}
+
+static bool
+is_nikon_settings_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikonsettings_main_")
+           || ifd == "makernote:nikonsettings:main";
 }
 
 static const char*
@@ -850,6 +1566,236 @@ nikon_menu_multiple_exposure_mode_name(uint64_t value) noexcept
     case 0U: return "Off";
     case 1U: return "On";
     case 2U: return "On (Series)";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_date_stamp_mode_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Off" : "";
+}
+
+static const char*
+nikon_active_d_lighting_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 65535U: return "Auto";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_high_iso_noise_reduction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 4U: return "Normal";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_lens_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "AF";
+    case 6U: return "G";
+    case 14U: return "G VR";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_shooting_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Single-Frame";
+    case 1U: return "Continuous";
+    case 2U: return "Delay";
+    case 32U: return "Single-Frame, Auto ISO";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_vignette_control_name(uint64_t value) noexcept
+{
+    return value == 3U ? "Normal" : "";
+}
+
+static const char*
+nikon_shutter_mode_name(uint64_t value) noexcept
+{
+    return value == 16U ? "Electronic" : "";
+}
+
+static const char*
+nikon_image_size_raw_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Large" : "";
+}
+
+static const char*
+nikon_jpg_compression_name(uint64_t value) noexcept
+{
+    return value == 3U ? "Optimal Quality" : "";
+}
+
+static const char*
+nikon_af_area_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Single Area";
+    case 1U: return "Dynamic Area";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_af_point_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Center";
+    case 1U: return "Top";
+    case 3U: return "Mid-left";
+    case 4U: return "Mid-right";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_af_points_in_focus_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "(none)";
+    case 1U: return "Center";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_hdr_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 48U: return "Auto";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_hdr_level_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Auto";
+    case 255U: return "n/a";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_vibration_reduction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "On";
+    case 2U: return "Off";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_flash_source_name(uint64_t value) noexcept
+{
+    return value == 0U ? "None" : "";
+}
+
+static const char*
+nikon_external_flash_flags_name(uint64_t value) noexcept
+{
+    return value == 0U ? "(none)" : "";
+}
+
+static const char*
+nikon_picture_control_filter_name(uint64_t value) noexcept
+{
+    return value == 255U ? "n/a" : "";
+}
+
+static const char*
+nikon_picture_control_adjust_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Default Settings";
+    case 1U: return "Quick Adjust";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_date_display_format_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Y/M/D";
+    case 2U: return "D/M/Y";
+    default: return "";
+    }
+}
+
+static const char*
+nikon_lens_mount_type_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Z-mount Lens" : "";
+}
+
+static const char*
+nikon_settings_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0003U: return value == 3U ? "Auto" : "";
+    case 0x000BU: return value == 2U ? "Disable" : "";
+    case 0x000FU: return value == 1U ? "Yes" : "";
+    case 0x001EU: return value == 2U ? "Focus" : "";
+    case 0x0022U: return value == 1U ? "Shutter/AF-On" : "";
+    case 0x0023U: return value == 2U ? "No Wrap" : "";
+    case 0x0025U: return value == 1U ? "On" : "";
+    case 0x0027U: return value == 1U ? "On" : "";
+    case 0x002AU: return value == 1U ? "1/3 EV" : "";
+    case 0x002BU: return value == 3U ? "Off" : "";
+    case 0x0033U: return value == 3U ? "Off" : "";
+    case 0x0035U: return value == 3U ? "10 s" : "";
+    case 0x0037U: return value == 1U ? "0.5 s" : "";
+    case 0x0038U: return value == 2U ? "10 s" : "";
+    case 0x0039U: return value == 4U ? "1 min" : "";
+    case 0x003BU: return value == 2U ? "4 s" : "";
+    case 0x0040U: return value == 6U ? "Off" : "";
+    case 0x0042U: return value == 1U ? "On" : "";
+    case 0x0043U: return value == 2U ? "Off" : "";
+    case 0x0048U: return value == 1U ? "1/60 s" : "";
+    case 0x0049U: return value == 1U ? "Entire Frame" : "";
+    case 0x004AU: return value == 1U ? "Subject and Background" : "";
+    case 0x005AU: return value == 2U ? "Autofocus Off, Exposure Off" : "";
+    case 0x005BU: return value == 3U ? "Off" : "";
+    case 0x005CU: return value == 1U ? "10 Frames" : "";
+    case 0x005DU: return value == 2U ? "No" : "";
+    case 0x005EU: return value == 2U ? "- 0 +" : "";
+    case 0x0062U: return value == 1U ? "Take Photo" : "";
+    case 0x008BU: return value == 1U ? "No" : "";
+    case 0x008DU: return value == 1U ? "Red" : "";
+    case 0x008EU: return value == 1U ? "On" : "";
+    case 0x0091U: return value == 2U ? "248" : "";
+    case 0x0093U: return value == 3U ? "3 (Normal)" : "";
+    case 0x0099U: return value == 1U ? "On" : "";
+    case 0x009BU: return value == 1U ? "Sync" : "";
+    case 0x00E0U: return value == 4U ? "Off" : "";
+    case 0x00F1U: return value == 3U ? "Off" : "";
+    case 0x00F2U:
+    case 0x00F3U:
+    case 0x00F4U:
+    case 0x00F5U:
+    case 0x00F6U: return value == 2U ? "Yes" : "";
+    case 0x00F7U: return value == 1U ? "No" : "";
     default: return "";
     }
 }
@@ -966,8 +1912,132 @@ is_nikon_menu_multiple_exposure_ifd_tag(std::string_view ifd,
 static const char*
 nikon_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
 {
-    if (is_nikon_main_ifd(ifd) && tag == 0x0087U) {
-        return nikon_flash_mode_name(value);
+    if (is_nikon_settings_main_ifd(ifd)) {
+        return nikon_settings_value_name(tag, value);
+    }
+    if (is_nikon_main_ifd(ifd)) {
+        switch (tag) {
+        case 0x001EU: return canon_color_space_name(value);
+        case 0x0022U: return nikon_active_d_lighting_name(value);
+        case 0x002AU: return nikon_vignette_control_name(value);
+        case 0x0034U: return nikon_shutter_mode_name(value);
+        case 0x003EU: return nikon_image_size_raw_name(value);
+        case 0x0044U: return nikon_jpg_compression_name(value);
+        case 0x0083U: return nikon_lens_type_name(value);
+        case 0x0087U: return nikon_flash_mode_name(value);
+        case 0x0089U: return nikon_shooting_mode_name(value);
+        case 0x009DU: return nikon_date_stamp_mode_name(value);
+        case 0x00B1U: return nikon_high_iso_noise_reduction_name(value);
+        case 0x00BFU: return value == 0U ? "Off" : "";
+        default: break;
+        }
+    }
+    if (is_nikon_af_info_ifd(ifd)) {
+        switch (tag) {
+        case 0x0000U: return nikon_af_area_mode_name(value);
+        case 0x0001U: return nikon_af_point_name(value);
+        case 0x0002U: return nikon_af_points_in_focus_name(value);
+        default: return "";
+        }
+    }
+    if (is_nikon_af_info2v0100_ifd(ifd)) {
+        switch (tag) {
+        case 0x0005U: return value == 0U ? "Single Area" : "";
+        case 0x0007U:
+            switch (value) {
+            case 0U: return "(none)";
+            default: return "";
+            }
+        case 0x001CU: return no_yes_name(value);
+        default: return "";
+        }
+    }
+    if (is_nikon_iso_info_ifd(ifd)) {
+        switch (tag) {
+        case 0x0004U:
+        case 0x000AU: return value == 0U ? "Off" : "";
+        default: return "";
+        }
+    }
+    if (is_nikon_hdr_info_ifd(ifd)) {
+        switch (tag) {
+        case 0x0004U: return nikon_hdr_name(value);
+        case 0x0005U:
+        case 0x0007U: return nikon_hdr_level_name(value);
+        case 0x0006U: return value == 0U ? "Off" : "";
+        default: return "";
+        }
+    }
+    if (is_nikon_vr_info_ifd(ifd)) {
+        switch (tag) {
+        case 0x0004U: return nikon_vibration_reduction_name(value);
+        default: return "";
+        }
+    }
+    if (is_nikon_flash_info_ifd(ifd)) {
+        switch (tag) {
+        case 0x0004U: return nikon_flash_source_name(value);
+        case 0x0008U: return nikon_external_flash_flags_name(value);
+        case 0x000FU: return value == 0U ? "Off" : "";
+        case 0x0025U: return value == 0U ? "Standard" : "";
+        default: return "";
+        }
+    }
+    if (is_nikon_picture_control_ifd(ifd)) {
+        switch (tag) {
+        case 0x0030U:
+        case 0x0036U: return nikon_picture_control_adjust_name(value);
+        case 0x0037U:
+        case 0x0038U:
+        case 0x003FU:
+        case 0x0040U:
+        case 0x0047U:
+        case 0x0048U: return nikon_picture_control_filter_name(value);
+        default: return "";
+        }
+    }
+    if (is_nikon_multi_exposure_ifd(ifd)) {
+        switch (tag) {
+        case 0x0001U: return nikon_menu_multiple_exposure_mode_name(value);
+        case 0x0003U: return value == 0U ? "Off" : "";
+        default: return "";
+        }
+    }
+    if (is_nikon_world_time_ifd(ifd)) {
+        switch (tag) {
+        case 0x0002U: return no_yes_name(value);
+        case 0x0003U: return nikon_date_display_format_name(value);
+        default: return "";
+        }
+    }
+    if (is_nikon_distort_info_ifd(ifd)) {
+        switch (tag) {
+        case 0x0004U: return off_on_name(value);
+        default: return "";
+        }
+    }
+    if (is_nikon_af_tune_ifd(ifd)) {
+        switch (tag) {
+        case 0x0000U:
+            if (value == 0U) {
+                return "Off";
+            }
+            return value == 1U ? "On (1)" : "";
+        case 0x0001U: return value == 255U ? "n/a" : "";
+        default: return "";
+        }
+    }
+    if (is_nikon_lens_data0800_ifd(ifd)) {
+        switch (tag) {
+        case 0x0035U: return nikon_lens_mount_type_name(value);
+        default: return "";
+        }
+    }
+    if (is_nikon_location_info_ifd(ifd)) {
+        switch (tag) {
+        case 0x0004U: return value == 0U ? "n/a" : "";
+        default: return "";
+        }
     }
     if (is_nikon_metering_ifd_tag(ifd, tag)) {
         return nikon_metering_mode_name(value & 0x03U);
@@ -1015,6 +2085,17 @@ fujifilm_sharpness_name(uint64_t value) noexcept
     case 0x84U: return "+1 (medium hard)";
     case 0x8000U: return "Film Simulation";
     case 0xFFFFU: return "n/a";
+    default: return "";
+    }
+}
+
+static const char*
+fujifilm_parameter_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "0 (normal)";
+    case 0x82U: return "-1 (medium low)";
+    case 0x84U: return "+1 (medium high)";
     default: return "";
     }
 }
@@ -1207,6 +2288,44 @@ fujifilm_dynamic_range_name(uint64_t value) noexcept
 }
 
 static const char*
+fujifilm_film_mode_name(uint64_t value) noexcept
+{
+    return value == 0U ? "F0/Standard (Provia)" : "";
+}
+
+static const char*
+fujifilm_dynamic_range_setting_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Auto";
+    case 1U: return "Manual";
+    default: return "";
+    }
+}
+
+static const char*
+fujifilm_shutter_type_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Mechanical" : "";
+}
+
+static const char*
+fujifilm_image_generation_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Original Image" : "";
+}
+
+static const char*
+fujifilm_scene_recognition_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Unrecognized";
+    case 512U: return "Landscape Image";
+    default: return "";
+    }
+}
+
+static const char*
 fujifilm_auto_bracketing_name(uint64_t value) noexcept
 {
     switch (value) {
@@ -1228,6 +2347,9 @@ fujifilm_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     switch (tag) {
     case 0x1001U: return fujifilm_sharpness_name(value);
     case 0x1002U: return fujifilm_white_balance_name(value);
+    case 0x1003U: return fujifilm_parameter_name(value);
+    case 0x1004U: return value == 0U ? "Normal" : "";
+    case 0x100EU: return fujifilm_parameter_name(value);
     case 0x1010U: return fujifilm_flash_mode_name(value);
     case 0x1020U: return fujifilm_on_off_name(value);
     case 0x1021U: return fujifilm_focus_mode_name(value);
@@ -1235,12 +2357,21 @@ fujifilm_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     case 0x1030U: return fujifilm_on_off_name(value);
     case 0x1031U: return fujifilm_picture_mode_name(value);
     case 0x1037U: return fujifilm_multiple_exposure_name(value);
+    case 0x1045U: return fujifilm_on_off_name(value);
+    case 0x104CU: return value == 0U ? "Off" : "";
+    case 0x104DU: return value == 0U ? "n/a" : "";
+    case 0x1050U: return fujifilm_shutter_type_name(value);
     case 0x1100U: return fujifilm_auto_bracketing_name(value);
     case 0x1210U: return fujifilm_color_mode_name(value);
     case 0x1300U: return fujifilm_blur_warning_name(value);
     case 0x1301U: return fujifilm_focus_warning_name(value);
     case 0x1302U: return fujifilm_exposure_warning_name(value);
     case 0x1400U: return fujifilm_dynamic_range_name(value);
+    case 0x1401U: return fujifilm_film_mode_name(value);
+    case 0x1402U: return fujifilm_dynamic_range_setting_name(value);
+    case 0x1425U: return fujifilm_scene_recognition_name(value);
+    case 0x1436U: return fujifilm_image_generation_name(value);
+    case 0x4201U: return value == 1U ? "Face" : "";
     default: return "";
     }
 }
@@ -1972,6 +3103,41 @@ is_pentax_type2_ifd(std::string_view ifd) noexcept
            || ifd == "makernote:pentax:type2";
 }
 
+static bool
+is_pentax_lens_corr_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_pentax_lenscorr_")
+           || ifd == "makernote:pentax:lenscorr";
+}
+
+static bool
+is_pentax_awb_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_pentax_awbinfo_")
+           || ifd == "makernote:pentax:awbinfo";
+}
+
+static bool
+is_pentax_sr_info2_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_pentax_srinfo2_")
+           || ifd == "makernote:pentax:srinfo2";
+}
+
+static bool
+is_pentax_lens_rec_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_pentax_lensrec_")
+           || ifd == "makernote:pentax:lensrec";
+}
+
+static bool
+is_pentax_time_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_pentax_timeinfo_")
+           || ifd == "makernote:pentax:timeinfo";
+}
+
 static const char*
 pentax_picture_mode_name(uint64_t value) noexcept
 {
@@ -2267,14 +3433,210 @@ pentax_type2_white_balance_name(uint64_t value) noexcept
 }
 
 static const char*
+pentax_model_id_name(uint64_t value) noexcept
+{
+    return value == 76720U ? "Optio T10/T20" : "";
+}
+
+static const char*
+pentax_quality_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "Better";
+    case 2U: return "Best";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_image_size_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "640x480";
+    case 10U: return "3264x2448";
+    case 29U: return "4000x3000";
+    case 31U: return "4608x3456";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_iso_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 3U: return "50";
+    case 4U: return "64";
+    case 5U: return "80";
+    case 6U: return "100";
+    case 7U: return "125";
+    case 9U: return "200";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_af_point_selected_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 65534U: return "Fixed Center";
+    case 65535U: return "Auto";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_af_points_in_focus_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 5U: return "Center";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_white_balance_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "Auto (Daylight)";
+    case 65535U: return "User-Selected";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_parameter_name(uint64_t value) noexcept
+{
+    return value == 1U ? "0 (normal)" : "";
+}
+
+static const char*
+pentax_contrast_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "0 (normal)";
+    case 4U: return "+1 (medium high)";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_sharpness_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "0 (normal)";
+    case 4U: return "+1 (medium hard)";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_world_time_location_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Hometown";
+    case 1U: return "Destination";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_city_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 12U: return "New York";
+    case 20U: return "London";
+    case 56U: return "Tokyo";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_color_space_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "sRGB";
+    case 1U: return "Adobe RGB";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_image_tone_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Natural";
+    case 1U: return "Bright";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_hue_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Normal" : "";
+}
+
+static const char*
+pentax_monochrome_effect_name(uint64_t value) noexcept
+{
+    return value == 65535U ? "None" : "";
+}
+
+static const char*
+pentax_bleach_bypass_toning_name(uint64_t value) noexcept
+{
+    return value == 65535U ? "n/a" : "";
+}
+
+static const char*
+pentax_aspect_ratio_name(uint64_t value) noexcept
+{
+    return value == 1U ? "3:2" : "";
+}
+
+static const char*
+pentax_shutter_type_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Normal" : "";
+}
+
+static const char*
 pentax_main_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
+    case 0x0005U: return pentax_model_id_name(value);
+    case 0x0008U: return pentax_quality_name(value);
+    case 0x0009U: return pentax_image_size_name(value);
     case 0x000BU: return pentax_picture_mode_name(value);
     case 0x000CU: return pentax_flash_mode_name(value);
     case 0x000DU: return pentax_focus_mode_name(value);
+    case 0x000EU: return pentax_af_point_selected_name(value);
+    case 0x000FU: return pentax_af_points_in_focus_name(value);
+    case 0x0014U: return pentax_iso_name(value);
     case 0x0017U: return pentax_metering_mode_name(value);
     case 0x0019U: return pentax_white_balance_name(value);
+    case 0x001AU: return pentax_white_balance_mode_name(value);
+    case 0x001FU: return pentax_parameter_name(value);
+    case 0x0020U: return pentax_contrast_name(value);
+    case 0x0021U: return pentax_sharpness_name(value);
+    case 0x0022U: return pentax_world_time_location_name(value);
+    case 0x0023U: return pentax_city_name(value);
+    case 0x0024U: return pentax_city_name(value);
+    case 0x0025U: return no_yes_name(value);
+    case 0x0026U: return no_yes_name(value);
+    case 0x0037U: return pentax_color_space_name(value);
+    case 0x0048U: return off_on_name(value);
+    case 0x0049U: return off_on_name(value);
+    case 0x004FU: return pentax_image_tone_name(value);
+    case 0x0067U: return pentax_hue_name(value);
+    case 0x006FU: return off_on_name(value);
+    case 0x0073U: return pentax_monochrome_effect_name(value);
+    case 0x0074U: return pentax_monochrome_effect_name(value);
+    case 0x0079U: return off_on_name(value);
+    case 0x007BU: return off_on_name(value);
+    case 0x007FU: return pentax_bleach_bypass_toning_name(value);
+    case 0x0080U: return pentax_aspect_ratio_name(value);
+    case 0x0087U: return pentax_shutter_type_name(value);
     default: return "";
     }
 }
@@ -2313,6 +3675,66 @@ pentax_type2_value_name(uint16_t tag, uint64_t value) noexcept
 }
 
 static const char*
+pentax_lens_corr_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0000U:
+    case 0x0001U:
+    case 0x0002U: return off_on_name(value);
+    case 0x0003U:
+        if (value == 0U) {
+            return "Off";
+        }
+        return value == 16U ? "On" : "";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_awb_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0000U: return off_on_name(value);
+    case 0x0001U:
+        switch (value) {
+        case 0U: return "Subtle Correction";
+        case 1U: return "Strong Correction";
+        default: return "";
+        }
+    default: return "";
+    }
+}
+
+static const char*
+pentax_sr_info2_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0000U: return value == 1U ? "[0]" : "";
+    case 0x0001U: return value == 7U ? "On (AA simulation off)" : "";
+    default: return "";
+    }
+}
+
+static const char*
+pentax_lens_rec_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    if (tag == 0x0003U && value == 0U) {
+        return "Not attached";
+    }
+    return "";
+}
+
+static const char*
+pentax_time_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0002U:
+    case 0x0003U: return pentax_city_name(value);
+    default: return "";
+    }
+}
+
+static const char*
 pentax_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
 {
     if (is_pentax_main_ifd(ifd)) {
@@ -2327,6 +3749,21 @@ pentax_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     if (is_pentax_type2_ifd(ifd)) {
         return pentax_type2_value_name(tag, value);
     }
+    if (is_pentax_lens_corr_ifd(ifd)) {
+        return pentax_lens_corr_value_name(tag, value);
+    }
+    if (is_pentax_awb_info_ifd(ifd)) {
+        return pentax_awb_info_value_name(tag, value);
+    }
+    if (is_pentax_sr_info2_ifd(ifd)) {
+        return pentax_sr_info2_value_name(tag, value);
+    }
+    if (is_pentax_lens_rec_ifd(ifd)) {
+        return pentax_lens_rec_value_name(tag, value);
+    }
+    if (is_pentax_time_info_ifd(ifd)) {
+        return pentax_time_info_value_name(tag, value);
+    }
     return "";
 }
 
@@ -2335,6 +3772,27 @@ is_olympus_camera_settings_ifd(std::string_view ifd) noexcept
 {
     return ifd_has_prefix(ifd, "mk_olympus_camerasettings_")
            || ifd == "makernote:olympus:camerasettings";
+}
+
+static bool
+is_olympus_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_olympus0" || ifd_has_prefix(ifd, "mk_olympus_main")
+           || ifd == "makernote:olympus:main";
+}
+
+static bool
+is_olympus_focus_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_olympus_focusinfo_")
+           || ifd == "makernote:olympus:focusinfo";
+}
+
+static bool
+is_olympus_equipment_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_olympus_equipment_")
+           || ifd == "makernote:olympus:equipment";
 }
 
 static bool
@@ -2427,6 +3885,7 @@ olympus_flash_mode_name(uint64_t value) noexcept
     case 0U: return "Off";
     case 1U: return "On";
     case 2U: return "Fill-in";
+    case 3U: return "On, Fill-in";
     case 4U: return "Red-eye";
     case 8U: return "Slow-sync";
     case 16U: return "Forced On";
@@ -2462,6 +3921,7 @@ olympus_scene_mode_name(uint64_t value) noexcept
 {
     switch (value) {
     case 0U: return "Standard";
+    case 1U: return "Standard";
     case 6U: return "Auto";
     case 7U: return "Sport";
     case 8U: return "Portrait";
@@ -2561,18 +4021,223 @@ olympus_multiple_exposure_mode_name(uint64_t value) noexcept
 }
 
 static const char*
+olympus_bw_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On";
+    case 6U: return "(none)";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_sharpness_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Normal" : "";
+}
+
+static const char*
+olympus_main_focus_mode_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Auto" : "";
+}
+
+static const char*
+olympus_main_scene_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Normal";
+    case 1U: return "Standard";
+    case 6U: return "Landscape";
+    case 7U: return "Night Scene";
+    case 31U: return "Digital Image Stabilization";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_contrast_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Normal" : "";
+}
+
+static const char*
+olympus_white_balance_temperature_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Auto" : "";
+}
+
+static const char*
+olympus_color_space_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "sRGB";
+    case 1U: return "Adobe RGB";
+    case 2U: return "Pro Photo RGB";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_noise_reduction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "(none)";
+    case 8U: return "Auto";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_af_search_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Not Ready";
+    case 1U: return "Ready";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_image_quality2_name(uint64_t value) noexcept
+{
+    return value == 3U ? "SHQ" : "";
+}
+
+static const char*
+olympus_image_stabilization_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "On, Mode 1";
+    case 4U: return "On, Mode 4";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_raw_dev_engine_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "High Speed";
+    case 1U: return "High Function";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_raw_dev_edit_status_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Original";
+    case 1U: return "Edited (Landscape)";
+    case 6U:
+    case 8U: return "Edited (Portrait)";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_focus_info_af_point_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Left (or n/a)" : "";
+}
+
+static const char*
+olympus_external_flash_bounce_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Bounce or Off";
+    case 1U: return "Direct";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_main_external_flash_bounce_name(uint64_t value) noexcept
+{
+    return value == 0U ? "No" : "";
+}
+
+static const char*
+olympus_flash_none_name(uint64_t value) noexcept
+{
+    return value == 0U ? "None" : "";
+}
+
+static const char*
+olympus_body_firmware_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 4096U: return "1.000";
+    case 4097U: return "1.001";
+    case 4098U: return "1.002";
+    case 4099U: return "1.003";
+    case 4100U: return "1.004";
+    case 4101U: return "1.005";
+    default: return "";
+    }
+}
+
+static const char*
+olympus_lens_properties_name(uint64_t value) noexcept
+{
+    return value == 49472U ? "0xc140" : "";
+}
+
+static const char*
+olympus_manometer_pressure_name(uint64_t value) noexcept
+{
+    return value == 0U ? "0 kPa" : "";
+}
+
+static const char*
+olympus_main_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0202U: return olympus_macro_mode_name(value);
+    case 0x0203U: return olympus_bw_mode_name(value);
+    case 0x0302U: return off_on_name(value);
+    case 0x0403U: return olympus_main_scene_mode_name(value);
+    case 0x100AU: return value == 0U ? "Normal" : "";
+    case 0x100BU: return olympus_main_focus_mode_name(value);
+    case 0x100FU: return olympus_sharpness_name(value);
+    case 0x1026U: return olympus_main_external_flash_bounce_name(value);
+    case 0x1029U: return olympus_contrast_name(value);
+    default: return "";
+    }
+}
+
+static const char*
 olympus_camera_settings_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
+    case 0x0100U: return no_yes_name(value);
     case 0x0200U: return olympus_exposure_mode_name(value);
+    case 0x0201U: return off_on_name(value);
     case 0x0202U: return olympus_metering_mode_name(value);
     case 0x0300U: return olympus_macro_mode_name(value);
     case 0x0301U: return olympus_focus_mode_name(value);
     case 0x0302U: return olympus_focus_process_name(value);
+    case 0x0303U: return olympus_af_search_name(value);
+    case 0x0306U: return off_on_name(value);
     case 0x0400U: return olympus_flash_mode_name(value);
+    case 0x0403U: return off_on_name(value);
     case 0x0500U: return olympus_white_balance_name(value);
+    case 0x0501U: return olympus_white_balance_temperature_name(value);
+    case 0x0504U: return off_on_name(value);
+    case 0x0507U: return olympus_color_space_name(value);
     case 0x0509U: return olympus_scene_mode_name(value);
+    case 0x050AU: return olympus_noise_reduction_name(value);
+    case 0x050BU: return off_on_name(value);
+    case 0x050CU: return off_on_name(value);
     case 0x0520U: return olympus_picture_mode_name(value);
+    case 0x0538U: return off_on_name(value);
+    case 0x0603U: return olympus_image_quality2_name(value);
+    case 0x0604U: return olympus_image_stabilization_name(value);
+    case 0x0900U: return olympus_manometer_pressure_name(value);
+    case 0x0902U: return off_on_name(value);
     default: return "";
     }
 }
@@ -2582,6 +4247,11 @@ olympus_raw_development_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
     case 0x0101U: return olympus_raw_dev_white_balance_name(value);
+    case 0x0108U: return olympus_color_space_name(value);
+    case 0x0109U: return olympus_raw_dev_engine_name(value);
+    case 0x010AU: return olympus_noise_reduction_name(value);
+    case 0x010BU: return olympus_raw_dev_edit_status_name(value);
+    case 0x010CU: return olympus_noise_reduction_name(value);
     default: return "";
     }
 }
@@ -2599,7 +4269,35 @@ static const char*
 olympus_image_processing_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
+    case 0x1010U: return olympus_noise_reduction_name(value);
+    case 0x1011U: return off_on_name(value);
+    case 0x1012U: return off_on_name(value);
     case 0x101CU: return olympus_multiple_exposure_mode_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+olympus_focus_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0209U: return off_on_name(value);
+    case 0x0308U: return olympus_focus_info_af_point_name(value);
+    case 0x1204U: return olympus_external_flash_bounce_name(value);
+    case 0x1208U: return off_on_name(value);
+    case 0x120AU: return off_on_name(value);
+    default: return "";
+    }
+}
+
+static const char*
+olympus_equipment_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0104U: return olympus_body_firmware_name(value);
+    case 0x020BU: return olympus_lens_properties_name(value);
+    case 0x1000U: return olympus_flash_none_name(value);
+    case 0x1001U: return olympus_flash_none_name(value);
     default: return "";
     }
 }
@@ -2607,8 +4305,17 @@ olympus_image_processing_value_name(uint16_t tag, uint64_t value) noexcept
 static const char*
 olympus_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
 {
+    if (is_olympus_main_ifd(ifd)) {
+        return olympus_main_value_name(tag, value);
+    }
     if (is_olympus_camera_settings_ifd(ifd)) {
         return olympus_camera_settings_value_name(tag, value);
+    }
+    if (is_olympus_focus_info_ifd(ifd)) {
+        return olympus_focus_info_value_name(tag, value);
+    }
+    if (is_olympus_equipment_ifd(ifd)) {
+        return olympus_equipment_value_name(tag, value);
     }
     if (is_olympus_raw_development_ifd(ifd)) {
         return olympus_raw_development_value_name(tag, value);
@@ -2620,6 +4327,169 @@ olympus_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
         return olympus_image_processing_value_name(tag, value);
     }
     return "";
+}
+
+static const char*
+casio_record_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 2U: return "Program AE";
+    case 6U: return "Best Shot";
+    default: return "";
+    }
+}
+
+static const char*
+casio_recording_mode_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Single Shutter" : "";
+}
+
+static const char*
+casio_release_mode_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Normal" : "";
+}
+
+static const char*
+casio_quality_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 2U: return "Normal";
+    case 3U: return "Fine";
+    default: return "";
+    }
+}
+
+static const char*
+casio_focus_mode_name(uint64_t value) noexcept
+{
+    return value == 3U ? "Single-Area Auto Focus" : "";
+}
+
+static const char*
+casio_legacy_focus_mode_name(uint64_t value) noexcept
+{
+    return value == 3U ? "Auto" : "";
+}
+
+static const char*
+casio_best_shot_mode_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Off" : "";
+}
+
+static const char*
+casio_auto_iso_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "On";
+    case 2U: return "Off";
+    default: return "";
+    }
+}
+
+static const char*
+casio_af_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "Spot";
+    case 2U: return "Multi";
+    default: return "";
+    }
+}
+
+static const char*
+casio_white_balance_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "Daylight";
+    case 6U: return "Fluorescent";
+    case 12U: return "Flash";
+    default: return "";
+    }
+}
+
+static const char*
+casio_legacy_white_balance_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Auto" : "";
+}
+
+static const char*
+casio_lighting_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 5U: return "Shadow Enhance Low";
+    default: return "";
+    }
+}
+
+static const char*
+casio_image_stabilization_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 2U: return "Best Shot";
+    default: return "";
+    }
+}
+
+static const char*
+casio_drive_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Single Shot";
+    case 1U: return "Continuous Shooting";
+    default: return "";
+    }
+}
+
+static const char*
+casio_legacy_digital_zoom_name(uint64_t value) noexcept
+{
+    return value == 65536U ? "Off" : "";
+}
+
+static const char*
+casio_special_effect_setting_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Off" : "";
+}
+
+static const char*
+casio_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0001U: return casio_recording_mode_name(value);
+    case 0x0002U: return casio_quality_name(value);
+    case 0x0003U: return casio_legacy_focus_mode_name(value);
+    case 0x0005U: return value == 13U ? "Normal" : "";
+    case 0x0007U: return casio_legacy_white_balance_name(value);
+    case 0x000AU: return casio_legacy_digital_zoom_name(value);
+    case 0x000BU: return value == 0U ? "Normal" : "";
+    case 0x000CU: return value == 0U ? "Normal" : "";
+    case 0x000DU: return value == 0U ? "Normal" : "";
+    case 0x2012U: return casio_white_balance_name(value);
+    case 0x3000U: return casio_record_mode_name(value);
+    case 0x3001U: return casio_release_mode_name(value);
+    case 0x3002U: return casio_quality_name(value);
+    case 0x3003U: return casio_focus_mode_name(value);
+    case 0x3007U: return casio_best_shot_mode_name(value);
+    case 0x3008U: return casio_auto_iso_name(value);
+    case 0x3009U: return casio_af_mode_name(value);
+    case 0x3015U: return off_on_name(value);
+    case 0x3016U: return off_on_name(value);
+    case 0x3017U: return off_on_name(value);
+    case 0x301BU: return value == 0U ? "Normal" : "";
+    case 0x3020U: return casio_image_stabilization_name(value);
+    case 0x302AU: return casio_lighting_mode_name(value);
+    case 0x302BU: return off_on_name(value);
+    case 0x3031U: return casio_special_effect_setting_name(value);
+    case 0x3103U: return casio_drive_mode_name(value);
+    default: return "";
+    }
 }
 
 static bool
@@ -3127,6 +4997,132 @@ panasonic_highlight_warning_name(uint64_t value) noexcept
 }
 
 static const char*
+panasonic_normal_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Normal" : "";
+}
+
+static const char*
+panasonic_clear_retouch_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Off" : "";
+}
+
+static const char*
+panasonic_jpeg_quality_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 2U: return "High";
+    case 3U: return "Standard";
+    default: return "";
+    }
+}
+
+static const char*
+panasonic_bracket_settings_name(uint64_t value) noexcept
+{
+    return value == 0U ? "No Bracket" : "";
+}
+
+static const char*
+panasonic_program_iso_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 65534U: return "Intelligent ISO";
+    case 65535U: return "n/a";
+    default: return "";
+    }
+}
+
+static const char*
+panasonic_long_exposure_noise_reduction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "Off";
+    case 2U: return "On";
+    default: return "";
+    }
+}
+
+static const char*
+panasonic_photo_style_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Standard or Custom" : "";
+}
+
+static const char*
+panasonic_intelligent_d_range_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "Low";
+    case 2U: return "Standard";
+    case 3U: return "High";
+    default: return "";
+    }
+}
+
+static const char*
+panasonic_camera_orientation_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Normal" : "";
+}
+
+static const char*
+panasonic_hdr_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Off" : "";
+}
+
+static const char*
+panasonic_shutter_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Mechanical";
+    case 2U: return "Hybrid";
+    default: return "";
+    }
+}
+
+static const char*
+panasonic_monochrome_filter_effect_name(uint64_t value) noexcept
+{
+    return value == 0U ? "Off" : "";
+}
+
+static const char*
+panasonic_video_burst_resolution_name(uint64_t value) noexcept
+{
+    return value == 1U ? "Off or 4K" : "";
+}
+
+static const char*
+panasonic_video_preburst_name(uint64_t value) noexcept
+{
+    return value == 0U ? "No" : "";
+}
+
+static const char*
+panasonic_diffraction_correction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "Auto";
+    default: return "";
+    }
+}
+
+static const char*
+panasonic_sensor_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Multi-aspect";
+    case 1U: return "Standard";
+    default: return "";
+    }
+}
+
+static const char*
 panasonic_main_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
@@ -3150,17 +5146,41 @@ panasonic_main_value_name(uint16_t tag, uint64_t value) noexcept
     case 0x0035U: return panasonic_conversion_lens_name(value);
     case 0x0036U: return panasonic_travel_day_name(value);
     case 0x0038U: return panasonic_battery_level_name(value);
+    case 0x0039U: return panasonic_normal_name(value);
     case 0x003AU: return panasonic_world_time_location_name(value);
     case 0x003BU: return panasonic_text_stamp_name(value);
+    case 0x003CU: return panasonic_program_iso_name(value);
     case 0x003EU: return panasonic_text_stamp_name(value);
+    case 0x0040U: return panasonic_normal_name(value);
+    case 0x0041U: return panasonic_normal_name(value);
     case 0x0042U: return panasonic_film_mode_name(value);
+    case 0x0043U: return panasonic_jpeg_quality_name(value);
+    case 0x0045U: return panasonic_bracket_settings_name(value);
     case 0x0048U: return panasonic_flash_curtain_name(value);
+    case 0x0049U: return panasonic_long_exposure_noise_reduction_name(value);
     case 0x005DU: return panasonic_intelligent_exposure_name(value);
     case 0x0062U: return panasonic_flash_warning_name(value);
     case 0x0070U: return panasonic_intelligent_resolution_name(value);
+    case 0x0079U: return panasonic_intelligent_d_range_name(value);
+    case 0x007CU: return panasonic_clear_retouch_name(value);
+    case 0x0089U: return panasonic_photo_style_name(value);
+    case 0x008AU: return off_on_name(value);
+    case 0x008FU: return panasonic_camera_orientation_name(value);
+    case 0x0093U: return off_on_name(value);
+    case 0x0096U: return off_on_name(value);
+    case 0x009EU: return panasonic_hdr_name(value);
+    case 0x009FU: return panasonic_shutter_type_name(value);
+    case 0x00ABU: return off_on_name(value);
+    case 0x00ACU: return panasonic_monochrome_filter_effect_name(value);
     case 0x00B4U: return panasonic_multi_exposure_name(value);
+    case 0x00B3U: return panasonic_video_burst_resolution_name(value);
+    case 0x00B9U: return off_on_name(value);
     case 0x00BBU: return panasonic_video_burst_mode_name(value);
+    case 0x00BCU: return panasonic_diffraction_correction_name(value);
     case 0x00BEU: return panasonic_long_exposure_nr_used_name(value);
+    case 0x00C1U: return panasonic_video_preburst_name(value);
+    case 0x00CAU: return panasonic_sensor_type_name(value);
+    case 0x00D2U: return off_on_name(value);
     case 0x8001U: return panasonic_scene_mode_name(value);
     case 0x8002U: return panasonic_highlight_warning_name(value);
     case 0x8003U: return panasonic_dark_focus_environment_name(value);
@@ -3295,26 +5315,6 @@ is_kodak_kdc_ifd(std::string_view ifd) noexcept
 {
     return ifd_has_prefix(ifd, "mk_kodak_kdc_ifd_")
            || ifd == "makernote:kodak:kdc_ifd";
-}
-
-static const char*
-off_on_name(uint64_t value) noexcept
-{
-    switch (value) {
-    case 0U: return "Off";
-    case 1U: return "On";
-    default: return "";
-    }
-}
-
-static const char*
-no_yes_name(uint64_t value) noexcept
-{
-    switch (value) {
-    case 0U: return "No";
-    case 1U: return "Yes";
-    default: return "";
-    }
 }
 
 static const char*
@@ -4588,6 +6588,42 @@ makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     if (is_canon_mycolors_ifd(ifd)) {
         return canon_mycolors_value_name(tag, value);
     }
+    if (is_canon_focal_length_ifd(ifd)) {
+        return canon_focal_length_value_name(tag, value);
+    }
+    if (is_canon_af_info2_ifd(ifd)) {
+        return canon_af_info2_value_name(tag, value);
+    }
+    if (is_canon_aspect_info_ifd(ifd)) {
+        return canon_aspect_info_value_name(tag, value);
+    }
+    if (is_canon_file_info_ifd(ifd)) {
+        return canon_file_info_value_name(tag, value);
+    }
+    if (is_canon_processing_ifd(ifd)) {
+        return canon_processing_value_name(tag, value);
+    }
+    if (is_canon_lighting_opt_ifd(ifd)) {
+        return canon_lighting_opt_value_name(tag, value);
+    }
+    if (is_canon_vignetting_corr2_ifd(ifd)) {
+        return canon_vignetting_corr2_value_name(tag, value);
+    }
+    if (is_canon_vignetting_corr_ifd(ifd)) {
+        return canon_vignetting_corr_value_name(tag, value);
+    }
+    if (is_canon_time_info_ifd(ifd)) {
+        return canon_time_info_value_name(tag, value);
+    }
+    if (is_canon_filter_info_ifd(ifd)) {
+        return canon_filter_info_value_name(tag, value);
+    }
+    if (is_canon_hdr_info_ifd(ifd)) {
+        return canon_hdr_info_value_name(tag, value);
+    }
+    if (is_canon_custom_functions2_ifd(ifd)) {
+        return canon_custom_functions2_value_name(tag, value);
+    }
     if (ifd_has_prefix(ifd, "mk_nikon")
         || ifd_has_prefix(ifd, "makernote:nikon:")) {
         return nikon_value_name(ifd, tag, value);
@@ -4607,6 +6643,10 @@ makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     if (ifd_has_prefix(ifd, "mk_olympus")
         || ifd_has_prefix(ifd, "makernote:olympus:")) {
         return olympus_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_casio")
+        || ifd_has_prefix(ifd, "makernote:casio:")) {
+        return casio_value_name(tag, value);
     }
     if (ifd_has_prefix(ifd, "mk_panasonic")
         || ifd_has_prefix(ifd, "makernote:panasonic:")) {

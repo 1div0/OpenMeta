@@ -1,5 +1,39 @@
 # OpenMeta Changes
 
+## 0.4.40 - 2026-05-27
+
+Changes compared with `0.4.39`.
+
+### Added
+
+- Added bounded Canon MakerNote numeric labels for additional sub-IFDs,
+  including focal length, AFInfo2, aspect, file info, processing, lighting
+  optimization, vignetting correction, time info, filter, HDR, and selected
+  CanonCustom function fields.
+- Added bounded Nikon MakerNote numeric labels for selected main, AFInfo,
+  AFInfo2, ISOInfo, HDRInfo, VRInfo, FlashInfo, PictureControl, multi-exposure,
+  world-time, distortion, AF-tune, lens-data, location, and NikonSettings
+  scalar fields.
+- Added bounded Pentax MakerNote numeric labels for additional main scalar
+  fields plus LensCorr, AWBInfo, SRInfo2, LensRec, and TimeInfo sub-IFDs.
+- Added bounded Olympus MakerNote numeric labels for main, CameraSettings,
+  FocusInfo, Equipment, RawDevelopment, and ImageProcessing scalar fields.
+- Added bounded Casio MakerNote numeric labels for common Type2 and legacy
+  scalar fields.
+- Added bounded Panasonic MakerNote numeric labels for the remaining stable
+  long-tail main-table scalar fields.
+- Added bounded Fujifilm residual numeric labels for saturation, contrast,
+  noise reduction, film mode, dynamic-range setting, shutter type, image
+  generation, scene recognition, and face element-type fields.
+- Added focused C++ coverage for the expanded Canon, Nikon, Fujifilm, Pentax,
+  Olympus, Casio, and Panasonic MakerNote value-name dispatch paths.
+
+### Fixed
+
+- Kept ambiguous per-model or version-dependent MakerNote values unlabeled
+  instead of emitting plausible but wrong text for Nikon, CanonCustom, Olympus,
+  Pentax, Casio, and Panasonic edge cases.
+
 ## 0.4.39 - 2026-05-27
 
 Changes compared with `0.4.38`.

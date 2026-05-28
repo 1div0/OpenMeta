@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 90%** for the public target scope.
+Current overall status: **medium-high, about 91%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -160,15 +160,17 @@ Coverage matrix
        handled by direct classification plus dedicated normalized helpers.
        Classified multi-field vendor groups now surface as grouped
        query/interpretation candidates where safe to expose structurally.
-       Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/
-       Kodak/Minolta/Sigma/Samsung/Ricoh print conversions expose bounded
-       human-readable labels, including expanded Canon CameraSettings/
-       ShotInfo/main/MyColors, decoded Fujifilm ``mk_fuji*``, and Panasonic
-       main-table labels. Ambiguous per-model or value-type-dependent labels
+       Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Casio/
+       Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh print conversions expose
+       bounded human-readable labels, including expanded Canon sub-IFDs and
+       CanonCustom fields, Nikon sub-IFDs and NikonSettings fields, decoded
+       Fujifilm ``mk_fuji*``, Pentax sub-IFDs, Olympus main/focus/equipment
+       fields, Casio Type2 fields, and Panasonic long-tail main-table fields.
+       Ambiguous per-model, per-version, or value-type-dependent labels
        intentionally remain empty instead of guessing.
-     - Medium-high, about 89-94%.
-     - ExifTool-style long-tail print conversions, encrypted/custom settings,
-       and per-model private tables.
+     - Medium-high, about 91-95%.
+     - Remaining ExifTool-style firmware/version formulas, encrypted/custom
+       settings, and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
      - BMFF derived fields, brand-name fields, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
@@ -253,8 +255,9 @@ Next interpretation priorities
 4. Expand GPS policy beyond current coordinate tolerance, altitude-reference
    display, and EXIF timestamp assembly into broader cross-family
    reconciliation.
-5. Expand MakerNote meaning depth in vendor order: remaining Canon sub-IFDs,
-   Olympus, Nikon, Pentax, Casio, Panasonic long tail, CanonCustom/
-   NikonSettings, Fujifilm residuals, then other active vendors.
+5. Expand the remaining unambiguous MakerNote long tail: firmware/version
+   formulas, Canon ambience/AF microadjust/color-data fields, NikonSettings
+   residuals, JVC/GE/FLIR/Apple/live-vendor scalar fields, and per-model tables
+   only where context is strong enough to avoid wrong labels.
 6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

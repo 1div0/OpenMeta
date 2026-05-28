@@ -162,6 +162,30 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_mycolors_0", 0x0002U,
                                                  15U),
                      "B&W");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_focallength_0",
+                                                 0x0000U, 2U),
+                     "Zoom");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_afinfo2_0", 0x0001U,
+                                                 2U),
+                     "Single-point AF");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_aspectinfo_0",
+                                                 0x0000U, 2U),
+                     "4:3");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_fileinfo_0", 0x0003U,
+                                                 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_processing_0",
+                                                 0x0001U, 0U),
+                     "Standard");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_lightingopt_0",
+                                                 0x0002U, 3U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_timeinfo_0", 0x0003U,
+                                                 60U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canoncustom_functions2_0",
+                                                 0x0108U, 1U),
+                     "Enable");
     }
 
     TEST(ExifValueNames, DispatchesNikonMakerNoteEnums)
@@ -195,6 +219,20 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_menusettingsz9_0",
                                                  0x008CU, 2U),
                      "On (Series)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon0", 0x009DU, 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_afinfo_0", 0x0000U,
+                                                 0U),
+                     "Single Area");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_hdrinfo_0", 0x0004U,
+                                                 48U),
+                     "Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_vrinfo_0", 0x0004U,
+                                                 1U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
+                                                 0x0003U, 3U),
+                     "Auto");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon0", 0x0103U, 1U), "");
     }
 
@@ -236,6 +274,12 @@ namespace {
                      "Out of focus");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1302U, 1U),
                      "Bad exposure");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fuji0", 0x1003U, 0U),
+                     "0 (normal)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fuji0", 0x1401U, 0U),
+                     "F0/Standard (Provia)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_fuji0", 0x1436U, 0U),
+                     "Original Image");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_fujifilm0", 0x1022U, 9U),
                      "");
     }
@@ -298,6 +342,14 @@ namespace {
                      "Highlight");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0019U, 14U),
                      "Multi Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x001FU, 1U),
+                     "0 (normal)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0026U, 0U),
+                     "No");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0023U, 56U),
+                     "Tokyo");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x004FU, 1U),
+                     "Bright");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_aeinfo_0", 0x0006U,
                                                  216U),
                      "HDR");
@@ -310,6 +362,18 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_type2_0", 0x0004U,
                                                  6U),
                      "Red-eye reduction");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_lenscorr_0",
+                                                 0x0003U, 16U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_awbinfo_0", 0x0001U,
+                                                 1U),
+                     "Strong Correction");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_srinfo2_0", 0x0001U,
+                                                 7U),
+                     "On (AA simulation off)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_lensrec_0", 0x0003U,
+                                                 0U),
+                     "Not attached");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0034U, 1U),
                      "");
     }
@@ -346,8 +410,47 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_imageprocessing_0",
                                                  0x101CU, 1U),
                      "Live Composite");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus0", 0x0203U, 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x0100U, 1U),
+                     "Yes");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
+                                                 0x050AU, 8U),
+                     "Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_focusinfo_0",
+                                                 0x1204U, 0U),
+                     "Bounce or Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_equipment_0",
+                                                 0x0104U, 4097U),
+                     "1.001");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_olympus_camerasettings_0",
                                                  0x0600U, 1U),
+                     "");
+    }
+
+    TEST(ExifValueNames, DispatchesCasioMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_casio_type2_0", 0x3000U,
+                                                 2U),
+                     "Program AE");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_casio_type2_0", 0x3003U,
+                                                 3U),
+                     "Single-Area Auto Focus");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_casio_type2_0", 0x3008U,
+                                                 2U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_casio_type2_0", 0x2012U,
+                                                 12U),
+                     "Flash");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_casio_type2_0", 0x302AU,
+                                                 5U),
+                     "Shadow Enhance Low");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_casio_type2_0", 0x3103U,
+                                                 1U),
+                     "Continuous Shooting");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_casio_type2_0", 0x4000U,
+                                                 1U),
                      "");
     }
 
@@ -410,6 +513,16 @@ namespace {
                      "Yes (flash required but disabled)");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x0070U, 0U),
                      "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x007CU, 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x0089U, 1U),
+                     "Standard or Custom");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x009FU, 2U),
+                     "Hybrid");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x00B3U, 1U),
+                     "Off or 4K");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x00CAU, 0U),
+                     "Multi-aspect");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_panasonic0", 0x00BBU,
                                                  0x408U),
                      "Focus Stacking");

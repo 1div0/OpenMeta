@@ -38,7 +38,7 @@ model should stay compact:
        fixed-layout, XML/text, path-record, byte-count, and descriptor-header
        summaries, computational, thermal, stitch/panorama
        capture state, and vendor-private fields.
-     - Medium-high, about 90%.
+     - Medium-high, about 91%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
