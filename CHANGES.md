@@ -1,5 +1,22 @@
 # OpenMeta Changes
 
+## 0.4.42 - 2026-05-29
+
+Changes compared with `0.4.41`.
+
+### Added
+
+- Added bounded BMFF `grpl` item-group interpretation for HEIF/AVIF/CR3-style
+  metadata graphs, exposing group type/id rows, entity counts, entity ids,
+  per-type summaries, and primary-item group memberships.
+- Added focused BMFF coverage for alternate and stereo item groups, including
+  primary membership and per-group-type derived fields.
+
+### Changed
+
+- Updated public interpretation and RAW-read parity docs to reflect the new
+  BMFF item-group graph surface.
+
 ## 0.4.41 - 2026-05-28
 
 Changes compared with `0.4.40`.

@@ -69,6 +69,20 @@ namespace {
         out->insert(out->end(), payload.begin(), payload.end());
     }
 
+    static void append_entity_group_box(std::vector<std::byte>* out,
+                                        uint32_t group_type, uint32_t group_id,
+                                        std::span<const uint32_t> entity_ids)
+    {
+        std::vector<std::byte> payload;
+        append_fullbox_header(&payload, 0);
+        append_u32be(&payload, group_id);
+        append_u32be(&payload, static_cast<uint32_t>(entity_ids.size()));
+        for (size_t i = 0; i < entity_ids.size(); ++i) {
+            append_u32be(&payload, entity_ids[i]);
+        }
+        append_bmff_box(out, group_type, payload);
+    }
+
     static void append_infe_v2(std::vector<std::byte>* out, uint16_t item_id,
                                uint16_t protection_index, uint32_t item_type,
                                const char* name)
@@ -866,6 +880,140 @@ TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesAndPrimaryAuxLinks)
         = collect_u32_values(store, "iref.auxl.to_item_unique_count");
     ASSERT_EQ(auxl_to_unique.size(), 1U);
     EXPECT_EQ(auxl_to_unique[0], 2U);
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsItemGroupsAndPrimaryMembership)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> grpl_payload;
+        const std::array<uint32_t, 3> altr_entities { 1U, 2U, 3U };
+        const std::array<uint32_t, 2> ster_entities { 4U, 5U };
+        append_entity_group_box(&grpl_payload, fourcc('a', 'l', 't', 'r'), 10U,
+                                altr_entities);
+        append_entity_group_box(&grpl_payload, fourcc('s', 't', 'e', 'r'), 20U,
+                                ster_entities);
+        std::vector<std::byte> grpl_box;
+        append_bmff_box(&grpl_box, fourcc('g', 'r', 'p', 'l'), grpl_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), grpl_box.begin(),
+                            grpl_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 2048> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint32_t> group_count
+        = collect_u32_values(store, "item_group.count");
+    ASSERT_EQ(group_count.size(), 1U);
+    EXPECT_EQ(group_count[0], 2U);
+
+    const std::vector<uint32_t> group_types
+        = collect_u32_values(store, "item_group.type");
+    ASSERT_EQ(group_types.size(), 2U);
+    EXPECT_EQ(group_types[0], fourcc('a', 'l', 't', 'r'));
+    EXPECT_EQ(group_types[1], fourcc('s', 't', 'e', 'r'));
+
+    const std::vector<std::string> group_type_names
+        = collect_text_values(store, "item_group.type_name");
+    ASSERT_EQ(group_type_names.size(), 2U);
+    EXPECT_EQ(group_type_names[0], "altr");
+    EXPECT_EQ(group_type_names[1], "ster");
+
+    const std::vector<uint32_t> group_ids = collect_u32_values(store,
+                                                               "item_group.id");
+    ASSERT_EQ(group_ids.size(), 2U);
+    EXPECT_EQ(group_ids[0], 10U);
+    EXPECT_EQ(group_ids[1], 20U);
+
+    const std::vector<uint32_t> entity_counts
+        = collect_u32_values(store, "item_group.entity_count");
+    ASSERT_EQ(entity_counts.size(), 2U);
+    EXPECT_EQ(entity_counts[0], 3U);
+    EXPECT_EQ(entity_counts[1], 2U);
+
+    const std::vector<uint32_t> entity_ids
+        = collect_u32_values(store, "item_group.entity_id");
+    ASSERT_EQ(entity_ids.size(), 5U);
+    EXPECT_EQ(entity_ids[0], 1U);
+    EXPECT_EQ(entity_ids[1], 2U);
+    EXPECT_EQ(entity_ids[2], 3U);
+    EXPECT_EQ(entity_ids[3], 4U);
+    EXPECT_EQ(entity_ids[4], 5U);
+
+    const std::vector<uint32_t> altr_count
+        = collect_u32_values(store, "item_group.altr.count");
+    ASSERT_EQ(altr_count.size(), 1U);
+    EXPECT_EQ(altr_count[0], 1U);
+    const std::vector<uint32_t> altr_id
+        = collect_u32_values(store, "item_group.altr.id");
+    ASSERT_EQ(altr_id.size(), 1U);
+    EXPECT_EQ(altr_id[0], 10U);
+    const std::vector<uint32_t> altr_entities
+        = collect_u32_values(store, "item_group.altr.entity_id");
+    ASSERT_EQ(altr_entities.size(), 3U);
+    EXPECT_EQ(altr_entities[0], 1U);
+    EXPECT_EQ(altr_entities[1], 2U);
+    EXPECT_EQ(altr_entities[2], 3U);
+
+    const std::vector<uint32_t> ster_count
+        = collect_u32_values(store, "item_group.ster.count");
+    ASSERT_EQ(ster_count.size(), 1U);
+    EXPECT_EQ(ster_count[0], 1U);
+    const std::vector<uint32_t> ster_id
+        = collect_u32_values(store, "item_group.ster.id");
+    ASSERT_EQ(ster_id.size(), 1U);
+    EXPECT_EQ(ster_id[0], 20U);
+
+    const std::vector<uint32_t> primary_group_count
+        = collect_u32_values(store, "primary.item_group_count");
+    ASSERT_EQ(primary_group_count.size(), 1U);
+    EXPECT_EQ(primary_group_count[0], 1U);
+    const std::vector<uint32_t> primary_group_type
+        = collect_u32_values(store, "primary.item_group_type");
+    ASSERT_EQ(primary_group_type.size(), 1U);
+    EXPECT_EQ(primary_group_type[0], fourcc('a', 'l', 't', 'r'));
+    const std::vector<std::string> primary_group_type_name
+        = collect_text_values(store, "primary.item_group_type_name");
+    ASSERT_EQ(primary_group_type_name.size(), 1U);
+    EXPECT_EQ(primary_group_type_name[0], "altr");
+    const std::vector<uint32_t> primary_group_id
+        = collect_u32_values(store, "primary.item_group_id");
+    ASSERT_EQ(primary_group_id.size(), 1U);
+    EXPECT_EQ(primary_group_id[0], 10U);
+    const std::vector<uint32_t> primary_group_entity_count
+        = collect_u32_values(store, "primary.item_group_entity_count");
+    ASSERT_EQ(primary_group_entity_count.size(), 1U);
+    EXPECT_EQ(primary_group_entity_count[0], 3U);
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesForVersion1ItemIds)

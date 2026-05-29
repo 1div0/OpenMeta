@@ -34,12 +34,13 @@ model should stay compact:
        source-bound data such as RAW crop, exposure adjustment,
        color/profile/source-color-transform evidence, RAW curves/linearity
        metadata, lens-correction, sensor, BMFF brand/item-property
-       associations, item semantic counts, and primary item properties, JUMBF
-       labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text,
-       path-record, byte-count, and descriptor-header summaries,
+       associations, item groups, item semantic counts, and primary item
+       properties, JUMBF labels, Photoshop IRB embedded carriers plus
+       fixed-layout, XML/text, path-record, byte-count, and descriptor-header
+       summaries,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
-     - Medium-high, about 92%.
+     - Medium-high, about 92-93%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and

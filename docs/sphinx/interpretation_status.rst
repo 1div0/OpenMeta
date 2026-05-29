@@ -179,11 +179,12 @@ Coverage matrix
      - BMFF derived fields, brand-name fields, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, bounded ``ipma`` item-property association rows,
-       bounded relations, primary-linked roles, aux semantics, primary
-       color/profile property summaries, primary pixel aspect ratio, primary
-       pixel component bit depth, clean-aperture rationals, JUMBF box labels,
-       and draft C2PA/JUMBF structural fields are exposed.
-     - Medium, about 70-80%.
+       bounded relations, ``grpl`` item-group rows, per-group-type summaries,
+       primary item-group memberships, primary-linked roles, aux semantics,
+       primary color/profile property summaries, primary pixel aspect ratio,
+       primary pixel component bit depth, clean-aperture rationals, JUMBF box
+       labels, and draft C2PA/JUMBF structural fields are exposed.
+     - Medium, about 72-82%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -253,8 +254,9 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Deepen BMFF/CR3/HEIF/AVIF item graph semantics beyond primary item
-   properties only where hosts can use the result safely.
+1. Deepen remaining BMFF/CR3/HEIF/AVIF scene-graph semantics beyond current
+   relations, item groups, and primary-item summaries only where hosts can use
+   the result safely.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
    layouts and embedded metadata carriers.
 3. Deepen transfer diagnostics with optional host localization/formatting hooks

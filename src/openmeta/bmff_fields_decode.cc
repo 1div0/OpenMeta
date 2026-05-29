@@ -652,6 +652,16 @@ namespace {
         uint32_t to_item_id   = 0;
     };
 
+    struct ItemGroup final {
+        uint32_t group_type      = 0;
+        uint32_t group_id        = 0;
+        uint32_t entity_count    = 0;
+        uint32_t entity_id_count = 0;
+        bool entity_truncated    = false;
+        bool contains_primary    = false;
+        std::array<uint32_t, 64> entity_ids {};
+    };
+
     struct ItemPropertyAssociation final {
         uint32_t item_id        = 0;
         uint32_t property_index = 0;
@@ -715,6 +725,11 @@ namespace {
         uint32_t iref_edge_count = 0;
         uint32_t iref_edge_total = 0;
         bool iref_truncated      = false;
+
+        std::array<ItemGroup, 64> item_groups {};
+        uint32_t item_group_count = 0;
+        uint32_t item_group_total = 0;
+        bool item_group_truncated = false;
 
         std::array<ItemPropertyAssociation, 512> ipma_associations {};
         uint32_t ipma_association_count = 0;
@@ -854,6 +869,168 @@ namespace {
                                      item_count);
         emit_iref_typed_graph_summary(store, block, io_order, rel_type,
                                       edge_count, from_count, to_count);
+    }
+
+    static void
+    emit_item_group_type_summary(MetaStore& store, BlockId block,
+                                 uint32_t* io_order, uint32_t group_type,
+                                 std::string_view group_token,
+                                 std::span<const ItemGroup> groups) noexcept
+    {
+        if (!io_order || group_token.empty() || groups.empty()) {
+            return;
+        }
+
+        uint32_t group_count = 0U;
+        for (uint32_t i = 0U; i < groups.size(); ++i) {
+            if (groups[i].group_type == group_type) {
+                group_count += 1U;
+            }
+        }
+        if (group_count == 0U) {
+            return;
+        }
+
+        std::string field("item_group.");
+        field.append(group_token);
+        const size_t base_len = field.size();
+
+        field.append(".count");
+        emit_u32_field(store, block, (*io_order)++, field, group_count);
+        field.resize(base_len);
+
+        for (uint32_t i = 0U; i < groups.size(); ++i) {
+            const ItemGroup& group = groups[i];
+            if (group.group_type != group_type) {
+                continue;
+            }
+
+            field.append(".id");
+            emit_u32_field(store, block, (*io_order)++, field, group.group_id);
+            field.resize(base_len);
+
+            field.append(".entity_count");
+            emit_u32_field(store, block, (*io_order)++, field,
+                           group.entity_count);
+            field.resize(base_len);
+
+            for (uint32_t j = 0U; j < group.entity_id_count; ++j) {
+                field.append(".entity_id");
+                emit_u32_field(store, block, (*io_order)++, field,
+                               group.entity_ids[j]);
+                field.resize(base_len);
+            }
+            if (group.entity_truncated) {
+                field.append(".entity_truncated");
+                emit_u8_field(store, block, (*io_order)++, field, 1U);
+                field.resize(base_len);
+            }
+        }
+    }
+
+    static void emit_item_group_fields(MetaStore& store, BlockId block,
+                                       uint32_t* io_order,
+                                       const PrimaryProps& p) noexcept
+    {
+        if (!io_order || p.item_group_total == 0U) {
+            return;
+        }
+
+        emit_u32_field(store, block, (*io_order)++, "item_group.count",
+                       p.item_group_total);
+        if (p.item_group_truncated) {
+            emit_u8_field(store, block, (*io_order)++, "item_group.truncated",
+                          1U);
+        }
+
+        std::array<uint32_t, 32> dynamic_group_types {};
+        std::array<std::array<char, 5>, 32> dynamic_group_tokens {};
+        uint32_t dynamic_group_type_count = 0U;
+        uint32_t primary_group_count      = 0U;
+
+        for (uint32_t i = 0U; i < p.item_group_count; ++i) {
+            const ItemGroup& group = p.item_groups[i];
+
+            emit_u32_field(store, block, (*io_order)++, "item_group.type",
+                           group.group_type);
+            emit_text_field(store, block, (*io_order)++, "item_group.type_name",
+                            bmff_fourcc_display_name(group.group_type));
+            emit_u32_field(store, block, (*io_order)++, "item_group.id",
+                           group.group_id);
+            emit_u32_field(store, block, (*io_order)++,
+                           "item_group.entity_count", group.entity_count);
+            for (uint32_t j = 0U; j < group.entity_id_count; ++j) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "item_group.entity_id", group.entity_ids[j]);
+            }
+            if (group.entity_truncated) {
+                emit_u8_field(store, block, (*io_order)++,
+                              "item_group.entity_truncated", 1U);
+            }
+
+            std::array<char, 5> token {};
+            if (bmff_fourcc_field_token(group.group_type, &token)) {
+                bool found_dynamic = false;
+                for (uint32_t ti = 0U; ti < dynamic_group_type_count; ++ti) {
+                    if (dynamic_group_types[ti] == group.group_type) {
+                        found_dynamic = true;
+                        break;
+                    }
+                }
+                if (!found_dynamic
+                    && dynamic_group_type_count < dynamic_group_types.size()) {
+                    dynamic_group_types[dynamic_group_type_count]
+                        = group.group_type;
+                    dynamic_group_tokens[dynamic_group_type_count] = token;
+                    dynamic_group_type_count += 1U;
+                }
+            }
+
+            if (p.have_item_id && group.contains_primary) {
+                primary_group_count += 1U;
+            }
+        }
+
+        for (uint32_t ti = 0U; ti < dynamic_group_type_count; ++ti) {
+            emit_item_group_type_summary(
+                store, block, io_order, dynamic_group_types[ti],
+                std::string_view(dynamic_group_tokens[ti].data(), 4U),
+                std::span<const ItemGroup>(p.item_groups.data(),
+                                           p.item_group_count));
+        }
+
+        if (!p.have_item_id || primary_group_count == 0U) {
+            return;
+        }
+
+        emit_u32_field(store, block, (*io_order)++, "primary.item_group_count",
+                       primary_group_count);
+        for (uint32_t i = 0U; i < p.item_group_count; ++i) {
+            const ItemGroup& group = p.item_groups[i];
+            if (!group.contains_primary) {
+                continue;
+            }
+
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.item_group_type", group.group_type);
+            emit_text_field(store, block, (*io_order)++,
+                            "primary.item_group_type_name",
+                            bmff_fourcc_display_name(group.group_type));
+            emit_u32_field(store, block, (*io_order)++, "primary.item_group_id",
+                           group.group_id);
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.item_group_entity_count",
+                           group.entity_count);
+            for (uint32_t j = 0U; j < group.entity_id_count; ++j) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "primary.item_group_entity_id",
+                               group.entity_ids[j]);
+            }
+            if (group.entity_truncated) {
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.item_group_entity_truncated", 1U);
+            }
+        }
     }
 
     static uint8_t ascii_to_lower(uint8_t c) noexcept
@@ -2806,6 +2983,116 @@ namespace {
         return true;
     }
 
+    static bool bmff_collect_item_groups(std::span<const std::byte> bytes,
+                                         const BmffBox& grpl,
+                                         PrimaryProps* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+
+        const uint64_t payload_off = grpl.offset + grpl.header_size;
+        const uint64_t payload_end = grpl.offset + grpl.size;
+        if (payload_off > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        uint64_t off                = payload_off;
+        const uint32_t kMaxBoxes    = 1U << 16;
+        const uint32_t kMaxEntities = 1U << 18;
+        uint32_t seen               = 0U;
+        while (off + 8 <= payload_end) {
+            seen += 1U;
+            if (seen > kMaxBoxes) {
+                return false;
+            }
+
+            BmffBox child;
+            if (!parse_bmff_box(bytes, off, payload_end, &child)) {
+                break;
+            }
+
+            const uint64_t child_payload_off = child.offset + child.header_size;
+            const uint64_t child_payload_end = child.offset + child.size;
+            if (child_payload_off > child_payload_end
+                || child_payload_end > bytes.size()
+                || child_payload_off + 12U > child_payload_end) {
+                return false;
+            }
+
+            const uint8_t version = u8(bytes[child_payload_off + 0U]);
+            if (version != 0U) {
+                off += child.size;
+                if (child.size == 0U) {
+                    break;
+                }
+                continue;
+            }
+
+            uint64_t p        = child_payload_off + 4U;  // FullBox header.
+            uint32_t group_id = 0U;
+            if (!read_u32be(bytes, p, &group_id)) {
+                return false;
+            }
+            p += 4U;
+
+            uint32_t entity_count = 0U;
+            if (!read_u32be(bytes, p, &entity_count)) {
+                return false;
+            }
+            p += 4U;
+            if (entity_count > kMaxEntities
+                || entity_count > ((child_payload_end - p) / 4U)) {
+                return false;
+            }
+
+            if (out->item_group_total == UINT32_MAX) {
+                return false;
+            }
+            out->item_group_total += 1U;
+
+            ItemGroup* group = nullptr;
+            if (out->item_group_count < out->item_groups.size()) {
+                group               = &out->item_groups[out->item_group_count];
+                *group              = ItemGroup {};
+                group->group_type   = child.type;
+                group->group_id     = group_id;
+                group->entity_count = entity_count;
+                out->item_group_count += 1U;
+            } else {
+                out->item_group_truncated = true;
+            }
+
+            for (uint32_t i = 0U; i < entity_count; ++i) {
+                uint32_t entity_id = 0U;
+                if (!read_u32be(bytes, p, &entity_id)) {
+                    return false;
+                }
+                p += 4U;
+
+                if (!group) {
+                    continue;
+                }
+                if (out->have_item_id && entity_id == out->item_id) {
+                    group->contains_primary = true;
+                }
+                if (group->entity_id_count < group->entity_ids.size()) {
+                    group->entity_ids[group->entity_id_count] = entity_id;
+                    group->entity_id_count += 1U;
+                } else {
+                    group->entity_truncated = true;
+                }
+            }
+
+            off += child.size;
+            if (child.size == 0U) {
+                break;
+            }
+        }
+
+        return true;
+    }
+
 
     static bool bmff_decode_meta_primary(std::span<const std::byte> bytes,
                                          const BmffBox& meta,
@@ -2826,10 +3113,12 @@ namespace {
         BmffBox iinf {};
         BmffBox iprp {};
         BmffBox iref {};
+        BmffBox grpl {};
         bool has_pitm = false;
         bool has_iinf = false;
         bool has_iprp = false;
         bool has_iref = false;
+        bool has_grpl = false;
 
         uint64_t child_off       = payload_off + 4;  // FullBox header.
         const uint64_t child_end = meta.offset + meta.size;
@@ -2858,6 +3147,9 @@ namespace {
             } else if (child.type == fourcc('i', 'r', 'e', 'f')) {
                 iref     = child;
                 has_iref = true;
+            } else if (child.type == fourcc('g', 'r', 'p', 'l')) {
+                grpl     = child;
+                has_grpl = true;
             }
 
             child_off += child.size;
@@ -2870,20 +3162,29 @@ namespace {
             bmff_collect_iinf_items(bytes, iinf, out);
         }
 
-        if (!has_pitm) {
-            return (out->item_info_count > 0U);
+        if (has_pitm) {
+            uint32_t primary_id = 0;
+            if (!bmff_parse_pitm(bytes, pitm, &primary_id)) {
+                return false;
+            }
+            out->have_item_id = true;
+            out->item_id      = primary_id;
         }
-        uint32_t primary_id = 0;
-        if (!bmff_parse_pitm(bytes, pitm, &primary_id)) {
-            return false;
-        }
-        out->have_item_id = true;
-        out->item_id      = primary_id;
 
-        if (has_iref) {
+        if (has_iref && out->have_item_id) {
             if (!bmff_collect_iref_edges(bytes, iref, out)) {
                 return false;
             }
+        }
+
+        if (has_grpl) {
+            if (!bmff_collect_item_groups(bytes, grpl, out)) {
+                return false;
+            }
+        }
+
+        if (!has_pitm) {
+            return (out->item_info_count > 0U || out->item_group_total > 0U);
         }
 
         if (!has_iprp) {
@@ -2959,7 +3260,7 @@ namespace {
         }
 
         bmff_apply_ipma_primary(
-            bytes, ipma, primary_id,
+            bytes, ipma, out->item_id,
             std::span<const IspeProp>(ispe.data(), ispe_count),
             std::span<const U8Prop>(irot.data(), irot_count),
             std::span<const U8Prop>(imir.data(), imir_count),
@@ -3112,6 +3413,8 @@ namespace {
                             }
                         }
                     }
+                    emit_item_group_fields(*ctx->store, ctx->block, ctx->order,
+                                           p);
                     if (p.have_item_id) {
                         emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
                                        "meta.primary_item_id", p.item_id);
