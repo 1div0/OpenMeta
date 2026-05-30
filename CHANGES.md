@@ -16,6 +16,9 @@ Changes compared with `0.4.41`.
 
 - Updated public interpretation and RAW-read parity docs to reflect the new
   BMFF item-group graph surface.
+- Added a public planning note that RAW curve/LUT metadata should eventually be
+  bound to raw image data descriptors before being interpreted as active for a
+  specific storage or compression mode.
 
 ## 0.4.41 - 2026-05-28
 

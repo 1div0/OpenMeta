@@ -157,7 +157,9 @@ message text for a selected transfer mode.
      - Drop
      - These values describe how to turn original sensor data into rendered
        color. Reusing them on already-rendered pixels can make CMS or editors
-       apply the raw transform twice.
+       apply the raw transform twice. Curve/LUT metadata is also conditional:
+       future interpretation should bind it to a raw image data descriptor and
+       expose whether it is active for the actual storage/compression mode.
    * - RAW crop, geometry, storage, correction, and private data
      - ``ActiveArea``, ``DefaultCrop*``, masked areas, opcode lists,
        distortion/vignetting/camera-profile correction data, Phase One/Leaf

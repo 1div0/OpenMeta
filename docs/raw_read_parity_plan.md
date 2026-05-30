@@ -50,3 +50,22 @@ group names, and intentional-difference notes. Each new lane should add:
    typed, and safety-classified.
 5. Continue vendor MakerNote table work for fields that affect crop, color,
    orientation, lens correction, or safe transfer decisions.
+
+## Future Interpretation Idea: RAW Curve Applicability
+
+RAW curve and LUT metadata should not be treated as automatically active just
+because the tag is present. Some formats may store curve-like metadata in both
+compressed and uncompressed variants, while only one raw storage path actually
+uses it.
+
+Future interpretation work should pair curve/LUT entries with a raw image data
+descriptor that records the relevant plane/blob, compression or packing mode,
+sample layout, offsets/byte counts when available, and the decoder stage where
+the curve applies. The interpreted result should expose an applicability state
+such as active, inactive for this storage mode, conditional, or unknown.
+
+Verification should require more than tag-name comparison: decoder-source
+tracing, runtime branch confirmation, metadata mutation/removal tests, and raw
+pixel-buffer diffs across compressed and uncompressed samples should be used
+before OpenMeta promotes a curve/LUT from present metadata to an active
+raw-processing operation.
