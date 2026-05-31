@@ -801,6 +801,13 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
         std::byte { 'l' }, std::byte { '/' }, std::byte { '>' },
     };
 
+    const std::array<std::byte, 11> lightroom_workflow = {
+        std::byte { 'l' }, std::byte { 'r' }, std::byte { ':' },
+        std::byte { 'w' }, std::byte { 'o' }, std::byte { 'r' },
+        std::byte { 'k' }, std::byte { 'f' }, std::byte { 'l' },
+        std::byte { 'o' }, std::byte { 'w' },
+    };
+
     std::vector<std::byte> working_path(26U, std::byte { 0x00 });
     working_path[1] = std::byte { 0x01 };
 
@@ -833,6 +840,7 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     append_irb_resource(0x1B58U, image_ready_variables, &irb);
     append_irb_resource(0x1B59U, image_ready_data_sets, &irb);
     append_irb_resource(0x03EAU, xml_data, &irb);
+    append_irb_resource(0x1F40U, lightroom_workflow, &irb);
     append_irb_resource(0x0401U, working_path, &irb);
     append_irb_resource(0x03F4U, halftone, &irb);
     append_irb_resource(0x03F7U, transfer_function, &irb);
@@ -842,8 +850,8 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 15U);
-    EXPECT_EQ(r.entries_decoded, 43U);
+    EXPECT_EQ(r.resources_decoded, 16U);
+    EXPECT_EQ(r.entries_decoded, 45U);
 
     const Entry* channels = find_photoshop_irb_field(store, 0x03E8U,
                                                      "Photoshop2ChannelCount");
@@ -906,6 +914,11 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
         = collect_photoshop_irb_text_fields(store, 0x03EAU, "XMLData");
     ASSERT_EQ(xml_values.size(), 1U);
     EXPECT_EQ(xml_values[0], "<xml/>");
+    const std::vector<std::string_view> lightroom_values
+        = collect_photoshop_irb_text_fields(store, 0x1F40U,
+                                            "LightroomWorkflow");
+    ASSERT_EQ(lightroom_values.size(), 1U);
+    EXPECT_EQ(lightroom_values[0], "lr:workflow");
 
     const Entry* path_count = find_photoshop_irb_field(store, 0x0401U,
                                                        "PathRecordCount");

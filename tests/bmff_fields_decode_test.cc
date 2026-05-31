@@ -1016,6 +1016,166 @@ TEST(BmffDerivedFieldsDecode, EmitsItemGroupsAndPrimaryMembership)
     EXPECT_EQ(primary_group_entity_count[0], 3U);
 }
 
+TEST(BmffDerivedFieldsDecode, EmitsItemLocationAndIdatSummaries)
+{
+    std::vector<std::byte> file;
+
+    {
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+    }
+
+    {
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0);
+        append_u16be(&pitm_payload, 1);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1);
+        iloc_payload.push_back(std::byte { 0x44 });  // offset/length sizes
+        iloc_payload.push_back(std::byte { 0x40 });  // base/index sizes
+        append_u16be(&iloc_payload, 2);              // item_count
+
+        append_u16be(&iloc_payload, 1);  // item id
+        append_u16be(&iloc_payload, 1);  // construction_method=idat offset
+        append_u16be(&iloc_payload, 0);  // data_reference_index
+        append_u32be(&iloc_payload, 0);  // base_offset
+        append_u16be(&iloc_payload, 2);  // extent_count
+        append_u32be(&iloc_payload, 4);
+        append_u32be(&iloc_payload, 12);
+        append_u32be(&iloc_payload, 20);
+        append_u32be(&iloc_payload, 8);
+
+        append_u16be(&iloc_payload, 2);  // item id
+        append_u16be(&iloc_payload, 0);  // construction_method=file offset
+        append_u16be(&iloc_payload, 0);  // data_reference_index
+        append_u32be(&iloc_payload, 1000);
+        append_u16be(&iloc_payload, 1);
+        append_u32be(&iloc_payload, 32);
+        append_u32be(&iloc_payload, 16);
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        std::vector<std::byte> idat_payload(64, std::byte { 0x33 });
+        std::vector<std::byte> idat_box;
+        append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
+        meta_payload.insert(meta_payload.end(), idat_box.begin(),
+                            idat_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    }
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 2048> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint64_t> idat_bytes = collect_u64_values(store,
+                                                                "idat.bytes");
+    ASSERT_EQ(idat_bytes.size(), 1U);
+    EXPECT_EQ(idat_bytes[0], 64U);
+
+    const std::vector<uint32_t> item_location_count
+        = collect_u32_values(store, "item_location.count");
+    ASSERT_EQ(item_location_count.size(), 1U);
+    EXPECT_EQ(item_location_count[0], 2U);
+
+    const std::vector<uint8_t> version
+        = collect_u8_values(store, "item_location.version");
+    ASSERT_EQ(version.size(), 1U);
+    EXPECT_EQ(version[0], 1U);
+    const std::vector<uint8_t> offset_size
+        = collect_u8_values(store, "item_location.offset_size");
+    ASSERT_EQ(offset_size.size(), 1U);
+    EXPECT_EQ(offset_size[0], 4U);
+    const std::vector<uint8_t> length_size
+        = collect_u8_values(store, "item_location.length_size");
+    ASSERT_EQ(length_size.size(), 1U);
+    EXPECT_EQ(length_size[0], 4U);
+    const std::vector<uint8_t> base_offset_size
+        = collect_u8_values(store, "item_location.base_offset_size");
+    ASSERT_EQ(base_offset_size.size(), 1U);
+    EXPECT_EQ(base_offset_size[0], 4U);
+
+    const std::vector<uint32_t> item_ids
+        = collect_u32_values(store, "item_location.item_id");
+    ASSERT_EQ(item_ids.size(), 2U);
+    EXPECT_EQ(item_ids[0], 1U);
+    EXPECT_EQ(item_ids[1], 2U);
+
+    const std::vector<uint16_t> methods
+        = collect_u16_values(store, "item_location.construction_method");
+    ASSERT_EQ(methods.size(), 2U);
+    EXPECT_EQ(methods[0], 1U);
+    EXPECT_EQ(methods[1], 0U);
+    const std::vector<std::string> method_names
+        = collect_text_values(store, "item_location.construction_method_name");
+    ASSERT_EQ(method_names.size(), 2U);
+    EXPECT_EQ(method_names[0], "idat_offset");
+    EXPECT_EQ(method_names[1], "file_offset");
+
+    const std::vector<uint64_t> base_offsets
+        = collect_u64_values(store, "item_location.base_offset");
+    ASSERT_EQ(base_offsets.size(), 2U);
+    EXPECT_EQ(base_offsets[0], 0U);
+    EXPECT_EQ(base_offsets[1], 1000U);
+    const std::vector<uint64_t> total_bytes
+        = collect_u64_values(store, "item_location.total_extent_bytes");
+    ASSERT_EQ(total_bytes.size(), 2U);
+    EXPECT_EQ(total_bytes[0], 20U);
+    EXPECT_EQ(total_bytes[1], 16U);
+
+    const std::vector<uint64_t> extent_offsets
+        = collect_u64_values(store, "item_location.extent_offset");
+    ASSERT_EQ(extent_offsets.size(), 3U);
+    EXPECT_EQ(extent_offsets[0], 4U);
+    EXPECT_EQ(extent_offsets[1], 20U);
+    EXPECT_EQ(extent_offsets[2], 32U);
+    const std::vector<uint64_t> extent_lengths
+        = collect_u64_values(store, "item_location.extent_length");
+    ASSERT_EQ(extent_lengths.size(), 3U);
+    EXPECT_EQ(extent_lengths[0], 12U);
+    EXPECT_EQ(extent_lengths[1], 8U);
+    EXPECT_EQ(extent_lengths[2], 16U);
+
+    const std::vector<uint32_t> idat_item_count
+        = collect_u32_values(store, "item_location.idat_item_count");
+    ASSERT_EQ(idat_item_count.size(), 1U);
+    EXPECT_EQ(idat_item_count[0], 1U);
+
+    const std::vector<uint32_t> primary_item_id
+        = collect_u32_values(store, "primary.item_location.item_id");
+    ASSERT_EQ(primary_item_id.size(), 1U);
+    EXPECT_EQ(primary_item_id[0], 1U);
+    const std::vector<uint16_t> primary_method
+        = collect_u16_values(store,
+                             "primary.item_location.construction_method");
+    ASSERT_EQ(primary_method.size(), 1U);
+    EXPECT_EQ(primary_method[0], 1U);
+    const std::vector<uint64_t> primary_total
+        = collect_u64_values(store, "primary.item_location.total_extent_bytes");
+    ASSERT_EQ(primary_total.size(), 1U);
+    EXPECT_EQ(primary_total[0], 20U);
+}
+
 TEST(BmffDerivedFieldsDecode, EmitsIrefEdgesForVersion1ItemIds)
 {
     // Same auxl edge semantics as the v0 test, but with 32-bit item IDs in

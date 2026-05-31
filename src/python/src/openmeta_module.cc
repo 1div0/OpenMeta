@@ -1171,7 +1171,14 @@ namespace {
         out["rendered_image_safe"]  = nb::bool_(candidate.rendered_image_safe);
         out["requires_target_image_spec"] = nb::bool_(
             candidate.requires_target_image_spec);
-        out["source_bound"]  = nb::bool_(candidate.source_bound);
+        out["source_bound"]           = nb::bool_(candidate.source_bound);
+        out["raw_applicability"]      = candidate.raw_applicability;
+        out["raw_applicability_name"] = nb::str(
+            metadata_raw_applicability_state_name(candidate.raw_applicability));
+        out["raw_applicability_requires_storage_context"] = nb::bool_(
+            candidate.raw_applicability_requires_storage_context);
+        out["raw_applicability_can_affect_decode"] = nb::bool_(
+            candidate.raw_applicability_can_affect_decode);
         out["has_numeric"]   = nb::bool_(candidate.has_numeric);
         out["numeric_count"] = nb::int_(candidate.numeric_count);
         if (candidate.has_numeric) {
@@ -6174,6 +6181,24 @@ NB_MODULE(_openmeta, m)
         .value("RenderedUnsafe", MetadataConceptTransferHint::RenderedUnsafe)
         .value("RequiresTargetImageSpec",
                MetadataConceptTransferHint::RequiresTargetImageSpec);
+
+    nb::enum_<MetadataRawDataEncoding>(m, "MetadataRawDataEncoding")
+        .value("Unknown", MetadataRawDataEncoding::Unknown)
+        .value("Uncompressed", MetadataRawDataEncoding::Uncompressed)
+        .value("Packed", MetadataRawDataEncoding::Packed)
+        .value("LosslessCompressed",
+               MetadataRawDataEncoding::LosslessCompressed)
+        .value("LossyCompressed", MetadataRawDataEncoding::LossyCompressed)
+        .value("Rendered", MetadataRawDataEncoding::Rendered);
+
+    nb::enum_<MetadataRawApplicabilityState>(m, "MetadataRawApplicabilityState")
+        .value("Unknown", MetadataRawApplicabilityState::Unknown)
+        .value("AppliesToStoredRaw",
+               MetadataRawApplicabilityState::AppliesToStoredRaw)
+        .value("ConditionalOnRawEncoding",
+               MetadataRawApplicabilityState::ConditionalOnRawEncoding)
+        .value("NotApplicableToStoredRaw",
+               MetadataRawApplicabilityState::NotApplicableToStoredRaw);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)

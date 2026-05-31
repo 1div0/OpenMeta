@@ -1689,6 +1689,11 @@ namespace {
                                        "ImageReadyDataSets", store, block,
                                        order, result);
             break;
+        case 0x1F40U:
+            decode_ascii_text_resource(payload, resource_id,
+                                       "LightroomWorkflow", store, block, order,
+                                       result);
+            break;
         case 0x2710U:
             decode_print_flags_info(payload, store, block, order, result);
             break;

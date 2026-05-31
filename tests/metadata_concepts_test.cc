@@ -1408,6 +1408,10 @@ namespace {
         ASSERT_NE(black, nullptr);
         EXPECT_EQ(black->transfer_hint,
                   MetadataConceptTransferHint::RenderedUnsafe);
+        EXPECT_EQ(black->raw_applicability,
+                  MetadataRawApplicabilityState::AppliesToStoredRaw);
+        EXPECT_FALSE(black->raw_applicability_requires_storage_context);
+        EXPECT_TRUE(black->raw_applicability_can_affect_decode);
         const MetadataConceptCandidate* curve
             = find_role(*raw, MetadataConceptRole::RawValueCurve);
         ASSERT_NE(curve, nullptr);
@@ -1415,6 +1419,10 @@ namespace {
                   MetadataConceptTransferHint::RenderedUnsafe);
         EXPECT_TRUE(curve->compatible_file_safe);
         EXPECT_FALSE(curve->rendered_image_safe);
+        EXPECT_EQ(curve->raw_applicability,
+                  MetadataRawApplicabilityState::ConditionalOnRawEncoding);
+        EXPECT_TRUE(curve->raw_applicability_requires_storage_context);
+        EXPECT_TRUE(curve->raw_applicability_can_affect_decode);
         const MetadataConceptCandidate* source
             = find_role(*raw, MetadataConceptRole::ComputationalProcessing);
         ASSERT_NE(source, nullptr);
@@ -1428,6 +1436,13 @@ namespace {
         EXPECT_STREQ(metadata_concept_role_name(
                          MetadataConceptRole::RawValueCurve),
                      "raw_value_curve");
+        EXPECT_STREQ(metadata_raw_data_encoding_name(
+                         MetadataRawDataEncoding::LosslessCompressed),
+                     "lossless_compressed");
+        EXPECT_STREQ(
+            metadata_raw_applicability_state_name(
+                MetadataRawApplicabilityState::ConditionalOnRawEncoding),
+            "conditional_on_raw_encoding");
     }
 
     TEST(MetadataConcepts, SurfacesColorAndGeometryConflicts)

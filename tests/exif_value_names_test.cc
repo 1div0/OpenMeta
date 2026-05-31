@@ -210,6 +210,9 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_menusettingsz9v4_0",
                                                  0x02EAU, 3U),
                      "Highlight");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_menusettingsz6iii_0",
+                                                 0x02D2U, 2U),
+                     "Spot");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_menusettingsz8_0",
                                                  0x0340U, 4U),
                      "AF-F");
@@ -219,6 +222,9 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_menusettingsz9_0",
                                                  0x008CU, 2U),
                      "On (Series)");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_menusettingsz6iii_0",
+                                                 0x01BCU, 1U),
+                     "On");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon0", 0x009DU, 0U),
                      "Off");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_afinfo_0", 0x0000U,

@@ -1,5 +1,28 @@
 # OpenMeta Changes
 
+## 0.4.43 - 2026-05-30
+
+Changes compared with `0.4.42`.
+
+### Added
+
+- Added bounded BMFF `iloc`/`idat` item-data layout summaries, including item
+  construction methods, extent counts, total extent byte counts, idat-backed
+  item counts, and primary-item location aliases.
+- Added Photoshop IRB `LightroomWorkflow` ASCII text interpretation while still
+  preserving the raw IRB resource.
+- Added focused coverage for Nikon Z6 III per-version MakerNote menu-setting
+  value-name dispatch.
+- Added experimental RAW data encoding and RAW applicability state tokens for
+  cross-family concept candidates, exposed through C++ and the thin Python
+  dictionary wrappers.
+
+### Changed
+
+- Updated public interpretation, support, API-stability, and RAW-read planning
+  docs to describe BMFF item-data layout fields and the new conservative RAW
+  curve applicability scaffold.
+
 ## 0.4.42 - 2026-05-29
 
 Changes compared with `0.4.41`.

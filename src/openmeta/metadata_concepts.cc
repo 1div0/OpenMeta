@@ -762,6 +762,81 @@ namespace {
               || hint == MetadataConceptTransferHint::RenderedUnsafe;
     }
 
+    static void set_raw_applicability(MetadataConceptCandidate* candidate,
+                                      MetadataRawApplicabilityState state,
+                                      bool requires_storage_context,
+                                      bool can_affect_decode) noexcept
+    {
+        if (!candidate) {
+            return;
+        }
+        candidate->raw_applicability = state;
+        candidate->raw_applicability_requires_storage_context
+            = requires_storage_context;
+        candidate->raw_applicability_can_affect_decode = can_affect_decode;
+    }
+
+    static void
+    assign_raw_applicability(MetadataConceptCandidate* candidate) noexcept
+    {
+        if (!candidate
+            || candidate->kind != MetadataConceptKind::RawProcessing) {
+            return;
+        }
+        switch (candidate->role) {
+        case MetadataConceptRole::BlackLevel:
+        case MetadataConceptRole::WhiteLevel:
+        case MetadataConceptRole::CfaLayout:
+        case MetadataConceptRole::SensorGeometry:
+        case MetadataConceptRole::RawStorage:
+            set_raw_applicability(
+                candidate, MetadataRawApplicabilityState::AppliesToStoredRaw,
+                false, true);
+            return;
+        case MetadataConceptRole::Linearization:
+        case MetadataConceptRole::RawValueCurve:
+        case MetadataConceptRole::RawLinearityLimit:
+        case MetadataConceptRole::RawCalibrationCurve:
+        case MetadataConceptRole::RawCurveControlPoints:
+            set_raw_applicability(
+                candidate,
+                MetadataRawApplicabilityState::ConditionalOnRawEncoding, true,
+                true);
+            return;
+        case MetadataConceptRole::SourceProcessing:
+        case MetadataConceptRole::ComputationalProcessing:
+        case MetadataConceptRole::ThermalProcessing:
+        case MetadataConceptRole::StitchProcessing:
+        case MetadataConceptRole::ExposureTime:
+        case MetadataConceptRole::Aperture:
+        case MetadataConceptRole::IsoSensitivity:
+        case MetadataConceptRole::ExposureBias:
+        case MetadataConceptRole::ExposureProgram:
+        case MetadataConceptRole::Gain:
+        case MetadataConceptRole::RawExposureAdjustment:
+        case MetadataConceptRole::Primary:
+        case MetadataConceptRole::Orientation:
+        case MetadataConceptRole::Created:
+        case MetadataConceptRole::Digitized:
+        case MetadataConceptRole::Modified:
+        case MetadataConceptRole::MetadataDate:
+        case MetadataConceptRole::DateCreated:
+        case MetadataConceptRole::ColorSpace:
+        case MetadataConceptRole::IccProfile:
+        case MetadataConceptRole::ColorMatrix:
+        case MetadataConceptRole::WhiteBalance:
+        case MetadataConceptRole::SourceColorTransform:
+        case MetadataConceptRole::Latitude:
+        case MetadataConceptRole::Longitude:
+        case MetadataConceptRole::Altitude:
+        case MetadataConceptRole::Timestamp:
+        case MetadataConceptRole::Crop:
+        case MetadataConceptRole::ActiveArea:
+        case MetadataConceptRole::Border:
+        case MetadataConceptRole::LensCorrection: break;
+        }
+    }
+
     static void
     assign_transfer_hint(MetadataConceptCandidate* candidate) noexcept
     {
@@ -2974,6 +3049,7 @@ namespace {
             candidate.preferred                 = false;
             candidate.conflict                  = false;
             assign_transfer_hint(&candidate);
+            assign_raw_applicability(&candidate);
             if (candidate.source_entries.empty()) {
                 add_unique_entry(&resolution->source_entries,
                                  candidate.entry_id);
@@ -3227,6 +3303,37 @@ metadata_concept_transfer_hint_name(MetadataConceptTransferHint hint) noexcept
     case MetadataConceptTransferHint::RenderedUnsafe: return "rendered_unsafe";
     case MetadataConceptTransferHint::RequiresTargetImageSpec:
         return "requires_target_image_spec";
+    }
+    return "unknown";
+}
+
+const char*
+metadata_raw_data_encoding_name(MetadataRawDataEncoding encoding) noexcept
+{
+    switch (encoding) {
+    case MetadataRawDataEncoding::Unknown: return "unknown";
+    case MetadataRawDataEncoding::Uncompressed: return "uncompressed";
+    case MetadataRawDataEncoding::Packed: return "packed";
+    case MetadataRawDataEncoding::LosslessCompressed:
+        return "lossless_compressed";
+    case MetadataRawDataEncoding::LossyCompressed: return "lossy_compressed";
+    case MetadataRawDataEncoding::Rendered: return "rendered";
+    }
+    return "unknown";
+}
+
+const char*
+metadata_raw_applicability_state_name(
+    MetadataRawApplicabilityState state) noexcept
+{
+    switch (state) {
+    case MetadataRawApplicabilityState::Unknown: return "unknown";
+    case MetadataRawApplicabilityState::AppliesToStoredRaw:
+        return "applies_to_stored_raw";
+    case MetadataRawApplicabilityState::ConditionalOnRawEncoding:
+        return "conditional_on_raw_encoding";
+    case MetadataRawApplicabilityState::NotApplicableToStoredRaw:
+        return "not_applicable_to_stored_raw";
     }
     return "unknown";
 }

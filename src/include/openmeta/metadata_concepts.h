@@ -102,6 +102,35 @@ enum class MetadataConceptTransferHint : uint8_t {
     RequiresTargetImageSpec,
 };
 
+enum class MetadataRawDataEncoding : uint8_t {
+    Unknown,
+    Uncompressed,
+    Packed,
+    LosslessCompressed,
+    LossyCompressed,
+    Rendered,
+};
+
+enum class MetadataRawApplicabilityState : uint8_t {
+    Unknown,
+    AppliesToStoredRaw,
+    ConditionalOnRawEncoding,
+    NotApplicableToStoredRaw,
+};
+
+struct MetadataRawDataDescriptor final {
+    MetadataRawDataEncoding encoding = MetadataRawDataEncoding::Unknown;
+    bool has_dimensions              = false;
+    uint32_t width                   = 0U;
+    uint32_t height                  = 0U;
+    bool has_channel_count           = false;
+    uint32_t channel_count           = 0U;
+    bool has_bits_per_sample         = false;
+    uint32_t bits_per_sample         = 0U;
+    bool has_compression_code        = false;
+    uint32_t compression_code        = 0U;
+};
+
 struct MetadataConceptCandidate final {
     MetadataConceptKind kind           = MetadataConceptKind::Orientation;
     MetadataConceptRole role           = MetadataConceptRole::Primary;
@@ -120,6 +149,11 @@ struct MetadataConceptCandidate final {
     bool rendered_image_safe        = false;
     bool requires_target_image_spec = false;
     bool source_bound               = false;
+
+    MetadataRawApplicabilityState raw_applicability
+        = MetadataRawApplicabilityState::Unknown;
+    bool raw_applicability_requires_storage_context = false;
+    bool raw_applicability_can_affect_decode        = false;
 
     bool has_numeric      = false;
     uint8_t numeric_count = 0U;
@@ -203,6 +237,13 @@ metadata_concept_timezone_kind_name(MetadataConceptTimeZoneKind kind) noexcept;
 
 const char*
 metadata_concept_transfer_hint_name(MetadataConceptTransferHint hint) noexcept;
+
+const char*
+metadata_raw_data_encoding_name(MetadataRawDataEncoding encoding) noexcept;
+
+const char*
+metadata_raw_applicability_state_name(
+    MetadataRawApplicabilityState state) noexcept;
 
 const char*
 metadata_concept_gps_altitude_reference_name(uint8_t code) noexcept;

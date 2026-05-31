@@ -99,10 +99,11 @@ Host-facing API map
        behavior, but the interpreted subset can still grow. Current
        interpretation includes fixed-layout resource fields,
        display/grid/thumbnail/color-sampler headers, path-record summaries,
-       descriptor-header summaries, ``XMLData`` and ImageReady ASCII text
-       resources, legacy halftone/transfer/duotone/EPS byte summaries,
-       embedded ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
-       IPTC-IIM, XMP, and ICC payload decode.
+       descriptor-header summaries, ``XMLData``, ImageReady ASCII text
+       resources, Lightroom workflow text, legacy
+       halftone/transfer/duotone/EPS byte summaries, embedded
+       ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded IPTC-IIM,
+       XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``
@@ -173,12 +174,12 @@ Host-facing API map
      - First bounded resolver for duplicated host-facing concepts. Current
        scope reports candidates, candidate source entries, source families,
        preferred entries, normalized numeric/text keys, full normalized value
-       vectors, transfer hints, normalized date/time fields, date/time
-       precision, timezone kind, normalized geometry fields, normalized
-       exposure values, and same-role conflicts for orientation, date/time,
-       exposure/gain, color/profile/source-color-transform, GPS, geometry,
-       lens-correction, and RAW-processing evidence across EXIF, XMP, IPTC,
-       ICC, PNG text, and query-backed interpretation records where
+       vectors, transfer hints, RAW applicability states, normalized date/time
+       fields, date/time precision, timezone kind, normalized geometry fields,
+       normalized exposure values, and same-role conflicts for orientation,
+       date/time, exposure/gain, color/profile/source-color-transform, GPS,
+       geometry, lens-correction, and RAW-processing evidence across EXIF, XMP,
+       IPTC, ICC, PNG text, and query-backed interpretation records where
        applicable. Exposure
        candidates cover exposure time, aperture, ISO sensitivity, exposure
        bias, exposure program/mode, gain, and raw exposure-adjustment roles
@@ -202,6 +203,9 @@ Host-facing API map
        curve/linearity/calibration roles are marked rendered-unsafe, while
        computational, thermal, and stitch/panorama RAW-processing roles are
        marked source-bound.
+       RAW curve/LUT-like concept roles are conservatively marked
+       ``conditional_on_raw_encoding`` until a raw data descriptor can confirm
+       whether they affect the stored samples.
        GPS date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp``
        when both entries exist, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference

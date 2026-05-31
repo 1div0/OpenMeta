@@ -149,10 +149,14 @@ Coverage matrix
        safety. Current public RAW curve coverage includes DNG linearization/
        linearity-limit tags plus conservative Sony, Nikon, Kodak, Panasonic,
        and Phase One/Leaf-style curve or calibration names where decoded
-       metadata is visible. Lens-correction grouped tables require numeric
+       metadata is visible. RAW concept candidates now expose a conservative
+       RAW applicability state so curve/LUT-like entries can be marked as
+       conditional on raw storage/encoding until a host or decoder supplies a
+       raw data descriptor. Lens-correction grouped tables require numeric
        payloads before promotion.
-     - Medium-high, about 84-91%.
-     - Long-tail per-model correction tables and richer numeric normalization.
+     - Medium-high, about 85-91%.
+     - Long-tail per-model correction tables, raw data descriptor binding, and
+       richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
        common vendors and several live computational/thermal vendors. Unknown
@@ -180,11 +184,13 @@ Coverage matrix
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, bounded ``ipma`` item-property association rows,
        bounded relations, ``grpl`` item-group rows, per-group-type summaries,
-       primary item-group memberships, primary-linked roles, aux semantics,
-       primary color/profile property summaries, primary pixel aspect ratio,
-       primary pixel component bit depth, clean-aperture rationals, JUMBF box
-       labels, and draft C2PA/JUMBF structural fields are exposed.
-     - Medium, about 72-82%.
+       primary item-group memberships, bounded ``iloc``/``idat`` item-data
+       layout summaries, primary item-location aliases, primary-linked roles,
+       aux semantics, primary color/profile property summaries, primary pixel
+       aspect ratio, primary pixel component bit depth, clean-aperture
+       rationals, JUMBF box labels, and draft C2PA/JUMBF structural fields are
+       exposed.
+     - Medium, about 74-83%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -193,12 +199,13 @@ Coverage matrix
        border/background/effective-BW data, display info, grid/guide info,
        color sampler headers/records, descriptor-header summaries, path record
        summaries, alpha names/identifiers, captions, QuickMask info, URL/list
-       data, autosave strings, ``XMLData``, ImageReady XML text, thumbnail
-       headers, channel options, clipping-path names, legacy
+       data, autosave strings, ``XMLData``, ImageReady XML text, Lightroom
+       workflow text, thumbnail headers, channel options, clipping-path names,
+       legacy
        halftone/transfer/duotone/EPS byte summaries, embedded ICC/XMP/EXIF
        resource byte counts, and embedded IPTC/XMP/ICC payload decode where
        enabled.
-     - Medium, about 75-84%.
+     - Medium, about 76-84%.
      - Broader resource-specific descriptor parsing and long-tail resource
        interpretation.
    * - Semantic query/search and records
@@ -223,9 +230,10 @@ Coverage matrix
        timezone/precision classification, combined GPS timestamps, GPS
        altitude-reference state and display token, canonical geometry
        origin/size/rect/margins, normalized exposure values, shape-checked
-       grouped value vectors, transfer hints, rendered/compatible safety
-       booleans, and tolerance-aware GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 83-89%.
+       grouped value vectors, transfer hints, RAW applicability states,
+       rendered/compatible safety booleans, and tolerance-aware
+       GPS/exposure/color/geometry conflicts.
+     - Medium-high, about 84-89%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification

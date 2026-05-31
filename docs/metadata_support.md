@@ -71,10 +71,10 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout and descriptor-header summaries, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, and descriptor-header summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipma`, `iref`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
@@ -147,6 +147,7 @@ summaries such as:
 - `XMLData`
 - `ImageReadyVariables`
 - `ImageReadyDataSets`
+- `LightroomWorkflow`
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
 - `WorkingPath` and numbered path resources as record counts/selectors
 - descriptor-header summaries for resources such as `LayerComps`,
@@ -167,7 +168,7 @@ Current Photoshop IRB interpretation status:
 | --- | --- | --- |
 | Raw IRB resources | Preserved | Every accepted resource keeps a lossless `PhotoshopIrb` raw entry. |
 | Embedded IPTC/XMP/ICC/EXIF carriers | Interpreted where enabled | Payload bytes remain preserved; enabled decoders also emit regular family entries. |
-| Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, `XMLData`, and similar bounded fields. |
+| Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, `XMLData`, ImageReady text, Lightroom workflow text, and similar bounded fields. |
 | Geometry/display/color-sampler/path headers | Interpreted / record-summary | Display/grid/thumbnail/color-sampler headers are decoded; path resources expose record counts and selectors without interpreting Bezier payloads. |
 | Descriptor-backed Photoshop resources | Descriptor-header only | Descriptor version and remaining byte count are emitted; descriptor body parsing remains out of scope for this subset. |
 | Legacy halftone/transfer/duotone/EPS resources | Header / byte-count only | OpenMeta emits byte counts and first header words where safe, without claiming full Photoshop semantics. |
@@ -189,6 +190,10 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   JUMBF, C2PA, ICC profile, auxiliary, derived, thumbnail,
   content-description, URI, and JSON roles
 - typed `iref.<type>.*` rows
+- bounded `grpl` item-group rows and per-group-type summaries
+- bounded `iloc`/`idat` item-data layout summaries, including construction
+  methods, extent counts, total extent byte counts, idat byte counts, and
+  primary-item location aliases
 - graph summaries
 - `auxC`-typed auxiliary semantics
 - bounded primary-linked image-role fields

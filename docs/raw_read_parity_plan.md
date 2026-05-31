@@ -51,18 +51,31 @@ group names, and intentional-difference notes. Each new lane should add:
 5. Continue vendor MakerNote table work for fields that affect crop, color,
    orientation, lens correction, or safe transfer decisions.
 
-## Future Interpretation Idea: RAW Curve Applicability
+## RAW Curve Applicability
 
 RAW curve and LUT metadata should not be treated as automatically active just
 because the tag is present. Some formats may store curve-like metadata in both
 compressed and uncompressed variants, while only one raw storage path actually
 uses it.
 
-Future interpretation work should pair curve/LUT entries with a raw image data
+OpenMeta now exposes a conservative applicability scaffold for RAW-processing
+concept candidates:
+- `MetadataRawDataEncoding` describes the host or decoder view of stored raw
+  pixels, such as uncompressed, packed, lossless-compressed, lossy-compressed,
+  rendered, or unknown.
+- `MetadataRawDataDescriptor` is the public carrier for dimensions,
+  channel-count, bit-depth, compression code, and storage encoding when a host
+  can provide them.
+- `MetadataRawApplicabilityState` marks current concept candidates as unknown,
+  applicable to stored raw samples, conditional on raw encoding, or not
+  applicable to stored raw samples.
+
+The current resolver only marks curve/LUT-like RAW roles as conditional on raw
+encoding. It does not yet prove that a vendor curve is active for a specific
+file. Future interpretation work should bind curve/LUT entries to the raw data
 descriptor that records the relevant plane/blob, compression or packing mode,
 sample layout, offsets/byte counts when available, and the decoder stage where
-the curve applies. The interpreted result should expose an applicability state
-such as active, inactive for this storage mode, conditional, or unknown.
+the curve applies.
 
 Verification should require more than tag-name comparison: decoder-source
 tracing, runtime branch confirmation, metadata mutation/removal tests, and raw

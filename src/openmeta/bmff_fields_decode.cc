@@ -79,6 +79,23 @@ namespace {
         return true;
     }
 
+    static bool read_uint_be_n(std::span<const std::byte> bytes,
+                               uint64_t offset, uint8_t byte_count,
+                               uint64_t* out) noexcept
+    {
+        const uint64_t size = static_cast<uint64_t>(bytes.size());
+        if (!out || byte_count > 8U || offset > size
+            || static_cast<uint64_t>(byte_count) > size - offset) {
+            return false;
+        }
+        uint64_t v = 0U;
+        for (uint8_t i = 0U; i < byte_count; ++i) {
+            v = (v << 8U) | static_cast<uint64_t>(u8(bytes[offset + i]));
+        }
+        *out = v;
+        return true;
+    }
+
 
     struct BmffBox final {
         uint64_t offset      = 0;
@@ -662,6 +679,25 @@ namespace {
         std::array<uint32_t, 64> entity_ids {};
     };
 
+    struct ItemLocationExtent final {
+        uint64_t index  = 0;
+        uint64_t offset = 0;
+        uint64_t length = 0;
+    };
+
+    struct ItemLocation final {
+        uint32_t item_id              = 0;
+        uint16_t construction_method  = 0;
+        uint16_t data_reference_index = 0;
+        uint64_t base_offset          = 0;
+        uint32_t extent_count         = 0;
+        uint32_t extent_record_count  = 0;
+        uint64_t total_extent_bytes   = 0;
+        bool extent_truncated         = false;
+        bool length_overflow          = false;
+        std::array<ItemLocationExtent, 16> extents {};
+    };
+
     struct ItemPropertyAssociation final {
         uint32_t item_id        = 0;
         uint32_t property_index = 0;
@@ -730,6 +766,19 @@ namespace {
         uint32_t item_group_count = 0;
         uint32_t item_group_total = 0;
         bool item_group_truncated = false;
+
+        std::array<ItemLocation, 128> item_locations {};
+        uint32_t item_location_count           = 0;
+        uint32_t item_location_total           = 0;
+        bool item_location_truncated           = false;
+        bool have_item_location_sizes          = false;
+        uint8_t item_location_version          = 0;
+        uint8_t item_location_offset_size      = 0;
+        uint8_t item_location_length_size      = 0;
+        uint8_t item_location_base_offset_size = 0;
+        uint8_t item_location_index_size       = 0;
+        bool have_idat                         = false;
+        uint64_t idat_bytes                    = 0;
 
         std::array<ItemPropertyAssociation, 512> ipma_associations {};
         uint32_t ipma_association_count = 0;
@@ -1031,6 +1080,163 @@ namespace {
                               "primary.item_group_entity_truncated", 1U);
             }
         }
+    }
+
+    static const char*
+    bmff_item_construction_method_name(uint16_t method) noexcept
+    {
+        switch (method) {
+        case 0U: return "file_offset";
+        case 1U: return "idat_offset";
+        case 2U: return "item_offset";
+        default: return "reserved";
+        }
+    }
+
+    static const ItemLocation* find_item_location(const PrimaryProps& p,
+                                                  uint32_t item_id) noexcept
+    {
+        for (uint32_t i = 0U; i < p.item_location_count; ++i) {
+            if (p.item_locations[i].item_id == item_id) {
+                return &p.item_locations[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static void emit_item_location_row(MetaStore& store, BlockId block,
+                                       uint32_t* io_order,
+                                       std::string_view prefix,
+                                       const ItemLocation& loc) noexcept
+    {
+        if (!io_order || prefix.empty()) {
+            return;
+        }
+
+        std::string field(prefix);
+        const size_t base_len = field.size();
+
+        field.append(".item_id");
+        emit_u32_field(store, block, (*io_order)++, field, loc.item_id);
+        field.resize(base_len);
+
+        field.append(".construction_method");
+        emit_u16_field(store, block, (*io_order)++, field,
+                       loc.construction_method);
+        field.resize(base_len);
+
+        field.append(".construction_method_name");
+        emit_text_field(store, block, (*io_order)++, field,
+                        bmff_item_construction_method_name(
+                            loc.construction_method));
+        field.resize(base_len);
+
+        field.append(".data_reference_index");
+        emit_u16_field(store, block, (*io_order)++, field,
+                       loc.data_reference_index);
+        field.resize(base_len);
+
+        field.append(".base_offset");
+        emit_u64_field(store, block, (*io_order)++, field, loc.base_offset);
+        field.resize(base_len);
+
+        field.append(".extent_count");
+        emit_u32_field(store, block, (*io_order)++, field, loc.extent_count);
+        field.resize(base_len);
+
+        field.append(".total_extent_bytes");
+        emit_u64_field(store, block, (*io_order)++, field,
+                       loc.total_extent_bytes);
+        field.resize(base_len);
+
+        if (loc.length_overflow) {
+            field.append(".length_overflow");
+            emit_u8_field(store, block, (*io_order)++, field, 1U);
+            field.resize(base_len);
+        }
+        if (loc.extent_truncated) {
+            field.append(".extent_truncated");
+            emit_u8_field(store, block, (*io_order)++, field, 1U);
+            field.resize(base_len);
+        }
+
+        for (uint32_t i = 0U; i < loc.extent_record_count; ++i) {
+            const ItemLocationExtent& extent = loc.extents[i];
+            field.append(".extent_index");
+            emit_u64_field(store, block, (*io_order)++, field, extent.index);
+            field.resize(base_len);
+
+            field.append(".extent_offset");
+            emit_u64_field(store, block, (*io_order)++, field, extent.offset);
+            field.resize(base_len);
+
+            field.append(".extent_length");
+            emit_u64_field(store, block, (*io_order)++, field, extent.length);
+            field.resize(base_len);
+        }
+    }
+
+    static void emit_item_location_fields(MetaStore& store, BlockId block,
+                                          uint32_t* io_order,
+                                          const PrimaryProps& p) noexcept
+    {
+        if (!io_order) {
+            return;
+        }
+        if (p.have_idat) {
+            emit_u64_field(store, block, (*io_order)++, "idat.bytes",
+                           p.idat_bytes);
+        }
+        if (p.item_location_total == 0U) {
+            return;
+        }
+
+        emit_u32_field(store, block, (*io_order)++, "item_location.count",
+                       p.item_location_total);
+        if (p.item_location_truncated) {
+            emit_u8_field(store, block, (*io_order)++,
+                          "item_location.truncated", 1U);
+        }
+        if (p.have_item_location_sizes) {
+            emit_u8_field(store, block, (*io_order)++, "item_location.version",
+                          p.item_location_version);
+            emit_u8_field(store, block, (*io_order)++,
+                          "item_location.offset_size",
+                          p.item_location_offset_size);
+            emit_u8_field(store, block, (*io_order)++,
+                          "item_location.length_size",
+                          p.item_location_length_size);
+            emit_u8_field(store, block, (*io_order)++,
+                          "item_location.base_offset_size",
+                          p.item_location_base_offset_size);
+            emit_u8_field(store, block, (*io_order)++,
+                          "item_location.index_size",
+                          p.item_location_index_size);
+        }
+
+        uint32_t idat_item_count = 0U;
+        for (uint32_t i = 0U; i < p.item_location_count; ++i) {
+            const ItemLocation& loc = p.item_locations[i];
+            emit_item_location_row(store, block, io_order, "item_location",
+                                   loc);
+            if (loc.construction_method == 1U) {
+                idat_item_count += 1U;
+            }
+        }
+        if (idat_item_count > 0U) {
+            emit_u32_field(store, block, (*io_order)++,
+                           "item_location.idat_item_count", idat_item_count);
+        }
+
+        if (!p.have_item_id) {
+            return;
+        }
+        const ItemLocation* primary = find_item_location(p, p.item_id);
+        if (!primary) {
+            return;
+        }
+        emit_item_location_row(store, block, io_order, "primary.item_location",
+                               *primary);
     }
 
     static uint8_t ascii_to_lower(uint8_t c) noexcept
@@ -3093,6 +3299,218 @@ namespace {
         return true;
     }
 
+    static bool bmff_collect_item_locations(std::span<const std::byte> bytes,
+                                            const BmffBox& iloc,
+                                            PrimaryProps* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+
+        const uint64_t payload_off = iloc.offset + iloc.header_size;
+        const uint64_t payload_end = iloc.offset + iloc.size;
+        if (payload_off + 8U > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        const uint8_t version = u8(bytes[payload_off + 0U]);
+        if (version > 2U) {
+            return false;
+        }
+
+        uint64_t p = payload_off + 4U;  // FullBox header.
+        if (p + 2U > payload_end) {
+            return false;
+        }
+        const uint8_t size_a    = u8(bytes[p]);
+        const uint8_t size_b    = u8(bytes[p + 1U]);
+        const uint8_t off_size  = static_cast<uint8_t>((size_a >> 4U) & 0x0FU);
+        const uint8_t len_size  = static_cast<uint8_t>(size_a & 0x0FU);
+        const uint8_t base_size = static_cast<uint8_t>((size_b >> 4U) & 0x0FU);
+        const uint8_t idx_size  = (version > 0U)
+                                      ? static_cast<uint8_t>(size_b & 0x0FU)
+                                      : 0U;
+        if (off_size > 8U || len_size > 8U || base_size > 8U || idx_size > 8U) {
+            return false;
+        }
+        p += 2U;
+
+        uint32_t item_count = 0U;
+        if (version < 2U) {
+            uint16_t count16 = 0U;
+            if (p + 2U > payload_end) {
+                return false;
+            }
+            if (!read_u16be(bytes, p, &count16)) {
+                return false;
+            }
+            item_count = static_cast<uint32_t>(count16);
+            p += 2U;
+        } else {
+            if (p + 4U > payload_end) {
+                return false;
+            }
+            if (!read_u32be(bytes, p, &item_count)) {
+                return false;
+            }
+            p += 4U;
+        }
+
+        const uint32_t kMaxItems          = 1U << 18;
+        const uint32_t kMaxExtentsPerItem = 1U << 14;
+        if (item_count > kMaxItems) {
+            return false;
+        }
+
+        out->have_item_location_sizes       = true;
+        out->item_location_version          = version;
+        out->item_location_offset_size      = off_size;
+        out->item_location_length_size      = len_size;
+        out->item_location_base_offset_size = base_size;
+        out->item_location_index_size       = idx_size;
+
+        for (uint32_t item_i = 0U; item_i < item_count; ++item_i) {
+            if (p >= payload_end) {
+                return false;
+            }
+
+            uint32_t item_id = 0U;
+            if (version < 2U) {
+                uint16_t item16 = 0U;
+                if (p + 2U > payload_end) {
+                    return false;
+                }
+                if (!read_u16be(bytes, p, &item16)) {
+                    return false;
+                }
+                item_id = static_cast<uint32_t>(item16);
+                p += 2U;
+            } else {
+                if (p + 4U > payload_end) {
+                    return false;
+                }
+                if (!read_u32be(bytes, p, &item_id)) {
+                    return false;
+                }
+                p += 4U;
+            }
+
+            uint16_t construction_method = 0U;
+            if (version > 0U) {
+                uint16_t raw_method = 0U;
+                if (p + 2U > payload_end) {
+                    return false;
+                }
+                if (!read_u16be(bytes, p, &raw_method)) {
+                    return false;
+                }
+                construction_method = static_cast<uint16_t>(raw_method
+                                                            & 0x000FU);
+                p += 2U;
+            }
+
+            uint16_t data_ref_index = 0U;
+            if (p + 2U > payload_end) {
+                return false;
+            }
+            if (!read_u16be(bytes, p, &data_ref_index)) {
+                return false;
+            }
+            p += 2U;
+
+            uint64_t base_offset = 0U;
+            if (p + base_size > payload_end) {
+                return false;
+            }
+            if (!read_uint_be_n(bytes, p, base_size, &base_offset)) {
+                return false;
+            }
+            p += base_size;
+
+            uint16_t extent_count16 = 0U;
+            if (p + 2U > payload_end) {
+                return false;
+            }
+            if (!read_u16be(bytes, p, &extent_count16)) {
+                return false;
+            }
+            p += 2U;
+            const uint32_t extent_count = static_cast<uint32_t>(extent_count16);
+            if (extent_count > kMaxExtentsPerItem) {
+                return false;
+            }
+
+            if (out->item_location_total == UINT32_MAX) {
+                return false;
+            }
+            out->item_location_total += 1U;
+
+            ItemLocation* loc = nullptr;
+            if (out->item_location_count < out->item_locations.size()) {
+                loc          = &out->item_locations[out->item_location_count];
+                *loc         = ItemLocation {};
+                loc->item_id = item_id;
+                loc->construction_method  = construction_method;
+                loc->data_reference_index = data_ref_index;
+                loc->base_offset          = base_offset;
+                loc->extent_count         = extent_count;
+                out->item_location_count += 1U;
+            } else {
+                out->item_location_truncated = true;
+            }
+
+            for (uint32_t extent_i = 0U; extent_i < extent_count; ++extent_i) {
+                uint64_t extent_index  = 0U;
+                uint64_t extent_offset = 0U;
+                uint64_t extent_length = 0U;
+                if (version > 0U && idx_size > 0U) {
+                    if (p + idx_size > payload_end) {
+                        return false;
+                    }
+                    if (!read_uint_be_n(bytes, p, idx_size, &extent_index)) {
+                        return false;
+                    }
+                    p += idx_size;
+                }
+                if (p + off_size > payload_end) {
+                    return false;
+                }
+                if (!read_uint_be_n(bytes, p, off_size, &extent_offset)) {
+                    return false;
+                }
+                p += off_size;
+                if (p + len_size > payload_end) {
+                    return false;
+                }
+                if (!read_uint_be_n(bytes, p, len_size, &extent_length)) {
+                    return false;
+                }
+                p += len_size;
+
+                if (!loc) {
+                    continue;
+                }
+                if (UINT64_MAX - loc->total_extent_bytes < extent_length) {
+                    loc->length_overflow = true;
+                } else {
+                    loc->total_extent_bytes += extent_length;
+                }
+                if (loc->extent_record_count < loc->extents.size()) {
+                    ItemLocationExtent& extent
+                        = loc->extents[loc->extent_record_count];
+                    extent.index  = extent_index;
+                    extent.offset = extent_offset;
+                    extent.length = extent_length;
+                    loc->extent_record_count += 1U;
+                } else {
+                    loc->extent_truncated = true;
+                }
+            }
+        }
+
+        return true;
+    }
+
 
     static bool bmff_decode_meta_primary(std::span<const std::byte> bytes,
                                          const BmffBox& meta,
@@ -3114,11 +3532,15 @@ namespace {
         BmffBox iprp {};
         BmffBox iref {};
         BmffBox grpl {};
+        BmffBox iloc {};
+        BmffBox idat {};
         bool has_pitm = false;
         bool has_iinf = false;
         bool has_iprp = false;
         bool has_iref = false;
         bool has_grpl = false;
+        bool has_iloc = false;
+        bool has_idat = false;
 
         uint64_t child_off       = payload_off + 4;  // FullBox header.
         const uint64_t child_end = meta.offset + meta.size;
@@ -3150,6 +3572,12 @@ namespace {
             } else if (child.type == fourcc('g', 'r', 'p', 'l')) {
                 grpl     = child;
                 has_grpl = true;
+            } else if (child.type == fourcc('i', 'l', 'o', 'c')) {
+                iloc     = child;
+                has_iloc = true;
+            } else if (child.type == fourcc('i', 'd', 'a', 't')) {
+                idat     = child;
+                has_idat = true;
             }
 
             child_off += child.size;
@@ -3183,8 +3611,23 @@ namespace {
             }
         }
 
+        if (has_idat) {
+            if (idat.header_size > idat.size) {
+                return false;
+            }
+            out->have_idat  = true;
+            out->idat_bytes = idat.size - idat.header_size;
+        }
+
+        if (has_iloc) {
+            if (!bmff_collect_item_locations(bytes, iloc, out)) {
+                return false;
+            }
+        }
+
         if (!has_pitm) {
-            return (out->item_info_count > 0U || out->item_group_total > 0U);
+            return (out->item_info_count > 0U || out->item_group_total > 0U
+                    || out->item_location_total > 0U || out->have_idat);
         }
 
         if (!has_iprp) {
@@ -3415,6 +3858,8 @@ namespace {
                     }
                     emit_item_group_fields(*ctx->store, ctx->block, ctx->order,
                                            p);
+                    emit_item_location_fields(*ctx->store, ctx->block,
+                                              ctx->order, p);
                     if (p.have_item_id) {
                         emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
                                        "meta.primary_item_id", p.item_id);
