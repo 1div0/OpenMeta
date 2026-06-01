@@ -1,5 +1,27 @@
 # OpenMeta Changes
 
+## 0.4.44 - 2026-06-01
+
+Changes compared with `0.4.43`.
+
+### Added
+
+- Added BMFF `ipco` property-container summary fields, including total,
+  known, unknown, and per-property-type counts for the bounded primary-property
+  model.
+- Added RAW data descriptor overloads for concept resolution so hosts can mark
+  RAW-processing candidates as stored-raw applicable, encoding-conditional, or
+  not applicable for rendered data.
+- Added transfer-diagnostic RAW applicability fields and reason tokens for
+  conditional or not-applicable RAW curve/linearity metadata.
+- Added Photoshop IRB `IPTCDataBytes` interpretation for embedded IPTC-NAA
+  resources while preserving the raw IRB payload.
+
+### Changed
+
+- Updated public API, interpretation, support, and RAW-read planning docs for
+  descriptor-bound RAW applicability and BMFF/Photoshop interpretation growth.
+
 ## 0.4.43 - 2026-05-30
 
 Changes compared with `0.4.42`.

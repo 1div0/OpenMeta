@@ -441,6 +441,8 @@ enum class TransferConceptDiagnosticReason : uint8_t {
     SourceBound,
     RenderedUnsafe,
     TargetImageSpecRequired,
+    RawApplicabilityConditional,
+    RawApplicabilityNotApplicable,
 };
 
 enum class TransferConceptDiagnosticSeverity : uint8_t {
@@ -460,15 +462,19 @@ struct TransferConceptDiagnostic final {
         = TransferConceptDiagnosticSeverity::Warning;
     EntryId entry_id = kInvalidEntryId;
     std::vector<EntryId> source_entries;
-    bool preferred                      = false;
-    bool conflict                       = false;
-    bool compatible_file_safe           = false;
-    bool rendered_image_safe            = false;
-    bool requires_target_image_spec     = false;
-    bool source_bound                   = false;
-    bool has_gps_altitude_reference     = false;
-    bool gps_altitude_below_sea_level   = false;
-    uint8_t gps_altitude_reference_code = 0U;
+    bool preferred                  = false;
+    bool conflict                   = false;
+    bool compatible_file_safe       = false;
+    bool rendered_image_safe        = false;
+    bool requires_target_image_spec = false;
+    bool source_bound               = false;
+    MetadataRawApplicabilityState raw_applicability
+        = MetadataRawApplicabilityState::Unknown;
+    bool raw_applicability_requires_storage_context = false;
+    bool raw_applicability_can_affect_decode        = false;
+    bool has_gps_altitude_reference                 = false;
+    bool gps_altitude_below_sea_level               = false;
+    uint8_t gps_altitude_reference_code             = 0U;
 };
 
 struct TransferConceptDiagnostics final {

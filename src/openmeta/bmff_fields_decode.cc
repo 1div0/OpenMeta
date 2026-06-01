@@ -722,6 +722,21 @@ namespace {
     };
 
 
+    struct IpcoSummary final {
+        uint32_t property_count       = 0;
+        uint32_t known_property_count = 0;
+        uint32_t ispe_count           = 0;
+        uint32_t irot_count           = 0;
+        uint32_t imir_count           = 0;
+        uint32_t colr_count           = 0;
+        uint32_t auxc_count           = 0;
+        uint32_t pasp_count           = 0;
+        uint32_t pixi_count           = 0;
+        uint32_t clap_count           = 0;
+        bool property_truncated       = false;
+    };
+
+
     struct PrimaryProps final {
         bool have_item_id = false;
         uint32_t item_id  = 0;
@@ -784,6 +799,9 @@ namespace {
         uint32_t ipma_association_count = 0;
         uint32_t ipma_association_total = 0;
         bool ipma_truncated             = false;
+
+        bool have_ipco_summary = false;
+        IpcoSummary ipco_summary {};
 
         std::array<ItemInfo, 256> item_infos {};
         uint32_t item_info_count = 0;
@@ -1080,6 +1098,47 @@ namespace {
                               "primary.item_group_entity_truncated", 1U);
             }
         }
+    }
+
+    static void emit_ipco_summary_fields(MetaStore& store, BlockId block,
+                                         uint32_t* io_order,
+                                         const PrimaryProps& p) noexcept
+    {
+        if (!io_order || !p.have_ipco_summary) {
+            return;
+        }
+
+        const IpcoSummary& s = p.ipco_summary;
+        emit_u32_field(store, block, (*io_order)++, "ipco.property_count",
+                       s.property_count);
+        emit_u32_field(store, block, (*io_order)++, "ipco.known_property_count",
+                       s.known_property_count);
+        const uint32_t unknown_count
+            = (s.property_count >= s.known_property_count)
+                  ? (s.property_count - s.known_property_count)
+                  : 0U;
+        emit_u32_field(store, block, (*io_order)++,
+                       "ipco.unknown_property_count", unknown_count);
+        if (s.property_truncated) {
+            emit_u8_field(store, block, (*io_order)++,
+                          "ipco.property_truncated", 1U);
+        }
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.ispe_count",
+                                    s.ispe_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.irot_count",
+                                    s.irot_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.imir_count",
+                                    s.imir_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.colr_count",
+                                    s.colr_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.auxC_count",
+                                    s.auxc_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.pasp_count",
+                                    s.pasp_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.pixi_count",
+                                    s.pixi_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.clap_count",
+                                    s.clap_count);
     }
 
     static const char*
@@ -2336,6 +2395,29 @@ namespace {
     }
 
 
+    static bool bmff_count_ipco_property_type(uint32_t type,
+                                              IpcoSummary* summary) noexcept
+    {
+        if (!summary) {
+            return false;
+        }
+
+        switch (type) {
+        case fourcc('i', 's', 'p', 'e'): summary->ispe_count += 1U; break;
+        case fourcc('i', 'r', 'o', 't'): summary->irot_count += 1U; break;
+        case fourcc('i', 'm', 'i', 'r'): summary->imir_count += 1U; break;
+        case fourcc('c', 'o', 'l', 'r'): summary->colr_count += 1U; break;
+        case fourcc('a', 'u', 'x', 'C'): summary->auxc_count += 1U; break;
+        case fourcc('p', 'a', 's', 'p'): summary->pasp_count += 1U; break;
+        case fourcc('p', 'i', 'x', 'i'): summary->pixi_count += 1U; break;
+        case fourcc('c', 'l', 'a', 'p'): summary->clap_count += 1U; break;
+        default: return false;
+        }
+        summary->known_property_count += 1U;
+        return true;
+    }
+
+
     static void bmff_collect_ipco_props(
         std::span<const std::byte> bytes, const BmffBox& ipco,
         std::array<IspeProp, 64>* out_ispe, uint32_t* out_ispe_count,
@@ -2345,7 +2427,8 @@ namespace {
         std::array<AuxCProp, 64>* out_auxc, uint32_t* out_auxc_count,
         std::array<PaspProp, 64>* out_pasp, uint32_t* out_pasp_count,
         std::array<PixiProp, 64>* out_pixi, uint32_t* out_pixi_count,
-        std::array<ClapProp, 64>* out_clap, uint32_t* out_clap_count) noexcept
+        std::array<ClapProp, 64>* out_clap, uint32_t* out_clap_count,
+        IpcoSummary* out_summary) noexcept
     {
         if (!out_ispe || !out_ispe_count || !out_irot || !out_irot_count
             || !out_imir || !out_imir_count || !out_colr || !out_colr_count
@@ -2362,6 +2445,9 @@ namespace {
         *out_pasp_count = 0;
         *out_pixi_count = 0;
         *out_clap_count = 0;
+        if (out_summary) {
+            *out_summary = IpcoSummary {};
+        }
 
         const uint64_t payload_off = ipco.offset + ipco.header_size;
         const uint64_t payload_end = ipco.offset + ipco.size;
@@ -2382,6 +2468,14 @@ namespace {
             BmffBox child;
             if (!parse_bmff_box(bytes, off, payload_end, &child)) {
                 break;
+            }
+            if (out_summary) {
+                if (out_summary->property_count != UINT32_MAX) {
+                    out_summary->property_count += 1U;
+                } else {
+                    out_summary->property_truncated = true;
+                }
+                (void)bmff_count_ipco_property_type(child.type, out_summary);
             }
 
             const uint64_t child_payload_off = child.offset + child.header_size;
@@ -3674,10 +3768,6 @@ namespace {
             }
         }
 
-        if (!has_ipma) {
-            return true;
-        }
-
         std::array<IspeProp, 64> ispe {};
         std::array<U8Prop, 64> irot {};
         std::array<U8Prop, 64> imir {};
@@ -3699,7 +3789,12 @@ namespace {
                                     &irot_count, &imir, &imir_count, &colr,
                                     &colr_count, &auxc, &auxc_count, &pasp,
                                     &pasp_count, &pixi, &pixi_count, &clap,
-                                    &clap_count);
+                                    &clap_count, &out->ipco_summary);
+            out->have_ipco_summary = true;
+        }
+
+        if (!has_ipma) {
+            return true;
         }
 
         bmff_apply_ipma_primary(
@@ -3820,6 +3915,8 @@ namespace {
                         emit_item_semantic_counts(*ctx->store, ctx->block,
                                                   ctx->order, semantic_counts);
                     }
+                    emit_ipco_summary_fields(*ctx->store, ctx->block,
+                                             ctx->order, p);
                     if (p.ipma_association_total > 0U) {
                         emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
                                        "ipma.association_count",

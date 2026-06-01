@@ -1509,6 +1509,10 @@ namespace {
             decode_u16_scalar_resource(payload, resource_id, "TargetLayerID",
                                        store, block, order, result);
             break;
+        case 0x0404U:
+            decode_payload_size_resource(payload, resource_id, "IPTCDataBytes",
+                                         store, block, order, result);
+            break;
         case 0x0402U:
             decode_u16_list_resource(payload, resource_id,
                                      "LayersGroupInfoCount", "LayersGroupInfo",

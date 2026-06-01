@@ -1445,6 +1445,69 @@ namespace {
             "conditional_on_raw_encoding");
     }
 
+    TEST(MetadataConcepts, BindsRawApplicabilityToRawDataDescriptor)
+    {
+        MetaStore store;
+        (void)add_exif_u32(&store, "ifd0", 0xC61AU, 512U);
+        const std::array<uint32_t, 2> linearization_values = {
+            0U,
+            65535U,
+        };
+        (void)add_exif_u32_array(
+            &store, "ifd0", 0xC618U,
+            std::span<const uint32_t>(linearization_values.data(),
+                                      linearization_values.size()));
+        store.finalize();
+
+        MetadataRawDataDescriptor raw_descriptor;
+        raw_descriptor.encoding = MetadataRawDataEncoding::LosslessCompressed;
+        raw_descriptor.has_dimensions              = true;
+        raw_descriptor.width                       = 4000U;
+        raw_descriptor.height                      = 3000U;
+        const MetadataConceptResolution raw_result = resolve_metadata_concept(
+            store, MetadataConceptKind::RawProcessing, raw_descriptor);
+
+        const MetadataConceptCandidate* raw_black
+            = find_role(raw_result, MetadataConceptRole::BlackLevel);
+        const MetadataConceptCandidate* raw_curve
+            = find_role(raw_result, MetadataConceptRole::RawValueCurve);
+        ASSERT_NE(raw_black, nullptr);
+        ASSERT_NE(raw_curve, nullptr);
+        EXPECT_EQ(raw_black->raw_applicability,
+                  MetadataRawApplicabilityState::AppliesToStoredRaw);
+        EXPECT_EQ(raw_curve->raw_applicability,
+                  MetadataRawApplicabilityState::AppliesToStoredRaw);
+        EXPECT_FALSE(raw_curve->raw_applicability_requires_storage_context);
+        EXPECT_TRUE(raw_curve->raw_applicability_can_affect_decode);
+
+        MetadataRawDataDescriptor rendered_descriptor;
+        rendered_descriptor.encoding = MetadataRawDataEncoding::Rendered;
+        const MetadataConceptResolution rendered_result
+            = resolve_metadata_concept(store,
+                                       MetadataConceptKind::RawProcessing,
+                                       rendered_descriptor);
+
+        const MetadataConceptCandidate* rendered_black
+            = find_role(rendered_result, MetadataConceptRole::BlackLevel);
+        const MetadataConceptCandidate* rendered_curve
+            = find_role(rendered_result, MetadataConceptRole::RawValueCurve);
+        ASSERT_NE(rendered_black, nullptr);
+        ASSERT_NE(rendered_curve, nullptr);
+        EXPECT_EQ(rendered_black->raw_applicability,
+                  MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+        EXPECT_FALSE(
+            rendered_black->raw_applicability_requires_storage_context);
+        EXPECT_FALSE(rendered_black->raw_applicability_can_affect_decode);
+        EXPECT_EQ(rendered_curve->raw_applicability,
+                  MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+        EXPECT_FALSE(
+            rendered_curve->raw_applicability_requires_storage_context);
+        EXPECT_FALSE(rendered_curve->raw_applicability_can_affect_decode);
+        EXPECT_EQ(metadata_raw_applicability_for_descriptor(
+                      MetadataConceptRole::RawValueCurve, rendered_descriptor),
+                  MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+    }
+
     TEST(MetadataConcepts, SurfacesColorAndGeometryConflicts)
     {
         {

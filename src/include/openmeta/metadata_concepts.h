@@ -216,8 +216,21 @@ struct MetadataConceptResult final {
 MetadataConceptResolution
 resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind);
 
+MetadataConceptResolution
+resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind,
+                         const MetadataRawDataDescriptor& raw_descriptor);
+
 MetadataConceptResult
 resolve_metadata_concepts(const MetaStore& store);
+
+MetadataConceptResult
+resolve_metadata_concepts(const MetaStore& store,
+                          const MetadataRawDataDescriptor& raw_descriptor);
+
+MetadataRawApplicabilityState
+metadata_raw_applicability_for_descriptor(
+    MetadataConceptRole role,
+    const MetadataRawDataDescriptor& descriptor) noexcept;
 
 const char*
 metadata_concept_kind_name(MetadataConceptKind kind) noexcept;

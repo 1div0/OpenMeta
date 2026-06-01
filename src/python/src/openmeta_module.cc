@@ -1261,11 +1261,29 @@ namespace {
         return metadata_concept_result_to_python(result);
     }
 
+    static nb::dict
+    metadata_concepts_to_python(const MetaStore& store,
+                                const MetadataRawDataDescriptor& raw_descriptor)
+    {
+        const MetadataConceptResult result
+            = resolve_metadata_concepts(store, raw_descriptor);
+        return metadata_concept_result_to_python(result);
+    }
+
     static nb::dict metadata_concept_to_python(const MetaStore& store,
                                                MetadataConceptKind kind)
     {
         const MetadataConceptResolution result = resolve_metadata_concept(store,
                                                                           kind);
+        return metadata_concept_resolution_to_python(result);
+    }
+
+    static nb::dict
+    metadata_concept_to_python(const MetaStore& store, MetadataConceptKind kind,
+                               const MetadataRawDataDescriptor& raw_descriptor)
+    {
+        const MetadataConceptResolution result
+            = resolve_metadata_concept(store, kind, raw_descriptor);
         return metadata_concept_resolution_to_python(result);
     }
 
@@ -1392,7 +1410,14 @@ namespace {
         out["rendered_image_safe"] = nb::bool_(diagnostic.rendered_image_safe);
         out["requires_target_image_spec"] = nb::bool_(
             diagnostic.requires_target_image_spec);
-        out["source_bound"]               = nb::bool_(diagnostic.source_bound);
+        out["source_bound"]           = nb::bool_(diagnostic.source_bound);
+        out["raw_applicability"]      = diagnostic.raw_applicability;
+        out["raw_applicability_name"] = nb::str(
+            metadata_raw_applicability_state_name(diagnostic.raw_applicability));
+        out["raw_applicability_requires_storage_context"] = nb::bool_(
+            diagnostic.raw_applicability_requires_storage_context);
+        out["raw_applicability_can_affect_decode"] = nb::bool_(
+            diagnostic.raw_applicability_can_affect_decode);
         out["has_gps_altitude_reference"] = nb::bool_(
             diagnostic.has_gps_altitude_reference);
         out["gps_altitude_below_sea_level"] = nb::bool_(
@@ -5564,10 +5589,26 @@ snapshot_resolve_metadata_concepts(const TransferSourceSnapshot& snapshot)
 }
 
 static nb::dict
+snapshot_resolve_metadata_concepts_with_raw_descriptor(
+    const TransferSourceSnapshot& snapshot,
+    const MetadataRawDataDescriptor& raw_descriptor)
+{
+    return metadata_concepts_to_python(snapshot.store, raw_descriptor);
+}
+
+static nb::dict
 snapshot_resolve_metadata_concept(const TransferSourceSnapshot& snapshot,
                                   MetadataConceptKind kind)
 {
     return metadata_concept_to_python(snapshot.store, kind);
+}
+
+static nb::dict
+snapshot_resolve_metadata_concept_with_raw_descriptor(
+    const TransferSourceSnapshot& snapshot, MetadataConceptKind kind,
+    const MetadataRawDataDescriptor& raw_descriptor)
+{
+    return metadata_concept_to_python(snapshot.store, kind, raw_descriptor);
 }
 
 static nb::dict
@@ -5697,10 +5738,26 @@ document_resolve_metadata_concepts(std::shared_ptr<PyDocument> d)
 }
 
 static nb::dict
+document_resolve_metadata_concepts_with_raw_descriptor(
+    std::shared_ptr<PyDocument> d,
+    const MetadataRawDataDescriptor& raw_descriptor)
+{
+    return metadata_concepts_to_python(d->store, raw_descriptor);
+}
+
+static nb::dict
 document_resolve_metadata_concept(std::shared_ptr<PyDocument> d,
                                   MetadataConceptKind kind)
 {
     return metadata_concept_to_python(d->store, kind);
+}
+
+static nb::dict
+document_resolve_metadata_concept_with_raw_descriptor(
+    std::shared_ptr<PyDocument> d, MetadataConceptKind kind,
+    const MetadataRawDataDescriptor& raw_descriptor)
+{
+    return metadata_concept_to_python(d->store, kind, raw_descriptor);
 }
 
 static nb::dict
@@ -6200,6 +6257,23 @@ NB_MODULE(_openmeta, m)
         .value("NotApplicableToStoredRaw",
                MetadataRawApplicabilityState::NotApplicableToStoredRaw);
 
+    nb::class_<MetadataRawDataDescriptor>(m, "MetadataRawDataDescriptor")
+        .def(nb::init<>())
+        .def_rw("encoding", &MetadataRawDataDescriptor::encoding)
+        .def_rw("has_dimensions", &MetadataRawDataDescriptor::has_dimensions)
+        .def_rw("width", &MetadataRawDataDescriptor::width)
+        .def_rw("height", &MetadataRawDataDescriptor::height)
+        .def_rw("has_channel_count",
+                &MetadataRawDataDescriptor::has_channel_count)
+        .def_rw("channel_count", &MetadataRawDataDescriptor::channel_count)
+        .def_rw("has_bits_per_sample",
+                &MetadataRawDataDescriptor::has_bits_per_sample)
+        .def_rw("bits_per_sample", &MetadataRawDataDescriptor::bits_per_sample)
+        .def_rw("has_compression_code",
+                &MetadataRawDataDescriptor::has_compression_code)
+        .def_rw("compression_code",
+                &MetadataRawDataDescriptor::compression_code);
+
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)
         .value("LimitExceeded", CcmQueryStatus::LimitExceeded);
@@ -6565,7 +6639,11 @@ NB_MODULE(_openmeta, m)
         .value("RenderedUnsafe",
                TransferConceptDiagnosticReason::RenderedUnsafe)
         .value("TargetImageSpecRequired",
-               TransferConceptDiagnosticReason::TargetImageSpecRequired);
+               TransferConceptDiagnosticReason::TargetImageSpecRequired)
+        .value("RawApplicabilityConditional",
+               TransferConceptDiagnosticReason::RawApplicabilityConditional)
+        .value("RawApplicabilityNotApplicable",
+               TransferConceptDiagnosticReason::RawApplicabilityNotApplicable);
 
     nb::enum_<TransferConceptDiagnosticSeverity>(
         m, "TransferConceptDiagnosticSeverity")
@@ -7027,8 +7105,14 @@ NB_MODULE(_openmeta, m)
         .def("interpret_metadata_query", &snapshot_interpret_metadata_query,
              "kind"_a = MetadataQueryKind::Crop)
         .def("resolve_metadata_concepts", &snapshot_resolve_metadata_concepts)
+        .def("resolve_metadata_concepts",
+             &snapshot_resolve_metadata_concepts_with_raw_descriptor,
+             "raw_descriptor"_a)
         .def("resolve_metadata_concept", &snapshot_resolve_metadata_concept,
              "kind"_a = MetadataConceptKind::Orientation)
+        .def("resolve_metadata_concept",
+             &snapshot_resolve_metadata_concept_with_raw_descriptor, "kind"_a,
+             "raw_descriptor"_a)
         .def("transfer_safety_audit", &snapshot_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
         .def("transfer_concept_diagnostics",
@@ -7189,8 +7273,14 @@ NB_MODULE(_openmeta, m)
         .def("interpret_metadata_query", &document_interpret_metadata_query,
              "kind"_a = MetadataQueryKind::Crop)
         .def("resolve_metadata_concepts", &document_resolve_metadata_concepts)
+        .def("resolve_metadata_concepts",
+             &document_resolve_metadata_concepts_with_raw_descriptor,
+             "raw_descriptor"_a)
         .def("resolve_metadata_concept", &document_resolve_metadata_concept,
              "kind"_a = MetadataConceptKind::Orientation)
+        .def("resolve_metadata_concept",
+             &document_resolve_metadata_concept_with_raw_descriptor, "kind"_a,
+             "raw_descriptor"_a)
         .def("transfer_safety_audit", &document_transfer_safety_audit,
              "safety"_a = TransferSafetyMode::RenderedImage)
         .def("transfer_concept_diagnostics",

@@ -150,13 +150,14 @@ Coverage matrix
        linearity-limit tags plus conservative Sony, Nikon, Kodak, Panasonic,
        and Phase One/Leaf-style curve or calibration names where decoded
        metadata is visible. RAW concept candidates now expose a conservative
-       RAW applicability state so curve/LUT-like entries can be marked as
-       conditional on raw storage/encoding until a host or decoder supplies a
-       raw data descriptor. Lens-correction grouped tables require numeric
-       payloads before promotion.
-     - Medium-high, about 85-91%.
-     - Long-tail per-model correction tables, raw data descriptor binding, and
-       richer numeric normalization.
+       RAW applicability state; descriptor-aware concept-resolution overloads
+       let a host or decoder provide a ``MetadataRawDataDescriptor`` so
+       curve/LUT-like entries can remain conditional, apply to stored RAW
+       samples, or be marked not applicable for rendered data. Lens-correction
+       grouped tables require numeric payloads before promotion.
+     - Medium-high, about 86-92%.
+     - Long-tail per-model correction tables, deeper raw data descriptor
+       binding, and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
        common vendors and several live computational/thermal vendors. Unknown
@@ -182,15 +183,15 @@ Coverage matrix
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
      - BMFF derived fields, brand-name fields, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
-       metadata carriers, bounded ``ipma`` item-property association rows,
-       bounded relations, ``grpl`` item-group rows, per-group-type summaries,
-       primary item-group memberships, bounded ``iloc``/``idat`` item-data
-       layout summaries, primary item-location aliases, primary-linked roles,
-       aux semantics, primary color/profile property summaries, primary pixel
-       aspect ratio, primary pixel component bit depth, clean-aperture
-       rationals, JUMBF box labels, and draft C2PA/JUMBF structural fields are
-       exposed.
-     - Medium, about 74-83%.
+       metadata carriers, bounded ``ipco`` property-container summary counts,
+       bounded ``ipma`` item-property association rows, bounded relations,
+       ``grpl`` item-group rows, per-group-type summaries, primary item-group
+       memberships, bounded ``iloc``/``idat`` item-data layout summaries,
+       primary item-location aliases, primary-linked roles, aux semantics,
+       primary color/profile property summaries, primary pixel aspect ratio,
+       primary pixel component bit depth, clean-aperture rationals, JUMBF box
+       labels, and draft C2PA/JUMBF structural fields are exposed.
+     - Medium, about 75-84%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -202,10 +203,10 @@ Coverage matrix
        data, autosave strings, ``XMLData``, ImageReady XML text, Lightroom
        workflow text, thumbnail headers, channel options, clipping-path names,
        legacy
-       halftone/transfer/duotone/EPS byte summaries, embedded ICC/XMP/EXIF
-       resource byte counts, and embedded IPTC/XMP/ICC payload decode where
-       enabled.
-     - Medium, about 76-84%.
+       halftone/transfer/duotone/EPS byte summaries, embedded
+       IPTC/ICC/XMP/EXIF resource byte counts, and embedded IPTC/XMP/ICC
+       payload decode where enabled.
+     - Medium, about 77-85%.
      - Broader resource-specific descriptor parsing and long-tail resource
        interpretation.
    * - Semantic query/search and records
@@ -241,9 +242,9 @@ Coverage matrix
        source-specific image geometry, color/profile, RAW curves/linearity
        metadata, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private
        data, with concept-level diagnostics that report
-       keep/drop/requires-target-image-spec actions, severity, and
-       role-specific default message text before prepare.
-     - High, about 90-94%.
+       keep/drop/requires-target-image-spec actions, severity, RAW
+       applicability, and role-specific default message text before prepare.
+     - High, about 91-95%.
      - More per-family policy tests and optional host localization hooks.
 
 Competitor position

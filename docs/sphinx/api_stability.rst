@@ -102,8 +102,8 @@ Host-facing API map
        descriptor-header summaries, ``XMLData``, ImageReady ASCII text
        resources, Lightroom workflow text, legacy
        halftone/transfer/duotone/EPS byte summaries, embedded
-       ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded IPTC-IIM,
-       XMP, and ICC payload decode.
+       IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
+       IPTC-IIM, XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``
@@ -205,7 +205,10 @@ Host-facing API map
        marked source-bound.
        RAW curve/LUT-like concept roles are conservatively marked
        ``conditional_on_raw_encoding`` until a raw data descriptor can confirm
-       whether they affect the stored samples.
+       whether they affect the stored samples. Descriptor-aware overloads
+       accept ``MetadataRawDataDescriptor`` and can collapse supported
+       stored-RAW descriptors to ``applies_to_stored_raw`` or rendered
+       descriptors to ``not_applicable_to_stored_raw``.
        GPS date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp``
        when both entries exist, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference
@@ -213,7 +216,8 @@ Host-facing API map
        provides a stable display token for the reference code. It is intended
        for inspection UI and host policy decisions; it does not rewrite
        metadata or hide ambiguity. Python ``Document`` and
-       ``TransferSourceSnapshot`` expose matching dictionary wrappers.
+       ``TransferSourceSnapshot`` expose matching dictionary wrappers,
+       including the thin ``MetadataRawDataDescriptor`` object.
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
        ``transfer_concept_diagnostic_message(...)``
@@ -223,16 +227,18 @@ Host-facing API map
        Each diagnostic reports concept kind/role, transfer hint,
        keep/drop/requires-target-image-spec action, reason token, severity
        token, default message text, conflict flag, source entries,
-       compatible/rendered safety booleans, and GPS altitude-reference
-       presentation fields. Rendered-transfer drop messages distinguish source
-       color transforms, white balance, lens-correction records, source RAW
-       curves/linearity metadata, and computational/thermal/stitch
+       compatible/rendered safety booleans, RAW applicability state, and GPS
+       altitude-reference presentation fields. Rendered-transfer drop messages
+       distinguish source color transforms, white balance, lens-correction
+       records, source RAW curves/linearity metadata that still require
+       storage-context confirmation, and computational/thermal/stitch
        source-processing drops from generic source-processing metadata.
        Intended for UI previews and host policy messages before calling
        ``prepare_metadata_for_target(...)``; it does not replace the actual
        transfer filter. Python ``Document`` and
        ``TransferSourceSnapshot`` expose ``transfer_concept_diagnostics(...)``
-       dictionaries with ``severity_name`` and ``message`` fields.
+       dictionaries with ``severity_name``, ``message``, and RAW applicability
+       fields.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

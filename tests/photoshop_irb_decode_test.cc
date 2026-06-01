@@ -338,14 +338,20 @@ TEST(PhotoshopIrbDecodeTest, DecodesResourcesAndOptionalIptc)
 
     // One block for IRB resources, plus one for derived IPTC datasets.
     ASSERT_EQ(store.block_count(), 2U);
-    ASSERT_EQ(store.entries().size(), 3U);
+    ASSERT_EQ(store.entries().size(), 4U);
 
-    uint32_t irb_entries  = 0;
-    uint32_t iptc_entries = 0;
+    uint32_t irb_entries       = 0;
+    uint32_t iptc_entries      = 0;
+    uint32_t irb_field_entries = 0;
     for (size_t i = 0; i < store.entries().size(); ++i) {
         const Entry& e = store.entry(static_cast<EntryId>(i));
         if (e.key.kind == MetaKeyKind::PhotoshopIrb) {
             irb_entries += 1;
+            continue;
+        }
+        if (e.key.kind == MetaKeyKind::PhotoshopIrbField) {
+            irb_field_entries += 1;
+            EXPECT_EQ(e.value.data.u64, 9U);
             continue;
         }
         if (e.key.kind == MetaKeyKind::IptcDataset) {
@@ -357,6 +363,7 @@ TEST(PhotoshopIrbDecodeTest, DecodesResourcesAndOptionalIptc)
     }
     EXPECT_EQ(irb_entries, 2U);
     EXPECT_EQ(iptc_entries, 1U);
+    EXPECT_EQ(irb_field_entries, 1U);
 }
 
 TEST(PhotoshopIrbDecodeTest, DecodesEmbeddedXmpAndIccResources)
@@ -801,6 +808,11 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
         std::byte { 'l' }, std::byte { '/' }, std::byte { '>' },
     };
 
+    const std::array<std::byte, 5> iptc_data = {
+        std::byte { 0x1c }, std::byte { 0x02 }, std::byte { 0x19 },
+        std::byte { 0x00 }, std::byte { 0x00 },
+    };
+
     const std::array<std::byte, 11> lightroom_workflow = {
         std::byte { 'l' }, std::byte { 'r' }, std::byte { ':' },
         std::byte { 'w' }, std::byte { 'o' }, std::byte { 'r' },
@@ -840,6 +852,7 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     append_irb_resource(0x1B58U, image_ready_variables, &irb);
     append_irb_resource(0x1B59U, image_ready_data_sets, &irb);
     append_irb_resource(0x03EAU, xml_data, &irb);
+    append_irb_resource(0x0404U, iptc_data, &irb);
     append_irb_resource(0x1F40U, lightroom_workflow, &irb);
     append_irb_resource(0x0401U, working_path, &irb);
     append_irb_resource(0x03F4U, halftone, &irb);
@@ -850,8 +863,8 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 16U);
-    EXPECT_EQ(r.entries_decoded, 45U);
+    EXPECT_EQ(r.resources_decoded, 17U);
+    EXPECT_EQ(r.entries_decoded, 47U);
 
     const Entry* channels = find_photoshop_irb_field(store, 0x03E8U,
                                                      "Photoshop2ChannelCount");
@@ -914,6 +927,10 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
         = collect_photoshop_irb_text_fields(store, 0x03EAU, "XMLData");
     ASSERT_EQ(xml_values.size(), 1U);
     EXPECT_EQ(xml_values[0], "<xml/>");
+    const Entry* iptc_bytes = find_photoshop_irb_field(store, 0x0404U,
+                                                       "IPTCDataBytes");
+    ASSERT_NE(iptc_bytes, nullptr);
+    EXPECT_EQ(iptc_bytes->value.data.u64, 5U);
     const std::vector<std::string_view> lightroom_values
         = collect_photoshop_irb_text_fields(store, 0x1F40U,
                                             "LightroomWorkflow");

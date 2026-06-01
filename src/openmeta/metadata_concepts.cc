@@ -776,33 +776,48 @@ namespace {
         candidate->raw_applicability_can_affect_decode = can_affect_decode;
     }
 
-    static void
-    assign_raw_applicability(MetadataConceptCandidate* candidate) noexcept
+    static bool metadata_raw_applicability_can_affect_decode(
+        MetadataRawApplicabilityState state) noexcept
+    {
+        return state == MetadataRawApplicabilityState::AppliesToStoredRaw
+               || state
+                      == MetadataRawApplicabilityState::ConditionalOnRawEncoding;
+    }
+
+    static void assign_raw_applicability(
+        MetadataConceptCandidate* candidate,
+        const MetadataRawDataDescriptor* descriptor) noexcept
     {
         if (!candidate
             || candidate->kind != MetadataConceptKind::RawProcessing) {
             return;
         }
+        MetadataRawDataDescriptor unknown_descriptor;
+        const MetadataRawDataDescriptor& raw_descriptor
+            = descriptor ? *descriptor : unknown_descriptor;
+        const MetadataRawApplicabilityState state
+            = metadata_raw_applicability_for_descriptor(candidate->role,
+                                                        raw_descriptor);
+        if (state != MetadataRawApplicabilityState::Unknown) {
+            set_raw_applicability(
+                candidate, state,
+                state
+                    == MetadataRawApplicabilityState::ConditionalOnRawEncoding,
+                metadata_raw_applicability_can_affect_decode(state));
+            return;
+        }
+
         switch (candidate->role) {
         case MetadataConceptRole::BlackLevel:
         case MetadataConceptRole::WhiteLevel:
         case MetadataConceptRole::CfaLayout:
         case MetadataConceptRole::SensorGeometry:
         case MetadataConceptRole::RawStorage:
-            set_raw_applicability(
-                candidate, MetadataRawApplicabilityState::AppliesToStoredRaw,
-                false, true);
-            return;
         case MetadataConceptRole::Linearization:
         case MetadataConceptRole::RawValueCurve:
         case MetadataConceptRole::RawLinearityLimit:
         case MetadataConceptRole::RawCalibrationCurve:
         case MetadataConceptRole::RawCurveControlPoints:
-            set_raw_applicability(
-                candidate,
-                MetadataRawApplicabilityState::ConditionalOnRawEncoding, true,
-                true);
-            return;
         case MetadataConceptRole::SourceProcessing:
         case MetadataConceptRole::ComputationalProcessing:
         case MetadataConceptRole::ThermalProcessing:
@@ -3034,7 +3049,9 @@ namespace {
         }
     }
 
-    static void finalize_resolution(MetadataConceptResolution* resolution)
+    static void
+    finalize_resolution(MetadataConceptResolution* resolution,
+                        const MetadataRawDataDescriptor* raw_descriptor)
     {
         if (!resolution) {
             return;
@@ -3049,7 +3066,7 @@ namespace {
             candidate.preferred                 = false;
             candidate.conflict                  = false;
             assign_transfer_hint(&candidate);
-            assign_raw_applicability(&candidate);
+            assign_raw_applicability(&candidate, raw_descriptor);
             if (candidate.source_entries.empty()) {
                 add_unique_entry(&resolution->source_entries,
                                  candidate.entry_id);
@@ -3155,7 +3172,7 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind)
         append_exposure_candidates(store, &out);
         break;
     }
-    finalize_resolution(&out);
+    finalize_resolution(&out, nullptr);
     return out;
 }
 
@@ -3181,6 +3198,135 @@ resolve_metadata_concepts(const MetaStore& store)
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::RawProcessing));
     return out;
+}
+
+MetadataConceptResolution
+resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind,
+                         const MetadataRawDataDescriptor& raw_descriptor)
+{
+    MetadataConceptResolution out;
+    out.kind = kind;
+    switch (kind) {
+    case MetadataConceptKind::Orientation:
+        append_orientation_candidates(store, &out);
+        break;
+    case MetadataConceptKind::DateTime:
+        append_datetime_candidates(store, &out);
+        break;
+    case MetadataConceptKind::ColorProfile:
+        append_color_profile_candidates(store, &out);
+        break;
+    case MetadataConceptKind::Gps: append_gps_candidates(store, &out); break;
+    case MetadataConceptKind::Geometry:
+        append_geometry_candidates(store, &out);
+        break;
+    case MetadataConceptKind::LensCorrection:
+        append_lens_correction_candidates(store, &out);
+        break;
+    case MetadataConceptKind::RawProcessing:
+        append_raw_processing_candidates(store, &out);
+        break;
+    case MetadataConceptKind::Exposure:
+        append_exposure_candidates(store, &out);
+        break;
+    }
+    finalize_resolution(&out, &raw_descriptor);
+    return out;
+}
+
+MetadataConceptResult
+resolve_metadata_concepts(const MetaStore& store,
+                          const MetadataRawDataDescriptor& raw_descriptor)
+{
+    MetadataConceptResult out;
+    out.concepts.reserve(8U);
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::Orientation,
+                                 raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::DateTime,
+                                 raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::Exposure,
+                                 raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::ColorProfile,
+                                 raw_descriptor));
+    out.concepts.push_back(resolve_metadata_concept(store,
+                                                    MetadataConceptKind::Gps,
+                                                    raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::Geometry,
+                                 raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::LensCorrection,
+                                 raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::RawProcessing,
+                                 raw_descriptor));
+    return out;
+}
+
+MetadataRawApplicabilityState
+metadata_raw_applicability_for_descriptor(
+    MetadataConceptRole role,
+    const MetadataRawDataDescriptor& descriptor) noexcept
+{
+    switch (role) {
+    case MetadataConceptRole::BlackLevel:
+    case MetadataConceptRole::WhiteLevel:
+    case MetadataConceptRole::CfaLayout:
+    case MetadataConceptRole::SensorGeometry:
+    case MetadataConceptRole::RawStorage:
+        if (descriptor.encoding == MetadataRawDataEncoding::Rendered) {
+            return MetadataRawApplicabilityState::NotApplicableToStoredRaw;
+        }
+        return MetadataRawApplicabilityState::AppliesToStoredRaw;
+    case MetadataConceptRole::Linearization:
+    case MetadataConceptRole::RawValueCurve:
+    case MetadataConceptRole::RawLinearityLimit:
+    case MetadataConceptRole::RawCalibrationCurve:
+    case MetadataConceptRole::RawCurveControlPoints:
+        if (descriptor.encoding == MetadataRawDataEncoding::Rendered) {
+            return MetadataRawApplicabilityState::NotApplicableToStoredRaw;
+        }
+        if (descriptor.encoding == MetadataRawDataEncoding::Unknown) {
+            return MetadataRawApplicabilityState::ConditionalOnRawEncoding;
+        }
+        return MetadataRawApplicabilityState::AppliesToStoredRaw;
+    case MetadataConceptRole::Primary:
+    case MetadataConceptRole::Orientation:
+    case MetadataConceptRole::Created:
+    case MetadataConceptRole::Digitized:
+    case MetadataConceptRole::Modified:
+    case MetadataConceptRole::MetadataDate:
+    case MetadataConceptRole::DateCreated:
+    case MetadataConceptRole::ColorSpace:
+    case MetadataConceptRole::IccProfile:
+    case MetadataConceptRole::ColorMatrix:
+    case MetadataConceptRole::WhiteBalance:
+    case MetadataConceptRole::Latitude:
+    case MetadataConceptRole::Longitude:
+    case MetadataConceptRole::Altitude:
+    case MetadataConceptRole::Timestamp:
+    case MetadataConceptRole::Crop:
+    case MetadataConceptRole::ActiveArea:
+    case MetadataConceptRole::Border:
+    case MetadataConceptRole::LensCorrection:
+    case MetadataConceptRole::SourceProcessing:
+    case MetadataConceptRole::ComputationalProcessing:
+    case MetadataConceptRole::ThermalProcessing:
+    case MetadataConceptRole::StitchProcessing:
+    case MetadataConceptRole::ExposureTime:
+    case MetadataConceptRole::Aperture:
+    case MetadataConceptRole::IsoSensitivity:
+    case MetadataConceptRole::ExposureBias:
+    case MetadataConceptRole::ExposureProgram:
+    case MetadataConceptRole::Gain:
+    case MetadataConceptRole::RawExposureAdjustment:
+    case MetadataConceptRole::SourceColorTransform: break;
+    }
+    return MetadataRawApplicabilityState::Unknown;
 }
 
 const char*

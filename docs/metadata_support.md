@@ -71,10 +71,10 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, and descriptor-header summaries, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, and descriptor-header summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
@@ -148,6 +148,7 @@ summaries such as:
 - `ImageReadyVariables`
 - `ImageReadyDataSets`
 - `LightroomWorkflow`
+- `IPTCDataBytes`
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
 - `WorkingPath` and numbered path resources as record counts/selectors
 - descriptor-header summaries for resources such as `LayerComps`,
@@ -157,7 +158,7 @@ summaries such as:
 - `ChannelOptions`
 - `PrintFlagsInfo`
 - `ClippingPathName`
-- embedded ICC, EXIF, EXIF2, and XMP resource byte counts
+- embedded IPTC-NAA, ICC, EXIF, EXIF2, and XMP resource byte counts
 
 When enabled, embedded IPTC-IIM, XMP, and ICC payloads in IRB resources are
 also decoded into their regular OpenMeta entry families.
@@ -181,6 +182,8 @@ This is useful, but it is still not full Photoshop-resource parity.
 OpenMeta now has a bounded semantic model on top of raw item discovery:
 - `ftyp.*`, including brand names and compatible-brand counts
 - primary item properties
+- `ipco` property-container summaries with total, known, unknown, and
+  per-known-type property counts
 - `ipma` item-property association rows with item ids, property indices,
   essential flags, and known property type names
 - `iinf/infe` item-info rows

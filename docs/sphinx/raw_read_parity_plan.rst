@@ -138,9 +138,15 @@ concept candidates:
   unknown, applicable to stored raw samples, conditional on raw encoding, or
   not applicable to stored raw samples.
 
-The current resolver only marks curve/LUT-like RAW roles as conditional on raw
-encoding. It does not yet prove that a vendor curve is active for a specific
-file. Future interpretation work should bind curve/LUT entries to the raw data
+The default resolver still marks curve/LUT-like RAW roles as conditional on raw
+encoding when no storage context is supplied. Descriptor-aware concept
+resolution overloads accept ``MetadataRawDataDescriptor``; those overloads can
+mark recognized RAW-processing roles as applicable to stored RAW samples for
+known RAW encodings or not applicable for rendered data. This is a conservative
+storage-context classification, not proof that a vendor curve is active for a
+specific file.
+
+Future interpretation work should bind curve/LUT entries to the raw data
 descriptor that records the relevant plane/blob, compression or packing mode,
 sample layout, offsets/byte counts when available, and the decoder stage where
 the curve applies.

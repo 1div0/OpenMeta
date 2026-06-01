@@ -397,6 +397,35 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
     ASSERT_EQ(color_type_name.size(), 1U);
     EXPECT_EQ(color_type_name[0], "nclx");
 
+    const std::vector<uint32_t> ipco_property_count
+        = collect_u32_values(store, "ipco.property_count");
+    const std::vector<uint32_t> ipco_known_count
+        = collect_u32_values(store, "ipco.known_property_count");
+    const std::vector<uint32_t> ipco_unknown_count
+        = collect_u32_values(store, "ipco.unknown_property_count");
+    ASSERT_EQ(ipco_property_count.size(), 1U);
+    ASSERT_EQ(ipco_known_count.size(), 1U);
+    ASSERT_EQ(ipco_unknown_count.size(), 1U);
+    EXPECT_EQ(ipco_property_count[0], 4U);
+    EXPECT_EQ(ipco_known_count[0], 4U);
+    EXPECT_EQ(ipco_unknown_count[0], 0U);
+    const std::vector<uint32_t> ipco_ispe_count
+        = collect_u32_values(store, "ipco.ispe_count");
+    const std::vector<uint32_t> ipco_irot_count
+        = collect_u32_values(store, "ipco.irot_count");
+    const std::vector<uint32_t> ipco_imir_count
+        = collect_u32_values(store, "ipco.imir_count");
+    const std::vector<uint32_t> ipco_colr_count
+        = collect_u32_values(store, "ipco.colr_count");
+    ASSERT_EQ(ipco_ispe_count.size(), 1U);
+    ASSERT_EQ(ipco_irot_count.size(), 1U);
+    ASSERT_EQ(ipco_imir_count.size(), 1U);
+    ASSERT_EQ(ipco_colr_count.size(), 1U);
+    EXPECT_EQ(ipco_ispe_count[0], 1U);
+    EXPECT_EQ(ipco_irot_count[0], 1U);
+    EXPECT_EQ(ipco_imir_count[0], 1U);
+    EXPECT_EQ(ipco_colr_count[0], 1U);
+
     const std::vector<uint16_t> primaries
         = collect_u16_values(store, "primary.nclx_colour_primaries");
     const std::vector<uint16_t> transfer
@@ -543,6 +572,27 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryApertureAspectAndPixelDepth)
     (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
                            exif_opts, payload_opts);
     store.finalize();
+
+    const std::vector<uint32_t> ipco_property_count
+        = collect_u32_values(store, "ipco.property_count");
+    const std::vector<uint32_t> ipco_known_count
+        = collect_u32_values(store, "ipco.known_property_count");
+    const std::vector<uint32_t> ipco_pasp_count
+        = collect_u32_values(store, "ipco.pasp_count");
+    const std::vector<uint32_t> ipco_pixi_count
+        = collect_u32_values(store, "ipco.pixi_count");
+    const std::vector<uint32_t> ipco_clap_count
+        = collect_u32_values(store, "ipco.clap_count");
+    ASSERT_EQ(ipco_property_count.size(), 1U);
+    ASSERT_EQ(ipco_known_count.size(), 1U);
+    ASSERT_EQ(ipco_pasp_count.size(), 1U);
+    ASSERT_EQ(ipco_pixi_count.size(), 1U);
+    ASSERT_EQ(ipco_clap_count.size(), 1U);
+    EXPECT_EQ(ipco_property_count[0], 3U);
+    EXPECT_EQ(ipco_known_count[0], 3U);
+    EXPECT_EQ(ipco_pasp_count[0], 1U);
+    EXPECT_EQ(ipco_pixi_count[0], 1U);
+    EXPECT_EQ(ipco_clap_count[0], 1U);
 
     const std::vector<uint32_t> pixel_aspect_h
         = collect_u32_values(store, "primary.pixel_aspect_h_spacing");

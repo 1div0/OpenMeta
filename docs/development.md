@@ -676,10 +676,13 @@ This policy surface is intentionally marked draft and may be refined.
     `primary.nclx_colour_primaries`,
     `primary.nclx_transfer_characteristics`,
     `primary.nclx_matrix_coefficients`, `primary.nclx_full_range_flag`, and
-    `primary.color_profile_bytes` for bounded ICC profile carriers), `ipma`
-    item-property association rows (`ipma.association_count`, `ipma.item_id`,
-    `ipma.property_index`, `ipma.essential`, `ipma.property_type`,
-    `ipma.property_type_name`), item-info rows from `iinf/infe`
+    `primary.color_profile_bytes` for bounded ICC profile carriers), `ipco`
+    property-container summaries (`ipco.property_count`,
+    `ipco.known_property_count`, `ipco.unknown_property_count`, and
+    per-known-type counts), `ipma` item-property association rows
+    (`ipma.association_count`, `ipma.item_id`, `ipma.property_index`,
+    `ipma.essential`, `ipma.property_type`, `ipma.property_type_name`),
+    item-info rows from `iinf/infe`
     (`item.info_count`, `item.id`, `item.type`,
     `item.type_name`, `item.semantic`, `item.name`, `item.content_type`,
     `item.content_encoding`, `item.uri_type`, and `item.semantic_*_count`
@@ -919,9 +922,10 @@ Internal helper conventions (used by vendor decoders):
   `ColorSamplersResource`, `ColorSamplersResource2`, `Watermark`,
   `ICC_Untagged`, `EffectsVisible`, `IDsBaseValue`, `UnicodeAlphaNames`,
   `IndexedColorTableCount`, `TransparentIndex`, `GlobalAltitude`,
-  `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`, `IPTCDigest`,
-  `PrintScaleInfo`, `PixelInfo`, `AutoSaveFilePath`, `AutoSaveFormat`,
-  `XMLData`, `ImageReadyVariables`, `ImageReadyDataSets`, path-resource record
+  `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`,
+  `IPTCDataBytes`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`,
+  `AutoSaveFilePath`, `AutoSaveFormat`, `XMLData`, `ImageReadyVariables`,
+  `ImageReadyDataSets`, path-resource record
   summaries, descriptor-header summaries for
   `LayerComps`, `MeasurementScale`, `TimelineInfo`, `SheetDisclosure`,
   `OnionSkins`, `CountInfo`, `PrintInfo2`, `PrintStyle`,

@@ -21535,12 +21535,21 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
             openmeta::MetadataConceptRole::RawValueCurve,
             openmeta::TransferConceptDiagnosticAction::Drop);
     ASSERT_NE(curve_diag, nullptr);
-    EXPECT_EQ(curve_diag->reason,
-              openmeta::TransferConceptDiagnosticReason::RenderedUnsafe);
+    EXPECT_EQ(
+        curve_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::RawApplicabilityConditional);
     EXPECT_TRUE(curve_diag->source_bound);
+    EXPECT_EQ(curve_diag->raw_applicability,
+              openmeta::MetadataRawApplicabilityState::ConditionalOnRawEncoding);
+    EXPECT_TRUE(curve_diag->raw_applicability_requires_storage_context);
+    EXPECT_TRUE(curve_diag->raw_applicability_can_affect_decode);
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_reason_name(
+                     curve_diag->reason),
+                 "raw_applicability_conditional");
     EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(*curve_diag),
-                 "source RAW curve or linearity metadata is unsafe for "
-                 "rendered-image transfer and will be dropped");
+                 "RAW curve or linearity metadata requires raw storage context "
+                 "before it can be treated as active and will be dropped for "
+                 "rendered-image transfer");
 
     const openmeta::TransferConceptDiagnostics compatible
         = openmeta::transfer_concept_diagnostics_from_store(
@@ -21561,6 +21570,9 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     ASSERT_NE(compatible_curve_diag, nullptr);
     EXPECT_TRUE(compatible_curve_diag->compatible_file_safe);
     EXPECT_FALSE(compatible_curve_diag->rendered_image_safe);
+    EXPECT_EQ(
+        compatible_curve_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::RawApplicabilityConditional);
 
     openmeta::PrepareTransferRequest request;
     request.include_iptc_app13   = false;

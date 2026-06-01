@@ -13402,6 +13402,15 @@ namespace {
         out.action = concept_diagnostic_action_for_candidate(candidate, safety);
         out.reason = concept_diagnostic_reason_from_hint(
             candidate.transfer_hint);
+        if (candidate.raw_applicability
+            == MetadataRawApplicabilityState::ConditionalOnRawEncoding) {
+            out.reason
+                = TransferConceptDiagnosticReason::RawApplicabilityConditional;
+        } else if (candidate.raw_applicability
+                   == MetadataRawApplicabilityState::NotApplicableToStoredRaw) {
+            out.reason
+                = TransferConceptDiagnosticReason::RawApplicabilityNotApplicable;
+        }
         out.severity
             = concept_diagnostic_severity_for_values(out.action, out.reason,
                                                      candidate.conflict);
@@ -13412,6 +13421,11 @@ namespace {
         out.rendered_image_safe        = candidate.rendered_image_safe;
         out.requires_target_image_spec = candidate.requires_target_image_spec;
         out.source_bound               = candidate.source_bound;
+        out.raw_applicability          = candidate.raw_applicability;
+        out.raw_applicability_requires_storage_context
+            = candidate.raw_applicability_requires_storage_context;
+        out.raw_applicability_can_affect_decode
+            = candidate.raw_applicability_can_affect_decode;
         out.has_gps_altitude_reference = candidate.has_gps_altitude_reference;
         out.gps_altitude_below_sea_level
             = candidate.gps_altitude_below_sea_level;
@@ -13498,6 +13512,10 @@ transfer_concept_diagnostic_reason_name(
         return "rendered_unsafe";
     case TransferConceptDiagnosticReason::TargetImageSpecRequired:
         return "target_image_spec_required";
+    case TransferConceptDiagnosticReason::RawApplicabilityConditional:
+        return "raw_applicability_conditional";
+    case TransferConceptDiagnosticReason::RawApplicabilityNotApplicable:
+        return "raw_applicability_not_applicable";
     }
     return "unknown";
 }
@@ -13532,12 +13550,30 @@ transfer_concept_diagnostic_message(
     }
     switch (diagnostic.action) {
     case TransferConceptDiagnosticAction::Keep:
+        if (diagnostic.reason
+            == TransferConceptDiagnosticReason::RawApplicabilityConditional) {
+            return "metadata is kept for compatible transfer, but RAW curve or "
+                   "linearity applicability still requires raw storage "
+                   "context";
+        }
+        if (diagnostic.reason
+            == TransferConceptDiagnosticReason::RawApplicabilityNotApplicable) {
+            return "RAW processing metadata does not apply to the supplied "
+                   "storage descriptor";
+        }
         return "metadata is safe to keep for this transfer mode";
     case TransferConceptDiagnosticAction::RequiresTargetImageSpec:
         return "source value describes target-owned image properties; provide "
                "target image specs or write a target-correct value";
     case TransferConceptDiagnosticAction::Drop:
         switch (diagnostic.reason) {
+        case TransferConceptDiagnosticReason::RawApplicabilityConditional:
+            return "RAW curve or linearity metadata requires raw storage "
+                   "context before it can be treated as active and will be "
+                   "dropped for rendered-image transfer";
+        case TransferConceptDiagnosticReason::RawApplicabilityNotApplicable:
+            return "RAW processing metadata does not apply to the supplied "
+                   "storage descriptor and will be dropped";
         case TransferConceptDiagnosticReason::RenderedUnsafe:
             if (diagnostic.kind == MetadataConceptKind::ColorProfile
                 && (diagnostic.role == MetadataConceptRole::ColorMatrix
