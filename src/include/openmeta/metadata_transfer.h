@@ -1965,6 +1965,11 @@ TransferConceptDiagnostics
 transfer_concept_diagnostics_from_store(const MetaStore& store,
                                         TransferSafetyMode safety);
 
+TransferConceptDiagnostics
+transfer_concept_diagnostics_from_store(
+    const MetaStore& store, TransferSafetyMode safety,
+    const MetadataRawDataDescriptor& raw_descriptor);
+
 const char*
 transfer_concept_diagnostic_action_name(
     TransferConceptDiagnosticAction action) noexcept;

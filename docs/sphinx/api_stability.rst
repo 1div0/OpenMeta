@@ -228,17 +228,21 @@ Host-facing API map
        keep/drop/requires-target-image-spec action, reason token, severity
        token, default message text, conflict flag, source entries,
        compatible/rendered safety booleans, RAW applicability state, and GPS
-       altitude-reference presentation fields. Rendered-transfer drop messages
-       distinguish source color transforms, white balance, lens-correction
-       records, source RAW curves/linearity metadata that still require
-       storage-context confirmation, and computational/thermal/stitch
-       source-processing drops from generic source-processing metadata.
+       altitude-reference presentation fields. Descriptor-aware overloads
+       accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
+       decisions reflect the supplied stored-RAW or rendered storage context.
+       Rendered-transfer drop messages distinguish source color transforms,
+       white balance, lens-correction records, source RAW curves/linearity
+       metadata that still require storage-context confirmation, and
+       computational/thermal/stitch source-processing drops from generic
+       source-processing metadata.
        Intended for UI previews and host policy messages before calling
        ``prepare_metadata_for_target(...)``; it does not replace the actual
        transfer filter. Python ``Document`` and
        ``TransferSourceSnapshot`` expose ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``message``, and RAW applicability
-       fields.
+       fields, with overloads that accept the thin
+       ``MetadataRawDataDescriptor`` object.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

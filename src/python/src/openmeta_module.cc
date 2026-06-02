@@ -5630,6 +5630,17 @@ snapshot_transfer_concept_diagnostics(const TransferSourceSnapshot& snapshot,
 }
 
 static nb::dict
+snapshot_transfer_concept_diagnostics_with_raw_descriptor(
+    const TransferSourceSnapshot& snapshot, TransferSafetyMode safety,
+    const MetadataRawDataDescriptor& raw_descriptor)
+{
+    const TransferConceptDiagnostics diagnostics
+        = transfer_concept_diagnostics_from_store(snapshot.store, safety,
+                                                  raw_descriptor);
+    return transfer_concept_diagnostics_to_python(diagnostics);
+}
+
+static nb::dict
 snapshot_raw_carrier_passthrough_audit(const TransferSourceSnapshot& snapshot,
                                        TransferTargetFormat target_format,
                                        TransferSafetyMode safety,
@@ -5775,6 +5786,17 @@ document_transfer_concept_diagnostics(std::shared_ptr<PyDocument> d,
 {
     const TransferConceptDiagnostics diagnostics
         = transfer_concept_diagnostics_from_store(d->store, safety);
+    return transfer_concept_diagnostics_to_python(diagnostics);
+}
+
+static nb::dict
+document_transfer_concept_diagnostics_with_raw_descriptor(
+    std::shared_ptr<PyDocument> d, TransferSafetyMode safety,
+    const MetadataRawDataDescriptor& raw_descriptor)
+{
+    const TransferConceptDiagnostics diagnostics
+        = transfer_concept_diagnostics_from_store(d->store, safety,
+                                                  raw_descriptor);
     return transfer_concept_diagnostics_to_python(diagnostics);
 }
 
@@ -7118,6 +7140,9 @@ NB_MODULE(_openmeta, m)
         .def("transfer_concept_diagnostics",
              &snapshot_transfer_concept_diagnostics,
              "safety"_a = TransferSafetyMode::RenderedImage)
+        .def("transfer_concept_diagnostics",
+             &snapshot_transfer_concept_diagnostics_with_raw_descriptor,
+             "safety"_a, "raw_descriptor"_a)
         .def("raw_carrier_passthrough_audit",
              &snapshot_raw_carrier_passthrough_audit,
              "target_format"_a    = TransferTargetFormat::Jpeg,
@@ -7286,6 +7311,9 @@ NB_MODULE(_openmeta, m)
         .def("transfer_concept_diagnostics",
              &document_transfer_concept_diagnostics,
              "safety"_a = TransferSafetyMode::RenderedImage)
+        .def("transfer_concept_diagnostics",
+             &document_transfer_concept_diagnostics_with_raw_descriptor,
+             "safety"_a, "raw_descriptor"_a)
         .def(
             "dng_ccm_fields",
             [](std::shared_ptr<PyDocument> d, bool require_dng_context,

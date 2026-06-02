@@ -13340,6 +13340,10 @@ namespace {
         const MetadataConceptCandidate& candidate,
         TransferSafetyMode safety) noexcept
     {
+        if (candidate.raw_applicability
+            == MetadataRawApplicabilityState::NotApplicableToStoredRaw) {
+            return TransferConceptDiagnosticAction::Drop;
+        }
         if (transfer_safety_mode_is_rendered(safety)) {
             if (candidate.rendered_image_safe) {
                 return TransferConceptDiagnosticAction::Keep;
@@ -13464,6 +13468,27 @@ namespace {
         }
     }
 
+    static void
+    append_transfer_concept_diagnostics(const MetadataConceptResult& concepts,
+                                        TransferSafetyMode safety,
+                                        TransferConceptDiagnostics* out)
+    {
+        if (!out) {
+            return;
+        }
+        for (size_t c = 0U; c < concepts.concepts.size(); ++c) {
+            const MetadataConceptResolution& resolution = concepts.concepts[c];
+            out->diagnostics.reserve(out->diagnostics.size()
+                                     + resolution.candidates.size());
+            for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+                const TransferConceptDiagnostic diagnostic
+                    = make_concept_diagnostic(resolution.candidates[i], safety);
+                add_concept_diagnostic_counts(diagnostic, out);
+                out->diagnostics.push_back(diagnostic);
+            }
+        }
+    }
+
 }  // namespace
 
 TransferConceptDiagnostics
@@ -13473,17 +13498,20 @@ transfer_concept_diagnostics_from_store(const MetaStore& store,
     TransferConceptDiagnostics out;
     out.safety                           = safety;
     const MetadataConceptResult concepts = resolve_metadata_concepts(store);
-    for (size_t c = 0U; c < concepts.concepts.size(); ++c) {
-        const MetadataConceptResolution& resolution = concepts.concepts[c];
-        out.diagnostics.reserve(out.diagnostics.size()
-                                + resolution.candidates.size());
-        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
-            const TransferConceptDiagnostic diagnostic
-                = make_concept_diagnostic(resolution.candidates[i], safety);
-            add_concept_diagnostic_counts(diagnostic, &out);
-            out.diagnostics.push_back(diagnostic);
-        }
-    }
+    append_transfer_concept_diagnostics(concepts, safety, &out);
+    return out;
+}
+
+TransferConceptDiagnostics
+transfer_concept_diagnostics_from_store(
+    const MetaStore& store, TransferSafetyMode safety,
+    const MetadataRawDataDescriptor& raw_descriptor)
+{
+    TransferConceptDiagnostics out;
+    out.safety = safety;
+    const MetadataConceptResult concepts
+        = resolve_metadata_concepts(store, raw_descriptor);
+    append_transfer_concept_diagnostics(concepts, safety, &out);
     return out;
 }
 

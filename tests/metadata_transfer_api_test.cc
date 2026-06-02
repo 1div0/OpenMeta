@@ -21602,6 +21602,84 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
               openmeta::TransferPolicyReason::SafetyModeFiltered);
 }
 
+TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry black_level;
+    black_level.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                    0xC61AU);
+    black_level.value = openmeta::make_u32(512U);
+    black_level.origin.block          = block;
+    black_level.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(black_level), openmeta::kInvalidEntryId);
+
+    const std::array<uint32_t, 2> raw_curve_values = { 0U, 65535U };
+    openmeta::Entry raw_curve;
+    raw_curve.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC618U);
+    raw_curve.value = openmeta::make_u32_array(
+        store.arena(), std::span<const uint32_t>(raw_curve_values.data(),
+                                                 raw_curve_values.size()));
+    raw_curve.origin.block          = block;
+    raw_curve.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(raw_curve), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::MetadataRawDataDescriptor stored_raw;
+    stored_raw.encoding = openmeta::MetadataRawDataEncoding::LosslessCompressed;
+    const openmeta::TransferConceptDiagnostics raw_compatible
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::CompatibleFile, stored_raw);
+    const openmeta::TransferConceptDiagnostic* raw_curve_diag
+        = find_transfer_concept_diagnostic(
+            raw_compatible, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::RawValueCurve,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(raw_curve_diag, nullptr);
+    EXPECT_EQ(raw_curve_diag->raw_applicability,
+              openmeta::MetadataRawApplicabilityState::AppliesToStoredRaw);
+    EXPECT_FALSE(raw_curve_diag->raw_applicability_requires_storage_context);
+    EXPECT_TRUE(raw_curve_diag->raw_applicability_can_affect_decode);
+
+    openmeta::MetadataRawDataDescriptor rendered_data;
+    rendered_data.encoding = openmeta::MetadataRawDataEncoding::Rendered;
+    const openmeta::TransferConceptDiagnostics rendered_compatible
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::CompatibleFile, rendered_data);
+    const openmeta::TransferConceptDiagnostic* rendered_curve_diag
+        = find_transfer_concept_diagnostic(
+            rendered_compatible, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::RawValueCurve,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(rendered_curve_diag, nullptr);
+    EXPECT_EQ(
+        rendered_curve_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::RawApplicabilityNotApplicable);
+    EXPECT_EQ(rendered_curve_diag->raw_applicability,
+              openmeta::MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+    EXPECT_FALSE(
+        rendered_curve_diag->raw_applicability_requires_storage_context);
+    EXPECT_FALSE(rendered_curve_diag->raw_applicability_can_affect_decode);
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(
+                     *rendered_curve_diag),
+                 "RAW processing metadata does not apply to the supplied "
+                 "storage descriptor and will be dropped");
+
+    const openmeta::TransferConceptDiagnostic* rendered_black_diag
+        = find_transfer_concept_diagnostic(
+            rendered_compatible, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::BlackLevel,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(rendered_black_diag, nullptr);
+    EXPECT_EQ(rendered_black_diag->raw_applicability,
+              openmeta::MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+    EXPECT_EQ(
+        rendered_black_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::RawApplicabilityNotApplicable);
+}
+
 TEST(MetadataTransferApi,
      CompatibleSafetyDecodedOnlyMakerNoteFieldsAreNotReconstructed)
 {

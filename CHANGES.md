@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.45 - 2026-06-01
+
+Changes compared with `0.4.44`.
+
+### Added
+
+- Added descriptor-aware transfer concept diagnostic overloads so hosts can
+  pass `MetadataRawDataDescriptor` directly into transfer preflight and get
+  keep/drop decisions that reflect rendered-vs-stored-RAW applicability.
+- Added thin Python `Document` and `TransferSourceSnapshot`
+  `transfer_concept_diagnostics(...)` overloads that accept
+  `MetadataRawDataDescriptor`.
+
+### Changed
+
+- RAW-processing diagnostics whose supplied descriptor marks the data as
+  rendered now drop as `raw_applicability_not_applicable`, even under
+  compatible-file safety.
+
 ## 0.4.44 - 2026-06-01
 
 Changes compared with `0.4.43`.

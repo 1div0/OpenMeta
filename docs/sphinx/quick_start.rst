@@ -182,6 +182,10 @@ facts from source RAW/correction data and target-owned image facts.
 ``transfer_concept_diagnostics_from_store(...)`` applies those hints to a
 selected transfer safety mode and returns keep/drop/requires-target-image-spec
 actions, severity tokens, and default message text for transfer-preview UI.
+When a host knows the RAW storage context, pass
+``MetadataRawDataDescriptor`` to the descriptor-aware overload so RAW
+curve/linearity and black/white-level diagnostics can distinguish stored RAW
+data from rendered pixels.
 Rendered-transfer drop messages distinguish source color transforms, white
 balance, lens correction, source RAW curves/linearity metadata, source-bound
 RAW processing, and target-owned image properties. Source color transforms

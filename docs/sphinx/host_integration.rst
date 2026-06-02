@@ -85,11 +85,14 @@ transfer hint: ``safe``, ``source_bound``, ``rendered_unsafe``, or
 previews, ``transfer_concept_diagnostics_from_store(...)`` converts those hints
 into keep/drop/requires-target-image-spec actions for a selected
 ``TransferSafetyMode``, plus stable severity tokens and default message text
-for host UI. Rendered-transfer drop messages distinguish source color
-transforms, white balance, lens correction, source RAW curves/linearity
-metadata, source-bound RAW processing, and target-owned image properties.
-Hosts can localize or replace the wording, but they do not need to invent the
-basic safe/drop/rewrite reasons.
+for host UI. If the host knows the source storage context, pass
+``MetadataRawDataDescriptor`` to the descriptor-aware overload so
+RAW-processing diagnostics distinguish stored RAW samples from rendered pixels
+before choosing keep/drop actions. Rendered-transfer drop messages distinguish
+source color transforms, white balance, lens correction, source RAW
+curves/linearity metadata, source-bound RAW processing, and target-owned image
+properties. Hosts can localize or replace the wording, but they do not need to
+invent the basic safe/drop/rewrite reasons.
 
 Adapter classes
 ---------------
@@ -643,6 +646,13 @@ are present.
        openmeta::transfer_concept_diagnostics_from_store(
            store, openmeta::TransferSafetyMode::RenderedImage);
 
+   openmeta::MetadataRawDataDescriptor raw_descriptor;
+   raw_descriptor.encoding = openmeta::MetadataRawDataEncoding::Rendered;
+   openmeta::TransferConceptDiagnostics descriptor_diagnostics =
+       openmeta::transfer_concept_diagnostics_from_store(
+           store, openmeta::TransferSafetyMode::CompatibleFile,
+           raw_descriptor);
+
    for (size_t i = 0U; i < diagnostics.diagnostics.size(); ++i) {
        const openmeta::TransferConceptDiagnostic& item =
            diagnostics.diagnostics[i];
@@ -673,6 +683,12 @@ Python uses the same family enum:
 
    diagnostics = doc.transfer_concept_diagnostics(
        openmeta.TransferSafetyMode.RenderedImage
+   )
+   raw_descriptor = openmeta.MetadataRawDataDescriptor()
+   raw_descriptor.encoding = openmeta.MetadataRawDataEncoding.Rendered
+   descriptor_diagnostics = doc.transfer_concept_diagnostics(
+       openmeta.TransferSafetyMode.CompatibleFile,
+       raw_descriptor,
    )
    for item in diagnostics["diagnostics"]:
        print(
