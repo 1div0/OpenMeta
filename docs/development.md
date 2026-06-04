@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata, lens-correction, sensor, BMFF brand/item-property associations, item groups, item semantic counts, and primary item properties, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, and descriptor-header summaries, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 92-93%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata, lens-correction, sensor, BMFF brand/item-property associations and rollups, item groups, item semantic counts, and primary item properties, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, and descriptor-header summaries, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 93%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 77-83%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -681,7 +681,10 @@ This policy surface is intentionally marked draft and may be refined.
     `ipco.known_property_count`, `ipco.unknown_property_count`, and
     per-known-type counts), `ipma` item-property association rows
     (`ipma.association_count`, `ipma.item_id`, `ipma.property_index`,
-    `ipma.essential`, `ipma.property_type`, `ipma.property_type_name`),
+    `ipma.essential`, `ipma.property_type`, `ipma.property_type_name`) plus
+    per-property rollups such as `ipma.ispe.association_count`,
+    `ipma.ispe.primary_association_count`, and
+    `ipma.irot.essential_count`,
     item-info rows from `iinf/infe`
     (`item.info_count`, `item.id`, `item.type`,
     `item.type_name`, `item.semantic`, `item.name`, `item.content_type`,
@@ -927,8 +930,9 @@ Internal helper conventions (used by vendor decoders):
   `AutoSaveFilePath`, `AutoSaveFormat`, `XMLData`, `ImageReadyVariables`,
   `ImageReadyDataSets`, path-resource record
   summaries, descriptor-header summaries for
-  `LayerComps`, `MeasurementScale`, `TimelineInfo`, `SheetDisclosure`,
-  `OnionSkins`, `CountInfo`, `PrintInfo2`, `PrintStyle`,
+  `LayerComps`, `MeasurementScale`, `HDRToningInfo`, `PrintInfo`,
+  `TimelineInfo`, `SheetDisclosure`, `OnionSkins`, `CountInfo`,
+  `PrintInfo2`, `PrintStyle`,
   `PathSelectionState`, and `OriginPathInfo`, `PhotoshopBGRThumbnail`,
   `PhotoshopThumbnail`, `LayerSelectionIDs`, `LayerGroupsEnabledID`,
   `ChannelOptions`, `PrintFlagsInfo`, and `ClippingPathName`.

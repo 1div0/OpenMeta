@@ -146,6 +146,13 @@ known RAW encodings or not applicable for rendered data. This is a conservative
 storage-context classification, not proof that a vendor curve is active for a
 specific file.
 
+Transfer preparation can also consume
+``PrepareTransferRequest::source_raw_data_descriptor``. When that descriptor
+says the source pixels are rendered, RAW-processing metadata is filtered even
+under compatible-file safety. The remaining gap is finer binding to the exact
+raw plane/blob, packing/compression mode, and active decoder path before
+declaring that a specific vendor LUT or curve is active.
+
 Future interpretation work should bind curve/LUT entries to the raw data
 descriptor that records the relevant plane/blob, compression or packing mode,
 sample layout, offsets/byte counts when available, and the decoder stage where

@@ -826,7 +826,7 @@ Priority legend:
 | MakerNote rewrite trust | `Next` | Important for trust, but it benefits from the writer-contract and validation work landing first |
 | Modern container read-depth follow-through | `Next` | Visible gap, but less urgent than finishing the current writer baseline |
 | EXR target decision | `Next` | Needs an explicit product choice, but should follow the main writer-contract stabilization work |
-| RAW curve/data applicability model | `Later` | Needed for precise RAW interpretation: curve/LUT metadata must be tied to the actual raw data storage path before it is called active |
+| RAW curve/data applicability model | `In progress` | Coarse descriptor-backed rendered-source filtering is now available in prepare; precise RAW interpretation still needs curve/LUT metadata tied to the actual raw data storage path before it is called active |
 | Long-tail native format semantics | `Later` | Matters more for broad `ExifTool` parity than for the first still-image writer milestone |
 | JUMBF / C2PA deeper semantics | `Later` | Current bounded behavior is already useful; deeper trust semantics should wait until the core writer contract is stable |
 | Full arbitrary metadata editing parity | `Later` | Strategic follow-up, not part of the next parity-closing milestone |

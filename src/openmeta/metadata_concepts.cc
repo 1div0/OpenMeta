@@ -1745,6 +1745,11 @@ namespace {
                                        has_offset, offset);
         add_unique_entry(&candidate.source_entries, time_id);
         append_candidate(out, candidate);
+
+        MetadataConceptCandidate created_candidate = candidate;
+        created_candidate.role     = MetadataConceptRole::Created;
+        created_candidate.priority = 85U;
+        append_candidate(out, created_candidate);
     }
 
     static void append_datetime_candidates(const MetaStore& store,

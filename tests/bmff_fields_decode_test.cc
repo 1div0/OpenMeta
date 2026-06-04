@@ -475,6 +475,26 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
     EXPECT_EQ(property_type_names[1], "irot");
     EXPECT_EQ(property_type_names[2], "imir");
     EXPECT_EQ(property_type_names[3], "colr");
+
+    const std::vector<uint32_t> ipma_ispe_association_count
+        = collect_u32_values(store, "ipma.ispe.association_count");
+    const std::vector<uint32_t> ipma_ispe_primary_count
+        = collect_u32_values(store, "ipma.ispe.primary_association_count");
+    const std::vector<uint32_t> ipma_ispe_essential_count
+        = collect_u32_values(store, "ipma.ispe.essential_count");
+    const std::vector<uint32_t> ipma_irot_essential_count
+        = collect_u32_values(store, "ipma.irot.essential_count");
+    const std::vector<uint32_t> ipma_colr_association_count
+        = collect_u32_values(store, "ipma.colr.association_count");
+    ASSERT_EQ(ipma_ispe_association_count.size(), 1U);
+    ASSERT_EQ(ipma_ispe_primary_count.size(), 1U);
+    ASSERT_EQ(ipma_irot_essential_count.size(), 1U);
+    ASSERT_EQ(ipma_colr_association_count.size(), 1U);
+    EXPECT_EQ(ipma_ispe_association_count[0], 1U);
+    EXPECT_EQ(ipma_ispe_primary_count[0], 1U);
+    EXPECT_TRUE(ipma_ispe_essential_count.empty());
+    EXPECT_EQ(ipma_irot_essential_count[0], 1U);
+    EXPECT_EQ(ipma_colr_association_count[0], 1U);
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsPrimaryApertureAspectAndPixelDepth)
@@ -593,6 +613,19 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryApertureAspectAndPixelDepth)
     EXPECT_EQ(ipco_pasp_count[0], 1U);
     EXPECT_EQ(ipco_pixi_count[0], 1U);
     EXPECT_EQ(ipco_clap_count[0], 1U);
+
+    const std::vector<uint32_t> ipma_pasp_association_count
+        = collect_u32_values(store, "ipma.pasp.association_count");
+    const std::vector<uint32_t> ipma_pixi_association_count
+        = collect_u32_values(store, "ipma.pixi.association_count");
+    const std::vector<uint32_t> ipma_clap_association_count
+        = collect_u32_values(store, "ipma.clap.association_count");
+    ASSERT_EQ(ipma_pasp_association_count.size(), 1U);
+    ASSERT_EQ(ipma_pixi_association_count.size(), 1U);
+    ASSERT_EQ(ipma_clap_association_count.size(), 1U);
+    EXPECT_EQ(ipma_pasp_association_count[0], 1U);
+    EXPECT_EQ(ipma_pixi_association_count[0], 1U);
+    EXPECT_EQ(ipma_clap_association_count[0], 1U);
 
     const std::vector<uint32_t> pixel_aspect_h
         = collect_u32_values(store, "primary.pixel_aspect_h_spacing");

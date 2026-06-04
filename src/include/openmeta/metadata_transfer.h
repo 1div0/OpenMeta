@@ -174,6 +174,7 @@ enum class TransferPolicyReason : uint8_t {
     TargetSerializationUnavailable,
     TargetImageProperties,
     SafetyModeFiltered,
+    RawDataDescriptorFiltered,
 };
 
 /// Explicit current C2PA transfer mode resolved during prepare.
@@ -698,6 +699,11 @@ struct PrepareTransferRequest final {
     DngTargetMode dng_target_mode      = DngTargetMode::MinimalFreshScaffold;
     TransferProfile profile;
     TransferTargetImageSpec target_image_spec;
+    /// Optional source pixel-storage context. When this says source pixels are
+    /// rendered, prepare drops source RAW-processing metadata even for
+    /// compatible-file transfer because it no longer applies to stored pixels.
+    bool has_source_raw_data_descriptor = false;
+    MetadataRawDataDescriptor source_raw_data_descriptor;
     /// Disabled by default. Currently used only for snapshot preparation.
     TransferRawCarrierPassthroughMode raw_carrier_passthrough_mode
         = TransferRawCarrierPassthroughMode::Disabled;

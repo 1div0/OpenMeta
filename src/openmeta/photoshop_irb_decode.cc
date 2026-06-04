@@ -1588,6 +1588,11 @@ namespace {
             decode_descriptor_header_resource(payload, resource_id, store,
                                               block, order, result);
             break;
+        case 0x042EU:
+        case 0x042FU:
+            decode_descriptor_header_resource(payload, resource_id, store,
+                                              block, order, result);
+            break;
         case 0x042DU:
             decode_layer_selection_ids(payload, store, block, order, result);
             break;

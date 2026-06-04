@@ -152,9 +152,9 @@ summaries such as:
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
 - `WorkingPath` and numbered path resources as record counts/selectors
 - descriptor-header summaries for resources such as `LayerComps`,
-  `MeasurementScale`, `TimelineInfo`, `SheetDisclosure`, `OnionSkins`,
-  `CountInfo`, `PrintInfo2`, `PrintStyle`, `PathSelectionState`, and
-  `OriginPathInfo`
+  `MeasurementScale`, `HDRToningInfo`, `PrintInfo`, `TimelineInfo`,
+  `SheetDisclosure`, `OnionSkins`, `CountInfo`, `PrintInfo2`, `PrintStyle`,
+  `PathSelectionState`, and `OriginPathInfo`
 - `ChannelOptions`
 - `PrintFlagsInfo`
 - `ClippingPathName`
@@ -186,6 +186,8 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   per-known-type property counts
 - `ipma` item-property association rows with item ids, property indices,
   essential flags, and known property type names
+- per-known-property `ipma.<type>` association, primary-association, and
+  essential-count rollups for common primary-item properties
 - `iinf/infe` item-info rows
 - item type-name and semantic labels for EXIF, XMP, JUMBF, C2PA, ICC profile,
   image, URI, auxiliary, thumbnail, derived-image, and content-description items

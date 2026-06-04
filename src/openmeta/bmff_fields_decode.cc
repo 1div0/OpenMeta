@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -736,6 +738,15 @@ namespace {
         bool property_truncated       = false;
     };
 
+    struct IpmaPropertyTypeCounts final {
+        uint32_t property_type     = 0;
+        const char* token          = "";
+        uint32_t association_count = 0;
+        uint32_t primary_count     = 0;
+        uint32_t essential_count   = 0;
+        bool have_any_association  = false;
+    };
+
 
     struct PrimaryProps final {
         bool have_item_id = false;
@@ -1139,6 +1150,85 @@ namespace {
                                     s.pixi_count);
         emit_count_field_if_nonzero(store, block, io_order, "ipco.clap_count",
                                     s.clap_count);
+    }
+
+    static void append_ipma_summary_count_field(MetaStore& store, BlockId block,
+                                                uint32_t* io_order,
+                                                const char* token,
+                                                const char* suffix,
+                                                uint32_t count) noexcept
+    {
+        if (!io_order || !token || !suffix || count == 0U) {
+            return;
+        }
+        char field[80];
+        const int n = std::snprintf(field, sizeof(field), "ipma.%s.%s", token,
+                                    suffix);
+        if (n <= 0 || static_cast<size_t>(n) >= sizeof(field)) {
+            return;
+        }
+        emit_u32_field(store, block, (*io_order)++, field, count);
+    }
+
+    static void
+    emit_ipma_property_type_summary_fields(MetaStore& store, BlockId block,
+                                           uint32_t* io_order,
+                                           const PrimaryProps& p) noexcept
+    {
+        if (!io_order || p.ipma_association_count == 0U) {
+            return;
+        }
+
+        IpmaPropertyTypeCounts counts[] = {
+            { fourcc('i', 's', 'p', 'e'), "ispe", 0U, 0U, 0U, false },
+            { fourcc('i', 'r', 'o', 't'), "irot", 0U, 0U, 0U, false },
+            { fourcc('i', 'm', 'i', 'r'), "imir", 0U, 0U, 0U, false },
+            { fourcc('c', 'o', 'l', 'r'), "colr", 0U, 0U, 0U, false },
+            { fourcc('a', 'u', 'x', 'C'), "auxC", 0U, 0U, 0U, false },
+            { fourcc('p', 'a', 's', 'p'), "pasp", 0U, 0U, 0U, false },
+            { fourcc('p', 'i', 'x', 'i'), "pixi", 0U, 0U, 0U, false },
+            { fourcc('c', 'l', 'a', 'p'), "clap", 0U, 0U, 0U, false },
+        };
+
+        for (uint32_t i = 0U; i < p.ipma_association_count; ++i) {
+            const ItemPropertyAssociation& assoc = p.ipma_associations[i];
+            if (!assoc.have_property_type) {
+                continue;
+            }
+            const size_t counts_size = sizeof(counts) / sizeof(counts[0]);
+            for (size_t j = 0U; j < counts_size; ++j) {
+                IpmaPropertyTypeCounts& c = counts[j];
+                if (c.property_type != assoc.property_type) {
+                    continue;
+                }
+                c.have_any_association = true;
+                c.association_count += 1U;
+                if (p.have_item_id && assoc.item_id == p.item_id) {
+                    c.primary_count += 1U;
+                }
+                if (assoc.essential != 0U) {
+                    c.essential_count += 1U;
+                }
+                break;
+            }
+        }
+
+        const size_t counts_size = sizeof(counts) / sizeof(counts[0]);
+        for (size_t i = 0U; i < counts_size; ++i) {
+            const IpmaPropertyTypeCounts& c = counts[i];
+            if (!c.have_any_association) {
+                continue;
+            }
+            append_ipma_summary_count_field(store, block, io_order, c.token,
+                                            "association_count",
+                                            c.association_count);
+            append_ipma_summary_count_field(store, block, io_order, c.token,
+                                            "primary_association_count",
+                                            c.primary_count);
+            append_ipma_summary_count_field(store, block, io_order, c.token,
+                                            "essential_count",
+                                            c.essential_count);
+        }
     }
 
     static const char*
@@ -3952,6 +4042,9 @@ namespace {
                                                     assoc.property_type));
                             }
                         }
+                        emit_ipma_property_type_summary_fields(*ctx->store,
+                                                               ctx->block,
+                                                               ctx->order, p);
                     }
                     emit_item_group_fields(*ctx->store, ctx->block, ctx->order,
                                            p);

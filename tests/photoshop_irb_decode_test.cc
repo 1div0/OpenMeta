@@ -657,6 +657,15 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     append_u32be(16U, &path_selection);
     path_selection.push_back(std::byte { 3U });
 
+    std::vector<std::byte> hdr_toning;
+    append_u32be(16U, &hdr_toning);
+    hdr_toning.push_back(std::byte { 4U });
+
+    std::vector<std::byte> print_info;
+    append_u32be(17U, &print_info);
+    print_info.push_back(std::byte { 5U });
+    print_info.push_back(std::byte { 6U });
+
     std::vector<std::byte> irb;
     append_irb_resource(0x03F1U, border, &irb);
     append_irb_resource(0x03F2U, background, &irb);
@@ -666,11 +675,13 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     append_irb_resource(0x0429U, layer_comps, &irb);
     append_irb_resource(0x0432U, measurement_scale, &irb);
     append_irb_resource(0x0440U, path_selection, &irb);
+    append_irb_resource(0x042EU, hdr_toning, &irb);
+    append_irb_resource(0x042FU, print_info, &irb);
 
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 8U);
+    EXPECT_EQ(r.resources_decoded, 10U);
 
     const Entry* border_width = find_photoshop_irb_field(store, 0x03F1U,
                                                          "BorderWidth");
@@ -750,12 +761,20 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
         = collect_photoshop_irb_u32_fields(store, 0x0432U, "DescriptorBytes");
     const std::vector<uint32_t> path_bytes
         = collect_photoshop_irb_u32_fields(store, 0x0440U, "DescriptorBytes");
+    const std::vector<uint32_t> hdr_toning_version
+        = collect_photoshop_irb_u32_fields(store, 0x042EU, "DescriptorVersion");
+    const std::vector<uint32_t> print_info_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x042FU, "DescriptorBytes");
     ASSERT_EQ(layer_comp_version.size(), 1U);
     ASSERT_EQ(measurement_bytes.size(), 1U);
     ASSERT_EQ(path_bytes.size(), 1U);
+    ASSERT_EQ(hdr_toning_version.size(), 1U);
+    ASSERT_EQ(print_info_bytes.size(), 1U);
     EXPECT_EQ(layer_comp_version[0], 16U);
     EXPECT_EQ(measurement_bytes[0], 2U);
     EXPECT_EQ(path_bytes[0], 1U);
+    EXPECT_EQ(hdr_toning_version[0], 16U);
+    EXPECT_EQ(print_info_bytes[0], 2U);
 }
 
 TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)

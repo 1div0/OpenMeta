@@ -231,18 +231,22 @@ Host-facing API map
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
        decisions reflect the supplied stored-RAW or rendered storage context.
+       ``PrepareTransferRequest::source_raw_data_descriptor`` can apply the
+       same coarse rendered-source RAW filtering during
+       ``prepare_metadata_for_target(...)``; it is still intentionally
+       conservative and does not prove vendor curve/LUT activity for a
+       specific compression mode.
        Rendered-transfer drop messages distinguish source color transforms,
        white balance, lens-correction records, source RAW curves/linearity
        metadata that still require storage-context confirmation, and
        computational/thermal/stitch source-processing drops from generic
        source-processing metadata.
-       Intended for UI previews and host policy messages before calling
-       ``prepare_metadata_for_target(...)``; it does not replace the actual
-       transfer filter. Python ``Document`` and
-       ``TransferSourceSnapshot`` expose ``transfer_concept_diagnostics(...)``
+       Python ``Document`` and ``TransferSourceSnapshot`` expose
+       ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``message``, and RAW applicability
        fields, with overloads that accept the thin
-       ``MetadataRawDataDescriptor`` object.
+       ``MetadataRawDataDescriptor`` object. Python transfer helpers also
+       accept ``source_raw_data_descriptor`` for prepare-time filtering.
    * - Vendor RAW-processing summaries:
        ``vendor_raw_processing_from_store(...)``,
        ``classify_vendor_raw_processing_field(...)``

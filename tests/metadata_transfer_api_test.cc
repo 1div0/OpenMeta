@@ -21160,6 +21160,101 @@ TEST(MetadataTransferApi, CompatibleSafetyKeepsSourceSpecificMetadata)
               nullptr);
 }
 
+TEST(MetadataTransferApi,
+     CompatibleSafetyWithRenderedRawDataDescriptorDropsRawProcessingMetadata)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry make;
+    make.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0x010FU);
+    make.value = openmeta::make_text(store.arena(), "CameraVendor",
+                                     openmeta::TextEncoding::Ascii);
+    make.origin.block          = block;
+    make.origin.order_in_block = 0U;
+    ASSERT_NE(store.add_entry(make), openmeta::kInvalidEntryId);
+
+    openmeta::Entry black_level;
+    black_level.key   = openmeta::make_exif_tag_key(store.arena(), "ifd0",
+                                                    0xC61AU);
+    black_level.value = openmeta::make_u32(512U);
+    black_level.origin.block          = block;
+    black_level.origin.order_in_block = 1U;
+    ASSERT_NE(store.add_entry(black_level), openmeta::kInvalidEntryId);
+
+    const std::array<uint32_t, 2> raw_curve_values = { 0U, 65535U };
+    openmeta::Entry raw_curve;
+    raw_curve.key = openmeta::make_exif_tag_key(store.arena(), "ifd0", 0xC618U);
+    raw_curve.value = openmeta::make_u32_array(
+        store.arena(), std::span<const uint32_t>(raw_curve_values.data(),
+                                                 raw_curve_values.size()));
+    raw_curve.origin.block          = block;
+    raw_curve.origin.order_in_block = 2U;
+    ASSERT_NE(store.add_entry(raw_curve), openmeta::kInvalidEntryId);
+
+    openmeta::Entry crs_exposure;
+    crs_exposure.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/camera-raw-settings/1.0/",
+        "Exposure2012");
+    crs_exposure.value        = openmeta::make_text(store.arena(), "+0.35",
+                                                    openmeta::TextEncoding::Utf8);
+    crs_exposure.origin.block = block;
+    crs_exposure.origin.order_in_block = 3U;
+    ASSERT_NE(store.add_entry(crs_exposure), openmeta::kInvalidEntryId);
+    store.finalize();
+
+    openmeta::PrepareTransferRequest request;
+    request.include_iptc_app13   = false;
+    request.xmp_include_existing = true;
+    request.profile.safety       = openmeta::TransferSafetyMode::CompatibleFile;
+    request.has_source_raw_data_descriptor = true;
+    request.source_raw_data_descriptor.encoding
+        = openmeta::MetadataRawDataEncoding::Rendered;
+
+    openmeta::PreparedTransferBundle bundle;
+    const openmeta::PrepareTransferResult result
+        = openmeta::prepare_metadata_for_target(store, request, &bundle);
+    ASSERT_EQ(result.status, openmeta::TransferStatus::Ok);
+    EXPECT_EQ(result.errors, 0U);
+    EXPECT_EQ(bundle.profile.safety,
+              openmeta::TransferSafetyMode::CompatibleFile);
+
+    const openmeta::PreparedTransferBlock* exif_block = nullptr;
+    for (size_t i = 0; i < bundle.blocks.size(); ++i) {
+        if (bundle.blocks[i].kind == openmeta::TransferBlockKind::Exif) {
+            exif_block = &bundle.blocks[i];
+            break;
+        }
+    }
+
+    ASSERT_NE(exif_block, nullptr);
+    EXPECT_TRUE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0x010FU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC61AU));
+    EXPECT_FALSE(prepared_exif_block_contains_ifd0_tag(*exif_block, 0xC618U));
+    EXPECT_FALSE(bundle_xmp_payload_contains_ascii(bundle, "Exposure2012"));
+
+    const openmeta::PreparedTransferPolicyDecision* raw_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::RawColorCalibration);
+    ASSERT_NE(raw_decision, nullptr);
+    EXPECT_EQ(raw_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(raw_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(raw_decision->reason,
+              openmeta::TransferPolicyReason::RawDataDescriptorFiltered);
+    EXPECT_EQ(raw_decision->matched_entries, 2U);
+
+    const openmeta::PreparedTransferPolicyDecision* crs_decision
+        = find_policy_decision(
+            bundle, openmeta::TransferPolicySubject::CameraRawSettings);
+    ASSERT_NE(crs_decision, nullptr);
+    EXPECT_EQ(crs_decision->requested, openmeta::TransferPolicyAction::Keep);
+    EXPECT_EQ(crs_decision->effective, openmeta::TransferPolicyAction::Drop);
+    EXPECT_EQ(crs_decision->reason,
+              openmeta::TransferPolicyReason::RawDataDescriptorFiltered);
+    EXPECT_EQ(crs_decision->matched_entries, 1U);
+}
+
 TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
 {
     openmeta::MetaStore store;

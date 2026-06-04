@@ -86,6 +86,15 @@ message text for a selected transfer mode. Descriptor-aware overloads accept
 ``MetadataRawDataDescriptor`` so RAW-processing diagnostics can account for a
 known stored-RAW or rendered source context.
 
+When the host or decoder already knows that the source pixel buffer is rendered
+rather than stored RAW samples, set
+``PrepareTransferRequest::has_source_raw_data_descriptor`` and pass
+``source_raw_data_descriptor.encoding = MetadataRawDataEncoding::Rendered``.
+Preparation then filters RAW-processing metadata even under
+``CompatibleFile``; this prevents RAW calibration, curve, and camera-raw recipe
+data from being carried into metadata that no longer applies to the stored
+pixels.
+
 .. list-table::
    :header-rows: 1
    :widths: 18 28 18 18 18
@@ -155,13 +164,15 @@ known stored-RAW or rendered source context.
        Sigma/Samsung/Ricoh/Apple/Casio/Sanyo/KyoceraRaw/Reconyx/Motorola
        MakerNote color, HDR, source-rendering, and white-balance coefficient
        tables
-     - Keep only for compatible RAW/DNG-style transfer
+     - Keep only for compatible RAW/DNG-style transfer; drop when the supplied
+       source RAW data descriptor says pixels are rendered
      - Drop
      - These values describe how to turn original sensor data into rendered
        color. Reusing them on already-rendered pixels can make CMS or editors
        apply the raw transform twice. Curve/LUT metadata is also conditional:
-       future interpretation should bind it to a raw image data descriptor and
-       expose whether it is active for the actual storage/compression mode.
+       prepare can consume a coarse rendered-vs-stored descriptor now, while
+       exact activity for a raw plane/compression mode still needs deeper
+       descriptor binding.
    * - RAW crop, geometry, storage, correction, and private data
      - ``ActiveArea``, ``DefaultCrop*``, masked areas, opcode lists,
        distortion/vignetting/camera-profile correction data, Phase One/Leaf
@@ -187,7 +198,8 @@ known stored-RAW or rendered source context.
        fields, Microsoft stitch/panorama geometry fields, Canon
        crop/aspect/color-data tables, and Nikon NEF/distortion/vignette tables
        or named correction fields
-     - Keep only for compatible RAW/DNG-style transfer
+     - Keep only for compatible RAW/DNG-style transfer; drop when the supplied
+       source RAW data descriptor says pixels are rendered
      - Drop
      - These values are tied to the original sensor geometry and raw-processing
        pipeline. Vendor-private RAW/source tables are dropped in rendered mode
@@ -200,7 +212,8 @@ known stored-RAW or rendered source context.
        data.
    * - Camera raw settings XMP
      - ``crs:*`` development settings and raw-edit recipe metadata
-     - Keep
+     - Keep; drop when the supplied source RAW data descriptor says pixels are
+       rendered
      - Drop
      - A rendered file should not normally carry a source raw-edit recipe
        unless the host intentionally writes a sidecar/workflow record.

@@ -383,6 +383,14 @@ namespace {
         EXPECT_TRUE(iptc_created->date_time_has_time);
         EXPECT_EQ(iptc_created->date_time_zone,
                   MetadataConceptTimeZoneKind::Utc);
+        const MetadataConceptCandidate* iptc_promoted_created
+            = find_role_family(*datetime, MetadataConceptRole::Created,
+                               MetadataConceptSourceFamily::Iptc);
+        ASSERT_NE(iptc_promoted_created, nullptr);
+        EXPECT_TRUE(iptc_promoted_created->has_date_time);
+        EXPECT_TRUE(iptc_promoted_created->date_time_has_time);
+        EXPECT_EQ(iptc_promoted_created->date_time_zone,
+                  MetadataConceptTimeZoneKind::Utc);
 
         const MetadataConceptResolution* color
             = find_concept(result, MetadataConceptKind::ColorProfile);

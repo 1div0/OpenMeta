@@ -8876,6 +8876,34 @@ namespace {
         return mode == TransferSafetyMode::RenderedImage;
     }
 
+    static bool raw_data_descriptor_filters_raw_processing(
+        const MetadataRawDataDescriptor* descriptor) noexcept
+    {
+        return descriptor
+               && descriptor->encoding == MetadataRawDataEncoding::Rendered;
+    }
+
+    static bool should_filter_raw_processing_for_transfer(
+        TransferSafetyMode safety,
+        const MetadataRawDataDescriptor* descriptor) noexcept
+    {
+        return transfer_safety_mode_is_rendered(safety)
+               || raw_data_descriptor_filters_raw_processing(descriptor);
+    }
+
+    static TransferPolicyReason raw_processing_filter_reason(
+        TransferSafetyMode safety,
+        const MetadataRawDataDescriptor* descriptor) noexcept
+    {
+        if (transfer_safety_mode_is_rendered(safety)) {
+            return TransferPolicyReason::SafetyModeFiltered;
+        }
+        if (raw_data_descriptor_filters_raw_processing(descriptor)) {
+            return TransferPolicyReason::RawDataDescriptorFiltered;
+        }
+        return TransferPolicyReason::SafetyModeFiltered;
+    }
+
     static TransferProfile
     apply_transfer_safety_profile(const TransferProfile& profile) noexcept
     {
@@ -9276,6 +9304,7 @@ namespace {
 
     static void count_transfer_safety_filter_entries(
         const MetaStore& store, TransferSafetyMode safety,
+        const MetadataRawDataDescriptor* raw_descriptor,
         TransferSafetyFilterCounts* out_counts) noexcept
     {
         if (!out_counts) {
@@ -9287,7 +9316,8 @@ namespace {
                 out_counts->image_properties += 1U;
                 continue;
             }
-            if (!transfer_safety_mode_is_rendered(safety)) {
+            if (!should_filter_raw_processing_for_transfer(safety,
+                                                           raw_descriptor)) {
                 continue;
             }
             if (entry_is_raw_color_calibration_for_rendered_transfer(store,
@@ -9303,7 +9333,8 @@ namespace {
     }
 
     static bool build_target_safe_transfer_store(
-        const MetaStore& src, TransferSafetyMode safety, MetaStore* dst,
+        const MetaStore& src, TransferSafetyMode safety,
+        const MetadataRawDataDescriptor* raw_descriptor, MetaStore* dst,
         TransferSafetyFilterCounts* out_counts) noexcept
     {
         if (!dst) {
@@ -9333,7 +9364,7 @@ namespace {
                 }
                 continue;
             }
-            if (transfer_safety_mode_is_rendered(safety)
+            if (should_filter_raw_processing_for_transfer(safety, raw_descriptor)
                 && entry_is_raw_color_calibration_for_rendered_transfer(src,
                                                                         entry)) {
                 if (out_counts) {
@@ -9341,7 +9372,7 @@ namespace {
                 }
                 continue;
             }
-            if (transfer_safety_mode_is_rendered(safety)
+            if (should_filter_raw_processing_for_transfer(safety, raw_descriptor)
                 && entry_is_camera_raw_settings_for_rendered_transfer(src,
                                                                       entry)) {
                 if (out_counts) {
@@ -11506,6 +11537,10 @@ prepare_metadata_for_target_impl(const MetaStore& store,
     const TransferProfile effective_profile = apply_transfer_safety_profile(
         request.profile);
     bundle.profile = effective_profile;
+    const MetadataRawDataDescriptor* source_raw_descriptor
+        = request.has_source_raw_data_descriptor
+              ? &request.source_raw_data_descriptor
+              : nullptr;
 
     if (request.target_format != TransferTargetFormat::Jpeg
         && !transfer_target_is_tiff_family(request.target_format)
@@ -11542,12 +11577,13 @@ prepare_metadata_for_target_impl(const MetaStore& store,
         request.target_image_spec);
     TransferSafetyFilterCounts filter_counts;
     count_transfer_safety_filter_entries(store, effective_profile.safety,
-                                         &filter_counts);
+                                         source_raw_descriptor, &filter_counts);
     if (filter_counts.image_properties > 0U
         || filter_counts.raw_color_calibration > 0U
         || filter_counts.camera_raw_settings > 0U || has_target_image_spec) {
         TransferSafetyFilterCounts built_filter_counts;
         if (!build_target_safe_transfer_store(store, effective_profile.safety,
+                                              source_raw_descriptor,
                                               &target_safe_store,
                                               &built_filter_counts)) {
             r.status    = TransferStatus::LimitExceeded;
@@ -11582,21 +11618,33 @@ prepare_metadata_for_target_impl(const MetaStore& store,
             "storage fields are filtered before transfer");
     }
     if (filter_counts.raw_color_calibration > 0U) {
+        const TransferPolicyReason reason
+            = raw_processing_filter_reason(effective_profile.safety,
+                                           source_raw_descriptor);
         append_policy_decision(
             &bundle, TransferPolicySubject::RawColorCalibration,
-            TransferPolicyAction::Keep, TransferPolicyAction::Drop,
-            TransferPolicyReason::SafetyModeFiltered,
+            TransferPolicyAction::Keep, TransferPolicyAction::Drop, reason,
             filter_counts.raw_color_calibration,
-            "rendered-image safety mode drops source raw color calibration, "
-            "linearization, crop, and correction metadata");
+            reason == TransferPolicyReason::RawDataDescriptorFiltered
+                ? "source raw data descriptor marks raw color calibration, "
+                  "linearization, crop, and correction metadata as not "
+                  "applicable to stored pixels"
+                : "rendered-image safety mode drops source raw color "
+                  "calibration, linearization, crop, and correction metadata");
     }
     if (filter_counts.camera_raw_settings > 0U) {
+        const TransferPolicyReason reason
+            = raw_processing_filter_reason(effective_profile.safety,
+                                           source_raw_descriptor);
         append_policy_decision(
             &bundle, TransferPolicySubject::CameraRawSettings,
-            TransferPolicyAction::Keep, TransferPolicyAction::Drop,
-            TransferPolicyReason::SafetyModeFiltered,
+            TransferPolicyAction::Keep, TransferPolicyAction::Drop, reason,
             filter_counts.camera_raw_settings,
-            "rendered-image safety mode drops source camera raw settings XMP");
+            reason == TransferPolicyReason::RawDataDescriptorFiltered
+                ? "source raw data descriptor marks camera raw settings XMP as "
+                  "not applicable to stored pixels"
+                : "rendered-image safety mode drops source camera raw "
+                  "settings XMP");
     }
 
     const uint32_t exif_entry_count = count_kind_entries(prepared_store,
@@ -13215,7 +13263,7 @@ transfer_safety_audit_from_store(const MetaStore& store,
     TransferSafetyFilterCounts source_counts;
     count_transfer_safety_filter_entries(store,
                                          TransferSafetyMode::RenderedImage,
-                                         &source_counts);
+                                         nullptr, &source_counts);
     out.source_image_properties      = source_counts.image_properties;
     out.source_raw_color_calibration = source_counts.raw_color_calibration;
     out.source_camera_raw_settings   = source_counts.camera_raw_settings;
@@ -13227,7 +13275,8 @@ transfer_safety_audit_from_store(const MetaStore& store,
     out.source_c2pa           = count_c2pa_entries(store);
 
     TransferSafetyFilterCounts filtered_counts;
-    count_transfer_safety_filter_entries(store, safety, &filtered_counts);
+    count_transfer_safety_filter_entries(store, safety, nullptr,
+                                         &filtered_counts);
     out.filtered_image_properties      = filtered_counts.image_properties;
     out.filtered_raw_color_calibration = filtered_counts.raw_color_calibration;
     out.filtered_camera_raw_settings   = filtered_counts.camera_raw_settings;

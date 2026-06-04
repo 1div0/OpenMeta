@@ -1,5 +1,31 @@
 # OpenMeta Changes
 
+## 0.4.46 - 2026-06-04
+
+Changes compared with `0.4.45`.
+
+### Added
+
+- Added BMFF `ipma.<property-type>.*` association summary fields for common
+  item properties, including association, primary-association, and essential
+  counts where present.
+- Added Photoshop IRB descriptor-header interpretation for `HDRToningInfo` and
+  `PrintInfo`.
+- Added `PrepareTransferRequest::source_raw_data_descriptor` and the
+  `RawDataDescriptorFiltered` policy reason so compatible-file preparation can
+  still drop RAW-processing metadata when the source pixels are rendered.
+- Added optional Python transfer helper keyword `source_raw_data_descriptor`
+  for the same prepare-time RAW-processing filter.
+- Added IPTC date/time promotion into cross-family `Created` concept
+  candidates while preserving the IPTC-specific `DateCreated` candidate.
+- Added bounded Nikon Active D-Lighting value labels for Low, Normal, and High.
+
+### Changed
+
+- Updated public interpretation, support, RAW-read, writer-contract, and API
+  stability docs for descriptor-backed prepare filtering and the expanded
+  BMFF/Photoshop interpretation subset.
+
 ## 0.4.45 - 2026-06-01
 
 Changes compared with `0.4.44`.

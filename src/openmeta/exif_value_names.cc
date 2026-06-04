@@ -1581,6 +1581,9 @@ nikon_active_d_lighting_name(uint64_t value) noexcept
 {
     switch (value) {
     case 0U: return "Off";
+    case 1U: return "Low";
+    case 3U: return "Normal";
+    case 5U: return "High";
     case 65535U: return "Auto";
     default: return "";
     }

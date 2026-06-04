@@ -770,6 +770,8 @@ namespace {
             return "target_image_properties";
         case TransferPolicyReason::SafetyModeFiltered:
             return "safety_mode_filtered";
+        case TransferPolicyReason::RawDataDescriptorFiltered:
+            return "raw_data_descriptor_filtered";
         }
         return "unknown";
     }

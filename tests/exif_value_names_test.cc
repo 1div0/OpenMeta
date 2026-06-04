@@ -227,6 +227,8 @@ namespace {
                      "On");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon0", 0x009DU, 0U),
                      "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon0", 0x0022U, 3U),
+                     "Normal");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_afinfo_0", 0x0000U,
                                                  0U),
                      "Single Area");
