@@ -21738,6 +21738,31 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
     EXPECT_FALSE(raw_curve_diag->raw_applicability_requires_storage_context);
     EXPECT_TRUE(raw_curve_diag->raw_applicability_can_affect_decode);
 
+    openmeta::MetadataRawDataDescriptor secondary_plane = stored_raw;
+    secondary_plane.requires_primary_raw_plane          = true;
+    secondary_plane.has_plane_index                     = true;
+    secondary_plane.plane_index                         = 1U;
+    const openmeta::TransferConceptDiagnostics secondary_plane_compatible
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::CompatibleFile,
+            secondary_plane);
+    const openmeta::TransferConceptDiagnostic* secondary_plane_curve_diag
+        = find_transfer_concept_diagnostic(
+            secondary_plane_compatible,
+            openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::RawValueCurve,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(secondary_plane_curve_diag, nullptr);
+    EXPECT_EQ(
+        secondary_plane_curve_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::RawApplicabilityNotApplicable);
+    EXPECT_EQ(secondary_plane_curve_diag->raw_applicability,
+              openmeta::MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+    EXPECT_FALSE(
+        secondary_plane_curve_diag->raw_applicability_requires_storage_context);
+    EXPECT_FALSE(
+        secondary_plane_curve_diag->raw_applicability_can_affect_decode);
+
     openmeta::MetadataRawDataDescriptor rendered_data;
     rendered_data.encoding = openmeta::MetadataRawDataEncoding::Rendered;
     const openmeta::TransferConceptDiagnostics rendered_compatible

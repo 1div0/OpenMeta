@@ -1852,6 +1852,78 @@ namespace {
 
         emit_u32_field(store, block, (*io_order)++,
                        "primary.linked_item_role_count", role_count);
+
+        ItemSemanticCounts linked_semantic_counts {};
+        for (uint32_t i = 0; i < role_count; ++i) {
+            const ItemInfo* info = nullptr;
+            for (uint32_t item_info_index = 0;
+                 item_info_index < p.item_info_count; ++item_info_index) {
+                if (p.item_infos[item_info_index].item_id == role_item_ids[i]) {
+                    info = &p.item_infos[item_info_index];
+                    break;
+                }
+            }
+            if (info) {
+                count_item_semantic(classify_item_semantic(*info),
+                                    &linked_semantic_counts);
+            }
+        }
+        if (linked_semantic_counts.known != 0U) {
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.linked_item_semantic_known_count",
+                           linked_semantic_counts.known);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_metadata_count",
+                linked_semantic_counts.metadata);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_image_count",
+                linked_semantic_counts.image);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_exif_count",
+                linked_semantic_counts.exif);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "primary.linked_item_semantic_xmp_count",
+                                        linked_semantic_counts.xmp);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_jumbf_count",
+                linked_semantic_counts.jumbf);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_c2pa_count",
+                linked_semantic_counts.c2pa);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_icc_profile_count",
+                linked_semantic_counts.icc_profile);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_auxiliary_count",
+                linked_semantic_counts.auxiliary);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_derived_count",
+                linked_semantic_counts.derived);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_thumbnail_count",
+                linked_semantic_counts.thumbnail);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_content_description_count",
+                linked_semantic_counts.content_description);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "primary.linked_item_semantic_uri_count",
+                                        linked_semantic_counts.uri);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "primary.linked_item_semantic_json_count",
+                linked_semantic_counts.json);
+        }
+
         for (uint32_t i = 0; i < role_count; ++i) {
             emit_u32_field(store, block, (*io_order)++,
                            "primary.linked_item_id", role_item_ids[i]);

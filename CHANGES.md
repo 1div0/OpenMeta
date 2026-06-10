@@ -1,5 +1,34 @@
 # OpenMeta Changes
 
+## 0.4.48 - 2026-06-10
+
+Changes compared with `0.4.47`.
+
+### Added
+
+- Added BMFF primary-linked item semantic rollup counters so HEIF/AVIF/CR3-like
+  item graphs expose aggregate metadata, auxiliary, derived, thumbnail, and
+  content-description counts next to per-item roles.
+- Added bounded Photoshop IRB action-descriptor body header parsing for
+  descriptor class name, class ID, and item count when the descriptor payload is
+  complete and ASCII/UTF-8-safe.
+- Added `MetadataRawDataDescriptor::has_plane_index`, `plane_index`, and
+  `requires_primary_raw_plane` so hosts and decoders can prevent primary-plane
+  curve/LUT metadata from being treated as active for unrelated stored planes.
+- Added XMP `DateTimeDigitized` promotion into the cross-family `Digitized`
+  date/time concept.
+- Added Canon AF micro-adjustment and ambience-selection aliases to semantic
+  query classification for lens-correction and source-processing workflows.
+
+### Changed
+
+- RAW applicability and transfer diagnostics now mark curve/LUT-like metadata
+  not applicable when the supplied descriptor says the active raw data is a
+  non-primary plane and the metadata requires the primary raw plane.
+- Updated public interpretation, API stability, RAW-read, writer-contract, host
+  integration, and quick-start docs for descriptor plane binding and the new
+  BMFF/IRB/query interpretation coverage.
+
 ## 0.4.47 - 2026-06-04
 
 Changes compared with `0.4.46`.

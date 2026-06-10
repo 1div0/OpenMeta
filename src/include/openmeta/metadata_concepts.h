@@ -129,7 +129,10 @@ struct MetadataRawDataDescriptor final {
     uint32_t bits_per_sample              = 0U;
     bool has_compression_code             = false;
     uint32_t compression_code             = 0U;
+    bool has_plane_index                  = false;
+    uint32_t plane_index                  = 0U;
     bool requires_compressed_raw_encoding = false;
+    bool requires_primary_raw_plane       = false;
 };
 
 struct MetadataConceptCandidate final {

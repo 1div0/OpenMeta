@@ -1449,6 +1449,33 @@ TEST(MetadataQuery, MatchesVendorSourceProcessingSubroles)
                  "stitch_processing");
 }
 
+TEST(MetadataQuery, MatchesCanonAfMicroAndAmbienceAliases)
+{
+    MetaStore store;
+    const EntryId af_micro = add_exif_u32(&store, "makernote:canon:afmicroadj",
+                                          0x0001U, 1U);
+    const EntryId ambience = add_exif_u32(&store, "makernote:canon:ambience",
+                                          0x0001U, 1U);
+    store.finalize();
+
+    const MetadataQueryResult lens_result = query_lens_correction_metadata(
+        store);
+    const MetadataQueryMatch* af_micro_match = find_match_for_entry(lens_result,
+                                                                    af_micro);
+    ASSERT_NE(af_micro_match, nullptr);
+    EXPECT_EQ(af_micro_match->semantic,
+              MetadataQuerySemanticKind::LensCorrection);
+    EXPECT_TRUE(af_micro_match->exact_match);
+
+    const MetadataQueryResult raw_result = query_raw_processing_metadata(store);
+    const MetadataQueryMatch* ambience_match = find_match_for_entry(raw_result,
+                                                                    ambience);
+    ASSERT_NE(ambience_match, nullptr);
+    EXPECT_EQ(ambience_match->semantic,
+              MetadataQuerySemanticKind::SourceProcessing);
+    EXPECT_TRUE(ambience_match->exact_match);
+}
+
 TEST(MetadataQuery, GroupsVendorWhiteBalanceVectorSetByFamily)
 {
     MetaStore store;

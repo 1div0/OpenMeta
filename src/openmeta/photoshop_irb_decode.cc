@@ -1287,6 +1287,44 @@ namespace {
     }
 
 
+    static void trim_trailing_nul(std::string* text) noexcept
+    {
+        if (text && !text->empty() && text->back() == '\0') {
+            text->pop_back();
+        }
+    }
+
+
+    static bool read_descriptor_class_id(std::span<const std::byte> payload,
+                                         uint64_t* io_offset,
+                                         std::string* out) noexcept
+    {
+        if (!io_offset || !out) {
+            return false;
+        }
+        uint32_t declared_len = 0;
+        if (!read_u32be(payload, *io_offset, &declared_len)) {
+            return false;
+        }
+        const uint64_t value_offset = *io_offset + 4U;
+        const uint64_t byte_count   = declared_len == 0U ? 4U : declared_len;
+        if (byte_count > 256U || value_offset > payload.size()
+            || byte_count > payload.size()
+            || value_offset + byte_count > payload.size()) {
+            return false;
+        }
+        const std::span<const std::byte> bytes
+            = payload.subspan(static_cast<size_t>(value_offset),
+                              static_cast<size_t>(byte_count));
+        if (!bytes_ascii_no_nul(bytes)) {
+            return false;
+        }
+        out->assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        *io_offset = value_offset + byte_count;
+        return true;
+    }
+
+
     static void
     decode_descriptor_header_resource(std::span<const std::byte> payload,
                                       uint16_t resource_id, MetaStore& store,
@@ -1306,6 +1344,39 @@ namespace {
                            result);
         emit_derived_field(store, block, order, resource_id, "DescriptorBytes",
                            make_u32(clamped_bytes), result);
+
+        uint64_t offset = 4U;
+        std::string class_name;
+        if (!read_var_ustr32_utf8(payload, &offset, &class_name)) {
+            return;
+        }
+        trim_trailing_nul(&class_name);
+
+        std::string class_id;
+        if (!read_descriptor_class_id(payload, &offset, &class_id)) {
+            return;
+        }
+        uint32_t item_count = 0U;
+        if (!read_u32be(payload, offset, &item_count)) {
+            return;
+        }
+
+        if (!class_name.empty()) {
+            emit_derived_field(store, block, order, resource_id,
+                               "DescriptorClassName",
+                               make_text(store.arena(), class_name,
+                                         TextEncoding::Utf8),
+                               result);
+        }
+        if (!class_id.empty()) {
+            emit_derived_field(store, block, order, resource_id,
+                               "DescriptorClassID",
+                               make_text(store.arena(), class_id,
+                                         TextEncoding::Ascii),
+                               result);
+        }
+        emit_derived_field(store, block, order, resource_id,
+                           "DescriptorItemCount", make_u32(item_count), result);
     }
 
 

@@ -210,6 +210,9 @@ If a decoder knows that a curve/LUT-like metadata entry is meaningful only for
 compressed RAW samples, set
 `raw_descriptor.requires_compressed_raw_encoding = true` before requesting
 concept diagnostics.
+If that curve/LUT only applies to the primary raw plane, also set
+`raw_descriptor.requires_primary_raw_plane = true` and provide
+`has_plane_index` / `plane_index` for the raw buffer being checked.
 Rendered-transfer drop messages distinguish source color transforms, white
 balance, lens correction, source RAW curves/linearity metadata, source-bound
 RAW processing, and target-owned image properties. Source color transforms

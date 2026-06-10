@@ -6313,8 +6313,12 @@ NB_MODULE(_openmeta, m)
                 &MetadataRawDataDescriptor::has_compression_code)
         .def_rw("compression_code",
                 &MetadataRawDataDescriptor::compression_code)
+        .def_rw("has_plane_index", &MetadataRawDataDescriptor::has_plane_index)
+        .def_rw("plane_index", &MetadataRawDataDescriptor::plane_index)
         .def_rw("requires_compressed_raw_encoding",
-                &MetadataRawDataDescriptor::requires_compressed_raw_encoding);
+                &MetadataRawDataDescriptor::requires_compressed_raw_encoding)
+        .def_rw("requires_primary_raw_plane",
+                &MetadataRawDataDescriptor::requires_primary_raw_plane);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)

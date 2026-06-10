@@ -132,9 +132,9 @@ concept candidates:
   pixels, such as uncompressed, packed, lossless-compressed, lossy-compressed,
   rendered, or unknown.
 - ``MetadataRawDataDescriptor`` is the public carrier for dimensions,
-  channel-count, bit-depth, compression code, storage encoding, and an optional
-  ``requires_compressed_raw_encoding`` flag when a host or decoder can provide
-  them.
+  channel-count, bit-depth, compression code, storage encoding, optional raw
+  plane index, and optional ``requires_compressed_raw_encoding`` /
+  ``requires_primary_raw_plane`` flags when a host or decoder can provide them.
 - ``MetadataRawApplicabilityState`` marks current concept candidates as
   unknown, applicable to stored raw samples, conditional on raw encoding, or
   not applicable to stored raw samples.
@@ -149,15 +149,21 @@ descriptor says the raw samples are uncompressed or packed. This is a
 conservative storage-context classification, not proof that a vendor curve is
 active for a specific file.
 
+If a decoder knows that a curve/LUT-like metadata entry only affects the
+primary raw plane, set ``requires_primary_raw_plane = true`` and provide
+``has_plane_index`` / ``plane_index`` for the raw buffer being described.
+OpenMeta then marks that curve as not applicable for non-primary planes and
+conditional when the active plane is unknown.
+
 Transfer preparation can also consume
 ``PrepareTransferRequest::source_raw_data_descriptor``. When that descriptor
 says the source pixels are rendered, RAW-processing metadata is filtered even
 under compatible-file safety. The remaining gap is finer binding to the exact
-raw plane/blob, packing/compression mode, and active decoder path before
-declaring that a specific vendor LUT or curve is active.
+raw blob, packing/compression mode, and active decoder path before declaring
+that a specific vendor LUT or curve is active.
 
 Future interpretation work should bind curve/LUT entries to the raw data
-descriptor that records the relevant plane/blob, compression or packing mode,
+descriptor that records the relevant blob, compression or packing mode,
 sample layout, offsets/byte counts when available, and the decoder stage where
 the curve applies.
 

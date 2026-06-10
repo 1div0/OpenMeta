@@ -218,6 +218,9 @@ namespace {
                                                    "2024:04:19 12:34:56");
         (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/",
                            "xmp:CreateDate", "2024-04-19T12:34:56Z");
+        const EntryId xmp_digitized
+            = add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
+                           "exif:DateTimeDigitized", "2024-04-19T12:35:01Z");
         (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/",
                            "xmp:ModifyDate", "2024-04-20T01:02:03Z");
         (void)add_iptc_text(&store, 2U, 55U, "20240419");
@@ -376,6 +379,12 @@ namespace {
         EXPECT_EQ(xmp_created->date_time_zone,
                   MetadataConceptTimeZoneKind::Utc);
         ASSERT_NE(find_role(*datetime, MetadataConceptRole::Modified), nullptr);
+        const MetadataConceptCandidate* digitized
+            = find_role(*datetime, MetadataConceptRole::Digitized);
+        ASSERT_NE(digitized, nullptr);
+        EXPECT_EQ(digitized->entry_id, xmp_digitized);
+        EXPECT_TRUE(digitized->has_date_time);
+        EXPECT_TRUE(digitized->date_time_has_time);
         const MetadataConceptCandidate* iptc_created
             = find_role(*datetime, MetadataConceptRole::DateCreated);
         ASSERT_NE(iptc_created, nullptr);
@@ -1525,6 +1534,42 @@ namespace {
                   MetadataRawApplicabilityState::AppliesToStoredRaw);
         EXPECT_FALSE(raw_curve->raw_applicability_requires_storage_context);
         EXPECT_TRUE(raw_curve->raw_applicability_can_affect_decode);
+
+        MetadataRawDataDescriptor secondary_plane_descriptor  = raw_descriptor;
+        secondary_plane_descriptor.requires_primary_raw_plane = true;
+        secondary_plane_descriptor.has_plane_index            = true;
+        secondary_plane_descriptor.plane_index                = 1U;
+        const MetadataConceptResolution secondary_plane_result
+            = resolve_metadata_concept(store,
+                                       MetadataConceptKind::RawProcessing,
+                                       secondary_plane_descriptor);
+        const MetadataConceptCandidate* secondary_plane_black
+            = find_role(secondary_plane_result,
+                        MetadataConceptRole::BlackLevel);
+        const MetadataConceptCandidate* secondary_plane_curve
+            = find_role(secondary_plane_result,
+                        MetadataConceptRole::RawValueCurve);
+        ASSERT_NE(secondary_plane_black, nullptr);
+        ASSERT_NE(secondary_plane_curve, nullptr);
+        EXPECT_EQ(secondary_plane_black->raw_applicability,
+                  MetadataRawApplicabilityState::AppliesToStoredRaw);
+        EXPECT_EQ(secondary_plane_curve->raw_applicability,
+                  MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+
+        MetadataRawDataDescriptor unknown_plane_descriptor  = raw_descriptor;
+        unknown_plane_descriptor.requires_primary_raw_plane = true;
+        const MetadataConceptResolution unknown_plane_result
+            = resolve_metadata_concept(store,
+                                       MetadataConceptKind::RawProcessing,
+                                       unknown_plane_descriptor);
+        const MetadataConceptCandidate* unknown_plane_curve
+            = find_role(unknown_plane_result,
+                        MetadataConceptRole::RawValueCurve);
+        ASSERT_NE(unknown_plane_curve, nullptr);
+        EXPECT_EQ(unknown_plane_curve->raw_applicability,
+                  MetadataRawApplicabilityState::ConditionalOnRawEncoding);
+        EXPECT_TRUE(
+            unknown_plane_curve->raw_applicability_requires_storage_context);
 
         MetadataRawDataDescriptor rendered_descriptor;
         rendered_descriptor.encoding = MetadataRawDataEncoding::Rendered;

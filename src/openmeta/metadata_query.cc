@@ -969,6 +969,15 @@ namespace {
         return terms;
     }
 
+    static bool name_is_af_micro_adjustment(std::string_view name) noexcept
+    {
+        return contains_ascii_case_insensitive(name, "afmicroadj")
+               || contains_ascii_case_insensitive(name, "af micro adj")
+               || contains_ascii_case_insensitive(name, "af micro adjustment")
+               || contains_ascii_case_insensitive(name, "afmicroadjustment")
+               || contains_ascii_case_insensitive(name, "microadjustment");
+    }
+
     static uint32_t
     lens_correction_match_terms(std::string_view name, bool enable_fuzzy,
                                 MatchProvenanceState* provenance) noexcept
@@ -997,7 +1006,11 @@ namespace {
             || term_matches(name, "peripheralillumination", enable_fuzzy,
                             provenance)
             || term_matches(name, "peripheral illumination", enable_fuzzy,
-                            provenance)) {
+                            provenance)
+            || name_is_af_micro_adjustment(name)) {
+            if (name_is_af_micro_adjustment(name)) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Lens);
         }
         if (term_matches(name, "correction", enable_fuzzy, provenance)
@@ -1006,7 +1019,11 @@ namespace {
             || term_matches(name, "vignet", enable_fuzzy, provenance)
             || term_matches(name, "aberration", enable_fuzzy, provenance)
             || term_matches(name, "shading", enable_fuzzy, provenance)
-            || term_matches(name, "opcode", enable_fuzzy, provenance)) {
+            || term_matches(name, "opcode", enable_fuzzy, provenance)
+            || name_is_af_micro_adjustment(name)) {
+            if (name_is_af_micro_adjustment(name)) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Correction);
         }
         return terms;
@@ -1133,7 +1150,11 @@ namespace {
             || term_matches(name, "raw development", enable_fuzzy, provenance)
             || term_matches(name, "rawdevelopment", enable_fuzzy, provenance)
             || term_matches(name, "raw develop", enable_fuzzy, provenance)
-            || term_matches(name, "rawdevelop", enable_fuzzy, provenance)) {
+            || term_matches(name, "rawdevelop", enable_fuzzy, provenance)
+            || contains_ascii_case_insensitive(name, "ambience")) {
+            if (contains_ascii_case_insensitive(name, "ambience")) {
+                note_exact_match(provenance);
+            }
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::SourceProcessing);
         }
@@ -2114,6 +2135,19 @@ namespace {
         if (vendor_terms != 0U) {
             note_exact_match(&provenance);
             terms |= vendor_terms;
+        }
+        if (kind == MetadataQueryKind::LensCorrection
+            && name_is_af_micro_adjustment(ifd)) {
+            note_exact_match(&provenance);
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Lens)
+                     | static_cast<uint32_t>(
+                         MetadataQueryMatchTerm::Correction);
+        }
+        if (kind == MetadataQueryKind::RawProcessing
+            && contains_ascii_case_insensitive(ifd, "ambience")) {
+            note_exact_match(&provenance);
+            terms |= static_cast<uint32_t>(
+                MetadataQueryMatchTerm::SourceProcessing);
         }
         MetadataQuerySemanticKind explicit_semantic
             = MetadataQuerySemanticKind::Unknown;

@@ -6,7 +6,8 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 94%** for the public target scope.
+Current overall status: **medium-high, about 94-95%** for the public target
+scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -154,14 +155,15 @@ Coverage matrix
        RAW applicability state; descriptor-aware concept-resolution overloads
        let a host or decoder provide a ``MetadataRawDataDescriptor`` so
        curve/LUT-like entries can remain conditional, apply to stored RAW
-       samples, require compressed RAW storage, or be marked not applicable
-       for rendered or uncompressed data. Transfer
-       preparation can also consume the descriptor and drop RAW-processing
-       metadata when source pixels are already rendered. Lens-correction
-       grouped tables require numeric payloads before promotion.
-     - Medium-high, about 88-93%.
-     - Long-tail per-model correction tables, exact raw plane/blob binding,
-       decoder-stage applicability, and richer numeric normalization.
+       samples, require compressed RAW storage, require the primary RAW plane,
+       or be marked not applicable for rendered, uncompressed, packed, or
+       non-primary-plane data. Transfer preparation can also consume the
+       descriptor and drop RAW-processing metadata when source pixels are
+       already rendered. Lens-correction grouped tables require numeric
+       payloads before promotion.
+     - Medium-high, about 89-94%.
+     - Long-tail per-model correction tables, exact blob/decoder-stage
+       applicability, and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
        common vendors and several live computational/thermal vendors. Unknown
@@ -179,10 +181,12 @@ Coverage matrix
        CanonCustom fields, Nikon sub-IFDs and NikonSettings fields, Nikon
        Active D-Lighting labels, decoded Fujifilm ``mk_fuji*``, Pentax
        sub-IFDs, Olympus main/focus/equipment fields, Casio Type2 fields, and
-       Panasonic long-tail main-table fields.
+       Panasonic long-tail main-table fields. Canon AF micro-adjustment fields
+       are classified for lens-correction search, and Canon ambience-selection
+       fields are classified as source-processing metadata.
        Ambiguous per-model, per-version, or value-type-dependent labels
        intentionally remain empty instead of guessing.
-     - Medium-high, about 91-95%.
+     - Medium-high, about 92-95%.
      - Remaining ExifTool-style firmware/version formulas, encrypted/custom
        settings, and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
@@ -193,29 +197,31 @@ Coverage matrix
        association/primary/essential rollups, bounded relations, ``grpl``
        item-group rows, per-group-type summaries, primary item-group
        memberships, bounded ``iloc``/``idat`` item-data layout summaries,
-       primary item-location aliases, primary-linked roles, aux semantics,
-       primary color/profile property summaries, primary display dimensions and
-       transform summary, primary pixel aspect ratio, primary pixel component
-       bit depth, clean-aperture rationals, JUMBF box labels, and draft
-       C2PA/JUMBF structural fields are exposed.
-     - Medium, about 80-86%.
+       primary item-location aliases, primary-linked roles with linked-item
+       semantic aggregate counters, aux semantics, primary color/profile
+       property summaries, primary display dimensions and transform summary,
+       primary pixel aspect ratio, primary pixel component bit depth,
+       clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
+       structural fields are exposed.
+     - Medium, about 81-87%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
        summaries, resolution/version/print data, print-flag bytes,
        border/background/effective-BW data, display info, grid/guide info,
-       color sampler headers/records, descriptor-header summaries for
-       resources including layer comps, measurement scale, timeline info, sheet
-       disclosure, HDR toning, print info, onion skins, count info, print
-       info/style, path selection state, and origin path info, path record
-       summaries, alpha names/identifiers, captions, QuickMask info, URL/list
-       data, autosave strings, ``XMLData``, ImageReady XML text, Lightroom
-       workflow text, thumbnail headers, channel options, clipping-path names,
-       legacy halftone/transfer/duotone/EPS byte summaries, embedded
-       IPTC/ICC/XMP/EXIF resource byte counts, and embedded IPTC/XMP/ICC payload
-       decode where enabled.
-     - Medium, about 80-87%.
+       color sampler headers/records, descriptor-header summaries plus safe
+       descriptor class-name/class-ID/item-count fields for resources including
+       layer comps, measurement scale, timeline info, sheet disclosure, HDR
+       toning, print info, onion skins, count info, print info/style, path
+       selection state, and origin path info, path record summaries, alpha
+       names/identifiers, captions, QuickMask info, URL/list data, autosave
+       strings, ``XMLData``, ImageReady XML text, Lightroom workflow text,
+       thumbnail headers, channel options, clipping-path names, legacy
+       halftone/transfer/duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF
+       resource byte counts, and embedded IPTC/XMP/ICC payload decode where
+       enabled.
+     - Medium, about 81-88%.
      - Broader resource-specific descriptor body parsing and long-tail
        resource interpretation.
    * - Semantic query/search and records
@@ -231,20 +237,21 @@ Coverage matrix
        ``raw_linearity_limit``, ``raw_calibration_curve``, and
        ``raw_curve_control_points`` records, explicit computational/thermal/
        stitch source-processing records, expanded source color/style/lens/
-       source-processing aliases, source-processing buckets, optional
+       source-processing aliases including Canon AF micro-adjustment and
+       ambience-selection fields, source-processing buckets, optional
        RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,
        color/profile, GPS, geometry, lens-correction, and RAW-processing with
-       parsed date/time fields, IPTC date+time promoted into cross-family
-       created-date candidates, timezone/precision classification, combined
-       EXIF and XMP GPS timestamps, GPS
+       parsed date/time fields, IPTC date+time and XMP ``DateTimeDigitized``
+       promoted into cross-family date candidates, timezone/precision
+       classification, combined EXIF and XMP GPS timestamps, GPS
        altitude-reference state and display token, canonical geometry
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, RAW applicability states,
        rendered/compatible safety booleans, and tolerance-aware
        GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 86-91%.
+     - Medium-high, about 87-92%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
@@ -255,10 +262,11 @@ Coverage matrix
        keep/drop/requires-target-image-spec actions, severity, RAW
        applicability, and role-specific default message text before prepare.
        Descriptor-aware diagnostics can also mark curve/LUT-like RAW roles as
-       compressed-storage-only. ``PrepareTransferRequest`` can carry a
+       compressed-storage-only or primary-plane-only.
+       ``PrepareTransferRequest`` can carry a
        ``MetadataRawDataDescriptor``; when it marks source pixels as rendered,
        RAW-processing metadata is filtered even under compatible-file safety.
-     - High, about 93-96%.
+     - High, about 94-96%.
      - More per-family policy tests and optional host localization hooks.
 
 Competitor position
@@ -284,9 +292,9 @@ Next interpretation priorities
    layouts, descriptor headers, and embedded metadata carriers.
 3. Deepen transfer diagnostics with optional host localization/formatting hooks
    for GUI workflows.
-4. Expand GPS policy beyond current coordinate tolerance, altitude-reference
-   display, and EXIF timestamp assembly into broader cross-family
-   reconciliation.
+4. Expand GPS/date policy beyond current coordinate tolerance,
+   altitude-reference display, EXIF/XMP timestamp assembly, and bounded
+   digitized-date aliases into broader cross-family reconciliation.
 5. Expand the remaining unambiguous MakerNote long tail: firmware/version
    formulas, Canon ambience/AF microadjust/color-data fields, NikonSettings
    residuals, JVC/GE/FLIR/Apple/live-vendor scalar fields, and per-model tables

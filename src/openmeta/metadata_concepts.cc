@@ -1650,6 +1650,9 @@ namespace {
         } else if (xmp_leaf_matches(path, "DateTimeOriginal")) {
             role     = MetadataConceptRole::Created;
             priority = 90U;
+        } else if (xmp_leaf_matches(path, "DateTimeDigitized")) {
+            role     = MetadataConceptRole::Digitized;
+            priority = 85U;
         } else {
             return;
         }
@@ -3387,6 +3390,14 @@ metadata_raw_applicability_for_descriptor(
     case MetadataConceptRole::RawCurveControlPoints:
         if (descriptor.encoding == MetadataRawDataEncoding::Rendered) {
             return MetadataRawApplicabilityState::NotApplicableToStoredRaw;
+        }
+        if (descriptor.requires_primary_raw_plane) {
+            if (!descriptor.has_plane_index) {
+                return MetadataRawApplicabilityState::ConditionalOnRawEncoding;
+            }
+            if (descriptor.plane_index != 0U) {
+                return MetadataRawApplicabilityState::NotApplicableToStoredRaw;
+            }
         }
         if (descriptor.requires_compressed_raw_encoding) {
             if (descriptor.encoding == MetadataRawDataEncoding::Unknown) {

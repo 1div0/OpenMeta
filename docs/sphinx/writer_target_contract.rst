@@ -102,6 +102,13 @@ diagnostics can then drop that curve for uncompressed or packed raw buffers
 while still keeping non-curve RAW facts such as black level and raw-storage
 layout applicable.
 
+When a decoder knows that a curve/LUT-like metadata entry only applies to the
+primary raw plane, set
+``source_raw_data_descriptor.requires_primary_raw_plane = true`` and provide
+``has_plane_index`` / ``plane_index`` for the raw buffer being checked. Concept
+diagnostics then drop that curve for non-primary planes and keep it conditional
+when the active plane is unknown.
+
 .. list-table::
    :header-rows: 1
    :widths: 18 28 18 18 18
@@ -172,14 +179,15 @@ layout applicable.
        MakerNote color, HDR, source-rendering, and white-balance coefficient
        tables
      - Keep only for compatible RAW/DNG-style transfer; drop when the supplied
-       source RAW data descriptor says pixels are rendered
+       source RAW data descriptor says pixels are rendered or the checked raw
+       plane cannot use the metadata
      - Drop
      - These values describe how to turn original sensor data into rendered
        color. Reusing them on already-rendered pixels can make CMS or editors
        apply the raw transform twice. Curve/LUT metadata is also conditional:
-       prepare can consume a coarse rendered-vs-stored descriptor now, while
-       exact activity for a raw plane/compression mode still needs deeper
-       descriptor binding.
+       prepare can consume coarse rendered-vs-stored, compressed-only, and
+       primary-plane-only descriptor hints now, while exact activity for a raw
+       blob/compression mode still needs deeper descriptor binding.
    * - RAW crop, geometry, storage, correction, and private data
      - ``ActiveArea``, ``DefaultCrop*``, masked areas, opcode lists,
        distortion/vignetting/camera-profile correction data, Phase One/Leaf

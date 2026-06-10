@@ -1957,6 +1957,35 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(roles[3], "derived");
     EXPECT_EQ(roles[4], "thumbnail");
     EXPECT_EQ(roles[5], "content_description");
+
+    const std::vector<uint32_t> linked_known
+        = collect_u32_values(store, "primary.linked_item_semantic_known_count");
+    const std::vector<uint32_t> linked_metadata
+        = collect_u32_values(store,
+                             "primary.linked_item_semantic_metadata_count");
+    const std::vector<uint32_t> linked_auxiliary
+        = collect_u32_values(store,
+                             "primary.linked_item_semantic_auxiliary_count");
+    const std::vector<uint32_t> linked_derived
+        = collect_u32_values(store,
+                             "primary.linked_item_semantic_derived_count");
+    const std::vector<uint32_t> linked_thumbnail
+        = collect_u32_values(store,
+                             "primary.linked_item_semantic_thumbnail_count");
+    const std::vector<uint32_t> linked_content_description = collect_u32_values(
+        store, "primary.linked_item_semantic_content_description_count");
+    ASSERT_EQ(linked_known.size(), 1U);
+    ASSERT_EQ(linked_metadata.size(), 1U);
+    ASSERT_EQ(linked_auxiliary.size(), 1U);
+    ASSERT_EQ(linked_derived.size(), 1U);
+    ASSERT_EQ(linked_thumbnail.size(), 1U);
+    ASSERT_EQ(linked_content_description.size(), 1U);
+    EXPECT_EQ(linked_known[0], 6U);
+    EXPECT_EQ(linked_metadata[0], 1U);
+    EXPECT_EQ(linked_auxiliary[0], 3U);
+    EXPECT_EQ(linked_derived[0], 1U);
+    EXPECT_EQ(linked_thumbnail[0], 1U);
+    EXPECT_EQ(linked_content_description[0], 1U);
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsDisparityAndMatteAuxCountsFromAuxC)

@@ -643,10 +643,13 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
 
     std::vector<std::byte> layer_comps;
     append_u32be(16U, &layer_comps);
-    layer_comps.push_back(std::byte { 'd' });
-    layer_comps.push_back(std::byte { 'e' });
-    layer_comps.push_back(std::byte { 's' });
-    layer_comps.push_back(std::byte { 'c' });
+    append_utf16be_string32("LayerComp", &layer_comps);
+    append_u32be(4U, &layer_comps);
+    layer_comps.push_back(std::byte { 'L' });
+    layer_comps.push_back(std::byte { 'y' });
+    layer_comps.push_back(std::byte { 'r' });
+    layer_comps.push_back(std::byte { 'C' });
+    append_u32be(2U, &layer_comps);
 
     std::vector<std::byte> measurement_scale;
     append_u32be(16U, &measurement_scale);
@@ -799,6 +802,17 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
 
     const std::vector<uint32_t> layer_comp_version
         = collect_photoshop_irb_u32_fields(store, 0x0429U, "DescriptorVersion");
+    const std::vector<uint32_t> layer_comp_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0429U, "DescriptorBytes");
+    const std::vector<std::string_view> layer_comp_class_name
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorClassName");
+    const std::vector<std::string_view> layer_comp_class_id
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorClassID");
+    const std::vector<uint32_t> layer_comp_item_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemCount");
     const std::vector<uint32_t> measurement_bytes
         = collect_photoshop_irb_u32_fields(store, 0x0432U, "DescriptorBytes");
     const std::vector<uint32_t> timeline_bytes
@@ -822,6 +836,10 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     const std::vector<uint32_t> origin_path_version
         = collect_photoshop_irb_u32_fields(store, 0x0BB8U, "DescriptorVersion");
     ASSERT_EQ(layer_comp_version.size(), 1U);
+    ASSERT_EQ(layer_comp_bytes.size(), 1U);
+    ASSERT_EQ(layer_comp_class_name.size(), 1U);
+    ASSERT_EQ(layer_comp_class_id.size(), 1U);
+    ASSERT_EQ(layer_comp_item_count.size(), 1U);
     ASSERT_EQ(measurement_bytes.size(), 1U);
     ASSERT_EQ(timeline_bytes.size(), 1U);
     ASSERT_EQ(sheet_bytes.size(), 1U);
@@ -834,6 +852,10 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     ASSERT_EQ(print_style_bytes.size(), 1U);
     ASSERT_EQ(origin_path_version.size(), 1U);
     EXPECT_EQ(layer_comp_version[0], 16U);
+    EXPECT_EQ(layer_comp_bytes[0], 34U);
+    EXPECT_EQ(layer_comp_class_name[0], "LayerComp");
+    EXPECT_EQ(layer_comp_class_id[0], "LyrC");
+    EXPECT_EQ(layer_comp_item_count[0], 2U);
     EXPECT_EQ(measurement_bytes[0], 2U);
     EXPECT_EQ(timeline_bytes[0], 1U);
     EXPECT_EQ(sheet_bytes[0], 2U);

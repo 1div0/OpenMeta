@@ -99,8 +99,9 @@ Host-facing API map
        behavior, but the interpreted subset can still grow. Current
        interpretation includes fixed-layout resource fields,
        display/grid/thumbnail/color-sampler headers, path-record summaries,
-       descriptor-header summaries, ``XMLData``, ImageReady ASCII text
-       resources, Lightroom workflow text, legacy
+       descriptor-header summaries plus safe descriptor class-name/class-ID/
+       item-count fields, ``XMLData``, ImageReady ASCII text resources,
+       Lightroom workflow text, legacy
        halftone/transfer/duotone/EPS byte summaries, embedded
        IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
        IPTC-IIM, XMP, and ICC payload decode.
@@ -119,9 +120,10 @@ Host-facing API map
        entries, XMP
        ICC/profile/color-space fields, XMP camera RAW profile/look/tone-curve
        fields, PNG profile text carriers, Fujifilm RAF raw crop/zoom
-       rectangles, Canon aspect/crop metadata, Nikon Capture crop bounds, Sony
-       panorama crop margins, selected decoded vendor/MakerNote exposure names,
-       fuzzy XMP paths, and vendor RAW-processing classification. Matches report
+       rectangles, Canon aspect/crop metadata, Canon AF micro-adjustment and
+       ambience-selection aliases, Nikon Capture crop bounds, Sony panorama
+       crop margins, selected decoded vendor/MakerNote exposure names, fuzzy
+       XMP paths, and vendor RAW-processing classification. Matches report
        ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
@@ -139,8 +141,9 @@ Host-facing API map
        payloads meet conservative minimum shapes, so malformed color matrices,
        white-balance vectors, and lens-correction records remain per-entry
        inspection data instead of becoming normalized groups. Long-tail source
-       color/style aliases such as camera-to-XYZ/RGB matrices, creative/picture
-       style, film simulation, dynamic-range, optical-correction, and
+       color/style/lens/source-processing aliases such as camera-to-XYZ/RGB
+       matrices, creative/picture style, film simulation, dynamic-range,
+       optical-correction, AF micro-adjustment, ambience selection, and
        raw-development terms are classified for query and transfer-policy
        inspection; camera RAW profiles, looks, tone curves, and vendor source
        color tables use the explicit ``source_color_transform`` semantic, RAW
@@ -210,16 +213,19 @@ Host-facing API map
        stored-RAW descriptors to ``applies_to_stored_raw`` or rendered
        descriptors to ``not_applicable_to_stored_raw``, or compressed-only
        descriptors to not-applicable when the supplied storage encoding is
-       uncompressed or packed.
+       uncompressed or packed, and primary-plane-only descriptors to
+       not-applicable when the supplied plane index is non-primary.
        EXIF and XMP GPS date/time are combined from ``GPSDateStamp`` plus
-       ``GPSTimeStamp`` when both entries exist, and GPS altitude candidates expose
+       ``GPSTimeStamp`` when both entries exist, XMP ``DateTimeDigitized`` maps
+       to the ``Digitized`` date/time role, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference
        metadata is present; ``metadata_concept_gps_altitude_reference_name(...)``
        provides a stable display token for the reference code. It is intended
        for inspection UI and host policy decisions; it does not rewrite
        metadata or hide ambiguity. Python ``Document`` and
        ``TransferSourceSnapshot`` expose matching dictionary wrappers,
-       including the thin ``MetadataRawDataDescriptor`` object.
+       including the thin ``MetadataRawDataDescriptor`` object with storage,
+       compression, and plane-binding fields.
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
        ``transfer_concept_diagnostic_message(...)``
@@ -232,13 +238,13 @@ Host-facing API map
        compatible/rendered safety booleans, RAW applicability state, and GPS
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
-       decisions reflect the supplied stored-RAW, compressed-only, or rendered
-       storage context.
+       decisions reflect the supplied stored-RAW, compressed-only,
+       primary-plane-only, or rendered storage context.
        ``PrepareTransferRequest::source_raw_data_descriptor`` can apply the
        same coarse rendered-source RAW filtering during
        ``prepare_metadata_for_target(...)``; it is still intentionally
        conservative and does not prove vendor curve/LUT activity for a
-       specific compression mode.
+       specific compression mode or decoder stage.
        Rendered-transfer drop messages distinguish source color transforms,
        white balance, lens-correction records, source RAW curves/linearity
        metadata that still require storage-context confirmation, and

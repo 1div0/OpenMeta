@@ -676,6 +676,12 @@ descriptor-aware diagnostics call. OpenMeta will then treat that curve as not
 applicable for uncompressed or packed raw buffers instead of assuming the
 metadata is active.
 
+If the decoder also knows that the curve/LUT only affects the primary raw
+plane, set ``raw_descriptor.requires_primary_raw_plane = true`` and provide
+``raw_descriptor.has_plane_index = true`` plus ``raw_descriptor.plane_index``
+for the raw buffer being checked. Non-primary planes are then reported as not
+applicable; unknown plane selection remains conditional.
+
 Python uses the same family enum:
 
 .. code-block:: python
