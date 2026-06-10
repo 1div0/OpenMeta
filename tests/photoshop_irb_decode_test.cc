@@ -653,6 +653,15 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     measurement_scale.push_back(std::byte { 1U });
     measurement_scale.push_back(std::byte { 2U });
 
+    std::vector<std::byte> timeline_info;
+    append_u32be(16U, &timeline_info);
+    timeline_info.push_back(std::byte { 7U });
+
+    std::vector<std::byte> sheet_disclosure;
+    append_u32be(16U, &sheet_disclosure);
+    sheet_disclosure.push_back(std::byte { 8U });
+    sheet_disclosure.push_back(std::byte { 9U });
+
     std::vector<std::byte> path_selection;
     append_u32be(16U, &path_selection);
     path_selection.push_back(std::byte { 3U });
@@ -666,6 +675,32 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     print_info.push_back(std::byte { 5U });
     print_info.push_back(std::byte { 6U });
 
+    std::vector<std::byte> onion_skins;
+    append_u32be(16U, &onion_skins);
+    onion_skins.push_back(std::byte { 10U });
+    onion_skins.push_back(std::byte { 11U });
+    onion_skins.push_back(std::byte { 12U });
+
+    std::vector<std::byte> count_info;
+    append_u32be(16U, &count_info);
+    count_info.push_back(std::byte { 13U });
+    count_info.push_back(std::byte { 14U });
+
+    std::vector<std::byte> print_info2;
+    append_u32be(16U, &print_info2);
+    print_info2.push_back(std::byte { 15U });
+
+    std::vector<std::byte> print_style;
+    append_u32be(16U, &print_style);
+    print_style.push_back(std::byte { 16U });
+    print_style.push_back(std::byte { 17U });
+
+    std::vector<std::byte> origin_path;
+    append_u32be(17U, &origin_path);
+    origin_path.push_back(std::byte { 18U });
+    origin_path.push_back(std::byte { 19U });
+    origin_path.push_back(std::byte { 20U });
+
     std::vector<std::byte> irb;
     append_irb_resource(0x03F1U, border, &irb);
     append_irb_resource(0x03F2U, background, &irb);
@@ -674,14 +709,21 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     append_irb_resource(0x0431U, color_samplers_v3, &irb);
     append_irb_resource(0x0429U, layer_comps, &irb);
     append_irb_resource(0x0432U, measurement_scale, &irb);
+    append_irb_resource(0x0433U, timeline_info, &irb);
+    append_irb_resource(0x0434U, sheet_disclosure, &irb);
     append_irb_resource(0x0440U, path_selection, &irb);
     append_irb_resource(0x042EU, hdr_toning, &irb);
     append_irb_resource(0x042FU, print_info, &irb);
+    append_irb_resource(0x0436U, onion_skins, &irb);
+    append_irb_resource(0x0438U, count_info, &irb);
+    append_irb_resource(0x043AU, print_info2, &irb);
+    append_irb_resource(0x043BU, print_style, &irb);
+    append_irb_resource(0x0BB8U, origin_path, &irb);
 
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 10U);
+    EXPECT_EQ(r.resources_decoded, 17U);
 
     const Entry* border_width = find_photoshop_irb_field(store, 0x03F1U,
                                                          "BorderWidth");
@@ -759,22 +801,50 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
         = collect_photoshop_irb_u32_fields(store, 0x0429U, "DescriptorVersion");
     const std::vector<uint32_t> measurement_bytes
         = collect_photoshop_irb_u32_fields(store, 0x0432U, "DescriptorBytes");
+    const std::vector<uint32_t> timeline_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0433U, "DescriptorBytes");
+    const std::vector<uint32_t> sheet_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0434U, "DescriptorBytes");
     const std::vector<uint32_t> path_bytes
         = collect_photoshop_irb_u32_fields(store, 0x0440U, "DescriptorBytes");
     const std::vector<uint32_t> hdr_toning_version
         = collect_photoshop_irb_u32_fields(store, 0x042EU, "DescriptorVersion");
     const std::vector<uint32_t> print_info_bytes
         = collect_photoshop_irb_u32_fields(store, 0x042FU, "DescriptorBytes");
+    const std::vector<uint32_t> onion_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0436U, "DescriptorBytes");
+    const std::vector<uint32_t> count_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0438U, "DescriptorBytes");
+    const std::vector<uint32_t> print_info2_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x043AU, "DescriptorBytes");
+    const std::vector<uint32_t> print_style_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x043BU, "DescriptorBytes");
+    const std::vector<uint32_t> origin_path_version
+        = collect_photoshop_irb_u32_fields(store, 0x0BB8U, "DescriptorVersion");
     ASSERT_EQ(layer_comp_version.size(), 1U);
     ASSERT_EQ(measurement_bytes.size(), 1U);
+    ASSERT_EQ(timeline_bytes.size(), 1U);
+    ASSERT_EQ(sheet_bytes.size(), 1U);
     ASSERT_EQ(path_bytes.size(), 1U);
     ASSERT_EQ(hdr_toning_version.size(), 1U);
     ASSERT_EQ(print_info_bytes.size(), 1U);
+    ASSERT_EQ(onion_bytes.size(), 1U);
+    ASSERT_EQ(count_bytes.size(), 1U);
+    ASSERT_EQ(print_info2_bytes.size(), 1U);
+    ASSERT_EQ(print_style_bytes.size(), 1U);
+    ASSERT_EQ(origin_path_version.size(), 1U);
     EXPECT_EQ(layer_comp_version[0], 16U);
     EXPECT_EQ(measurement_bytes[0], 2U);
+    EXPECT_EQ(timeline_bytes[0], 1U);
+    EXPECT_EQ(sheet_bytes[0], 2U);
     EXPECT_EQ(path_bytes[0], 1U);
     EXPECT_EQ(hdr_toning_version[0], 16U);
     EXPECT_EQ(print_info_bytes[0], 2U);
+    EXPECT_EQ(onion_bytes[0], 3U);
+    EXPECT_EQ(count_bytes[0], 2U);
+    EXPECT_EQ(print_info2_bytes[0], 1U);
+    EXPECT_EQ(print_style_bytes[0], 2U);
+    EXPECT_EQ(origin_path_version[0], 17U);
 }
 
 TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)

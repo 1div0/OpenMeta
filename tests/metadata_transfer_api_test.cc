@@ -21773,6 +21773,36 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
     EXPECT_EQ(
         rendered_black_diag->reason,
         openmeta::TransferConceptDiagnosticReason::RawApplicabilityNotApplicable);
+
+    openmeta::MetadataRawDataDescriptor uncompressed_data;
+    uncompressed_data.encoding = openmeta::MetadataRawDataEncoding::Uncompressed;
+    uncompressed_data.requires_compressed_raw_encoding = true;
+    const openmeta::TransferConceptDiagnostics uncompressed_compatible
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::CompatibleFile,
+            uncompressed_data);
+    const openmeta::TransferConceptDiagnostic* uncompressed_curve_diag
+        = find_transfer_concept_diagnostic(
+            uncompressed_compatible,
+            openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::RawValueCurve,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(uncompressed_curve_diag, nullptr);
+    EXPECT_EQ(
+        uncompressed_curve_diag->reason,
+        openmeta::TransferConceptDiagnosticReason::RawApplicabilityNotApplicable);
+    EXPECT_EQ(uncompressed_curve_diag->raw_applicability,
+              openmeta::MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+
+    const openmeta::TransferConceptDiagnostic* uncompressed_black_diag
+        = find_transfer_concept_diagnostic(
+            uncompressed_compatible,
+            openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::BlackLevel,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(uncompressed_black_diag, nullptr);
+    EXPECT_EQ(uncompressed_black_diag->raw_applicability,
+              openmeta::MetadataRawApplicabilityState::AppliesToStoredRaw);
 }
 
 TEST(MetadataTransferApi,

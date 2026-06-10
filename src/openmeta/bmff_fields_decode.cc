@@ -1231,6 +1231,75 @@ namespace {
         }
     }
 
+    static bool primary_rotation_swaps_dimensions(const PrimaryProps& p) noexcept
+    {
+        if (!p.have_rotation) {
+            return false;
+        }
+        const uint16_t rotation = static_cast<uint16_t>(p.rotation_degrees
+                                                        % 360U);
+        return rotation == 90U || rotation == 270U;
+    }
+
+    static bool write_primary_transform_summary(const PrimaryProps& p,
+                                                char* out,
+                                                size_t out_size) noexcept
+    {
+        if (!out || out_size == 0U) {
+            return false;
+        }
+        const uint16_t rotation
+            = p.have_rotation ? static_cast<uint16_t>(p.rotation_degrees % 360U)
+                              : 0U;
+        int n = 0;
+        if (p.have_rotation && p.have_mirror) {
+            n = std::snprintf(out, out_size, "rotate_%u_mirror_%u",
+                              static_cast<unsigned>(rotation),
+                              static_cast<unsigned>(p.mirror));
+        } else if (p.have_rotation) {
+            n = std::snprintf(out, out_size, "rotate_%u",
+                              static_cast<unsigned>(rotation));
+        } else if (p.have_mirror) {
+            n = std::snprintf(out, out_size, "mirror_%u",
+                              static_cast<unsigned>(p.mirror));
+        } else {
+            n = std::snprintf(out, out_size, "identity");
+        }
+        return n > 0 && static_cast<size_t>(n) < out_size;
+    }
+
+    static void
+    emit_primary_scene_summary_fields(MetaStore& store, BlockId block,
+                                      uint32_t* io_order,
+                                      const PrimaryProps& p) noexcept
+    {
+        if (!io_order) {
+            return;
+        }
+        if (!p.have_width_height && !p.have_rotation && !p.have_mirror) {
+            return;
+        }
+
+        char transform[48];
+        if (write_primary_transform_summary(p, transform, sizeof(transform))) {
+            emit_text_field(store, block, (*io_order)++,
+                            "primary.transform_summary",
+                            std::string_view(transform, std::strlen(transform)));
+        }
+
+        if (!p.have_width_height) {
+            return;
+        }
+
+        const bool swap = primary_rotation_swaps_dimensions(p);
+        emit_u32_field(store, block, (*io_order)++, "primary.display_width",
+                       swap ? p.height : p.width);
+        emit_u32_field(store, block, (*io_order)++, "primary.display_height",
+                       swap ? p.width : p.height);
+        emit_u8_field(store, block, (*io_order)++,
+                      "primary.display_dimensions_swapped", swap ? 1U : 0U);
+    }
+
     static const char*
     bmff_item_construction_method_name(uint16_t method) noexcept
     {
@@ -4129,6 +4198,9 @@ namespace {
                                           (*ctx->order)++, "primary.mirror",
                                           p.mirror);
                         }
+                        emit_primary_scene_summary_fields(*ctx->store,
+                                                          ctx->block,
+                                                          ctx->order, p);
                         if (p.have_pixel_aspect) {
                             emit_u32_field(*ctx->store, ctx->block,
                                            (*ctx->order)++,

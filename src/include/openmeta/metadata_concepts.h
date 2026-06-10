@@ -119,16 +119,17 @@ enum class MetadataRawApplicabilityState : uint8_t {
 };
 
 struct MetadataRawDataDescriptor final {
-    MetadataRawDataEncoding encoding = MetadataRawDataEncoding::Unknown;
-    bool has_dimensions              = false;
-    uint32_t width                   = 0U;
-    uint32_t height                  = 0U;
-    bool has_channel_count           = false;
-    uint32_t channel_count           = 0U;
-    bool has_bits_per_sample         = false;
-    uint32_t bits_per_sample         = 0U;
-    bool has_compression_code        = false;
-    uint32_t compression_code        = 0U;
+    MetadataRawDataEncoding encoding      = MetadataRawDataEncoding::Unknown;
+    bool has_dimensions                   = false;
+    uint32_t width                        = 0U;
+    uint32_t height                       = 0U;
+    bool has_channel_count                = false;
+    uint32_t channel_count                = 0U;
+    bool has_bits_per_sample              = false;
+    uint32_t bits_per_sample              = 0U;
+    bool has_compression_code             = false;
+    uint32_t compression_code             = 0U;
+    bool requires_compressed_raw_encoding = false;
 };
 
 struct MetadataConceptCandidate final {

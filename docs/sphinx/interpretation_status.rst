@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 93%** for the public target scope.
+Current overall status: **medium-high, about 94%** for the public target scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
 human-readable meaning and safe cross-format behavior.
@@ -154,14 +154,14 @@ Coverage matrix
        RAW applicability state; descriptor-aware concept-resolution overloads
        let a host or decoder provide a ``MetadataRawDataDescriptor`` so
        curve/LUT-like entries can remain conditional, apply to stored RAW
-       samples, or be marked not applicable for rendered data. Transfer
+       samples, require compressed RAW storage, or be marked not applicable
+       for rendered or uncompressed data. Transfer
        preparation can also consume the descriptor and drop RAW-processing
        metadata when source pixels are already rendered. Lens-correction
        grouped tables require numeric payloads before promotion.
-     - Medium-high, about 87-92%.
-     - Long-tail per-model correction tables, deeper raw data descriptor
-       binding to exact storage planes/compression modes, and richer numeric
-       normalization.
+     - Medium-high, about 88-93%.
+     - Long-tail per-model correction tables, exact raw plane/blob binding,
+       decoder-stage applicability, and richer numeric normalization.
    * - Vendor MakerNotes
      - Broad MakerNote naming and source-processing classification exists for
        common vendors and several live computational/thermal vendors. Unknown
@@ -194,10 +194,11 @@ Coverage matrix
        item-group rows, per-group-type summaries, primary item-group
        memberships, bounded ``iloc``/``idat`` item-data layout summaries,
        primary item-location aliases, primary-linked roles, aux semantics,
-       primary color/profile property summaries, primary pixel aspect ratio,
-       primary pixel component bit depth, clean-aperture rationals, JUMBF box
-       labels, and draft C2PA/JUMBF structural fields are exposed.
-     - Medium, about 77-85%.
+       primary color/profile property summaries, primary display dimensions and
+       transform summary, primary pixel aspect ratio, primary pixel component
+       bit depth, clean-aperture rationals, JUMBF box labels, and draft
+       C2PA/JUMBF structural fields are exposed.
+     - Medium, about 80-86%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -205,15 +206,16 @@ Coverage matrix
        summaries, resolution/version/print data, print-flag bytes,
        border/background/effective-BW data, display info, grid/guide info,
        color sampler headers/records, descriptor-header summaries for
-       resources including layer comps, measurement scale, HDR toning, print
-       info, path selection state, and origin path info, path record summaries,
-       alpha names/identifiers, captions, QuickMask info, URL/list data,
-       autosave strings, ``XMLData``, ImageReady XML text, Lightroom workflow
-       text, thumbnail headers, channel options, clipping-path names, legacy
-       halftone/transfer/duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF
-       resource byte counts, and embedded IPTC/XMP/ICC payload decode where
-       enabled.
-     - Medium, about 78-86%.
+       resources including layer comps, measurement scale, timeline info, sheet
+       disclosure, HDR toning, print info, onion skins, count info, print
+       info/style, path selection state, and origin path info, path record
+       summaries, alpha names/identifiers, captions, QuickMask info, URL/list
+       data, autosave strings, ``XMLData``, ImageReady XML text, Lightroom
+       workflow text, thumbnail headers, channel options, clipping-path names,
+       legacy halftone/transfer/duotone/EPS byte summaries, embedded
+       IPTC/ICC/XMP/EXIF resource byte counts, and embedded IPTC/XMP/ICC payload
+       decode where enabled.
+     - Medium, about 80-87%.
      - Broader resource-specific descriptor body parsing and long-tail
        resource interpretation.
    * - Semantic query/search and records
@@ -236,13 +238,13 @@ Coverage matrix
        color/profile, GPS, geometry, lens-correction, and RAW-processing with
        parsed date/time fields, IPTC date+time promoted into cross-family
        created-date candidates, timezone/precision classification, combined
-       GPS timestamps, GPS
+       EXIF and XMP GPS timestamps, GPS
        altitude-reference state and display token, canonical geometry
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, RAW applicability states,
        rendered/compatible safety booleans, and tolerance-aware
        GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 85-90%.
+     - Medium-high, about 86-91%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
@@ -252,10 +254,11 @@ Coverage matrix
        data, with concept-level diagnostics that report
        keep/drop/requires-target-image-spec actions, severity, RAW
        applicability, and role-specific default message text before prepare.
-       ``PrepareTransferRequest`` can also carry a ``MetadataRawDataDescriptor``;
-       when it marks source pixels as rendered, RAW-processing metadata is
-       filtered even under compatible-file safety.
-     - High, about 92-95%.
+       Descriptor-aware diagnostics can also mark curve/LUT-like RAW roles as
+       compressed-storage-only. ``PrepareTransferRequest`` can carry a
+       ``MetadataRawDataDescriptor``; when it marks source pixels as rendered,
+       RAW-processing metadata is filtered even under compatible-file safety.
+     - High, about 93-96%.
      - More per-family policy tests and optional host localization hooks.
 
 Competitor position

@@ -206,6 +206,10 @@ actions, severity tokens, and default message text for transfer-preview UI.
 When a host knows the RAW storage context, pass `MetadataRawDataDescriptor` to
 the descriptor-aware overload so RAW curve/linearity and black/white-level
 diagnostics can distinguish stored RAW data from rendered pixels.
+If a decoder knows that a curve/LUT-like metadata entry is meaningful only for
+compressed RAW samples, set
+`raw_descriptor.requires_compressed_raw_encoding = true` before requesting
+concept diagnostics.
 Rendered-transfer drop messages distinguish source color transforms, white
 balance, lens correction, source RAW curves/linearity metadata, source-bound
 RAW processing, and target-owned image properties. Source color transforms

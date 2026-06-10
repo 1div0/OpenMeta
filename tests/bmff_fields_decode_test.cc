@@ -386,6 +386,24 @@ TEST(BmffDerivedFieldsDecode, EmitsFtypAndPrimaryProps)
         EXPECT_EQ(static_cast<uint16_t>(store.entry(r[0]).value.data.u64), 90U);
         EXPECT_EQ(m[0], 1U);
     }
+    {
+        const std::vector<uint32_t> display_width
+            = collect_u32_values(store, "primary.display_width");
+        const std::vector<uint32_t> display_height
+            = collect_u32_values(store, "primary.display_height");
+        const std::vector<uint8_t> swapped
+            = collect_u8_values(store, "primary.display_dimensions_swapped");
+        const std::vector<std::string> transform
+            = collect_text_values(store, "primary.transform_summary");
+        ASSERT_EQ(display_width.size(), 1U);
+        ASSERT_EQ(display_height.size(), 1U);
+        ASSERT_EQ(swapped.size(), 1U);
+        ASSERT_EQ(transform.size(), 1U);
+        EXPECT_EQ(display_width[0], 480U);
+        EXPECT_EQ(display_height[0], 640U);
+        EXPECT_EQ(swapped[0], 1U);
+        EXPECT_EQ(transform[0], "rotate_90_mirror_1");
+    }
 
     const std::vector<uint32_t> color_type
         = collect_u32_values(store, "primary.color_type");

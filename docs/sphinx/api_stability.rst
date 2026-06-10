@@ -208,9 +208,11 @@ Host-facing API map
        whether they affect the stored samples. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and can collapse supported
        stored-RAW descriptors to ``applies_to_stored_raw`` or rendered
-       descriptors to ``not_applicable_to_stored_raw``.
-       GPS date/time is combined from ``GPSDateStamp`` plus ``GPSTimeStamp``
-       when both entries exist, and GPS altitude candidates expose
+       descriptors to ``not_applicable_to_stored_raw``, or compressed-only
+       descriptors to not-applicable when the supplied storage encoding is
+       uncompressed or packed.
+       EXIF and XMP GPS date/time are combined from ``GPSDateStamp`` plus
+       ``GPSTimeStamp`` when both entries exist, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference
        metadata is present; ``metadata_concept_gps_altitude_reference_name(...)``
        provides a stable display token for the reference code. It is intended
@@ -230,7 +232,8 @@ Host-facing API map
        compatible/rendered safety booleans, RAW applicability state, and GPS
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
-       decisions reflect the supplied stored-RAW or rendered storage context.
+       decisions reflect the supplied stored-RAW, compressed-only, or rendered
+       storage context.
        ``PrepareTransferRequest::source_raw_data_descriptor`` can apply the
        same coarse rendered-source RAW filtering during
        ``prepare_metadata_for_target(...)``; it is still intentionally

@@ -1,5 +1,31 @@
 # OpenMeta Changes
 
+## 0.4.47 - 2026-06-04
+
+Changes compared with `0.4.46`.
+
+### Added
+
+- Added BMFF primary-item display-dimension and transform-summary fields from
+  decoded `ispe`/`irot`/`imir` properties.
+- Added broader Photoshop IRB descriptor-header test coverage for timeline,
+  sheet-disclosure, onion-skin, count, print-info/style, and origin-path
+  resources.
+- Added `MetadataRawDataDescriptor::requires_compressed_raw_encoding` so hosts
+  can mark curve/LUT-like RAW metadata as active only for compressed RAW
+  storage.
+- Added XMP GPS date/time composite interpretation from `GPSDateStamp` plus
+  `GPSTimeStamp`, matching the existing EXIF GPS timestamp composition model.
+
+### Changed
+
+- RAW applicability and transfer diagnostics now drop compressed-only RAW
+  curve/LUT candidates when the supplied storage descriptor is uncompressed or
+  packed, while keeping black/white-level and storage facts applicable.
+- Updated public interpretation, RAW-read, writer-contract, and API stability
+  docs for the new descriptor flag and expanded BMFF/IRB/GPS interpretation
+  surface.
+
 ## 0.4.46 - 2026-06-04
 
 Changes compared with `0.4.45`.

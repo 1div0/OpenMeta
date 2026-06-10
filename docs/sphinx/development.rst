@@ -33,14 +33,16 @@ model should stay compact:
      - Normalize names and values, group entries by meaning, and classify
        source-bound data such as RAW crop, exposure adjustment,
        color/profile/source-color-transform evidence, RAW curves/linearity
-       metadata, lens-correction, sensor, BMFF brand/item-property
+       metadata with descriptor-backed compressed-storage applicability,
+       lens-correction, sensor, BMFF brand/item-property
        associations and rollups, item groups, item semantic counts, and
-       primary item properties, JUMBF labels, Photoshop IRB embedded carriers plus
-       fixed-layout, XML/text, path-record, byte-count, and descriptor-header
-       summaries,
+       primary item properties and display-transform summaries, JUMBF labels,
+       Photoshop IRB embedded carriers plus fixed-layout, XML/text,
+       path-record, byte-count, and descriptor-header summaries, EXIF/XMP GPS
+       timestamp composites,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
-     - Medium-high, about 93%.
+     - Medium-high, about 94%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and

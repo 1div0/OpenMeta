@@ -666,9 +666,15 @@ are present.
            openmeta::transfer_concept_diagnostic_message(item);
        (void)action;
        (void)reason;
-       (void)severity;
-       (void)message;
+      (void)severity;
+      (void)message;
    }
+
+If a decoder exposes a curve/LUT metadata entry that only affects compressed RAW
+storage, set ``raw_descriptor.requires_compressed_raw_encoding = true`` for the
+descriptor-aware diagnostics call. OpenMeta will then treat that curve as not
+applicable for uncompressed or packed raw buffers instead of assuming the
+metadata is active.
 
 Python uses the same family enum:
 

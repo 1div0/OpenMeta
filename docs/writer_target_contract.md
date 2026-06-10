@@ -89,6 +89,13 @@ Preparation then filters RAW-processing metadata even under
 data from being carried into metadata that no longer applies to the stored
 pixels.
 
+When a decoder knows that a curve/LUT-like metadata entry only applies to
+compressed RAW storage, set
+`source_raw_data_descriptor.requires_compressed_raw_encoding = true`. Concept
+diagnostics can then drop that curve for uncompressed or packed raw buffers
+while still keeping non-curve RAW facts such as black level and raw-storage
+layout applicable.
+
 | Metadata group | Examples | `CompatibleFile` | `RenderedImage` | Notes |
 | --- | --- | --- | --- | --- |
 | General descriptive metadata | title, description, creator, artist, copyright, rating, label, keywords | Keep | Keep | Safe because it describes the asset or authorship rather than the source pixel encoding. |

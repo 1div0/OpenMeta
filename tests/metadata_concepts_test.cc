@@ -999,6 +999,43 @@ namespace {
         }
     }
 
+    TEST(MetadataConcepts, CombinesXmpGpsDateAndTimeStamp)
+    {
+        MetaStore store;
+        const EntryId date_id = add_xmp_text(&store,
+                                             "http://ns.adobe.com/exif/1.0/",
+                                             "exif:GPSDateStamp", "2024:04:19");
+        const EntryId time_id = add_xmp_text(&store,
+                                             "http://ns.adobe.com/exif/1.0/",
+                                             "exif:GPSTimeStamp", "12:34:56Z");
+        store.finalize();
+
+        const MetadataConceptResolution gps
+            = resolve_metadata_concept(store, MetadataConceptKind::Gps);
+
+        const MetadataConceptCandidate* composite = nullptr;
+        for (size_t i = 0U; i < gps.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = gps.candidates[i];
+            if (candidate.role == MetadataConceptRole::Timestamp
+                && contains_entry(candidate.source_entries, date_id)
+                && contains_entry(candidate.source_entries, time_id)) {
+                composite = &candidate;
+                break;
+            }
+        }
+
+        ASSERT_NE(composite, nullptr);
+        EXPECT_EQ(composite->text, "2024:04:19 12:34:56Z");
+        EXPECT_TRUE(composite->has_date_time);
+        EXPECT_TRUE(composite->date_time_has_time);
+        EXPECT_TRUE(composite->date_time_has_utc_offset);
+        EXPECT_EQ(composite->date_time_zone, MetadataConceptTimeZoneKind::Utc);
+        EXPECT_EQ(composite->date_time_year, 2024);
+        EXPECT_EQ(composite->date_time_hour, 12U);
+        EXPECT_EQ(composite->date_time_minute, 34U);
+        EXPECT_EQ(composite->date_time_second, 56U);
+    }
+
     TEST(MetadataConcepts, ResolvesExposureConceptRoles)
     {
         MetaStore store;
@@ -1469,9 +1506,10 @@ namespace {
 
         MetadataRawDataDescriptor raw_descriptor;
         raw_descriptor.encoding = MetadataRawDataEncoding::LosslessCompressed;
-        raw_descriptor.has_dimensions              = true;
-        raw_descriptor.width                       = 4000U;
-        raw_descriptor.height                      = 3000U;
+        raw_descriptor.requires_compressed_raw_encoding = true;
+        raw_descriptor.has_dimensions                   = true;
+        raw_descriptor.width                            = 4000U;
+        raw_descriptor.height                           = 3000U;
         const MetadataConceptResolution raw_result = resolve_metadata_concept(
             store, MetadataConceptKind::RawProcessing, raw_descriptor);
 
@@ -1514,6 +1552,35 @@ namespace {
         EXPECT_EQ(metadata_raw_applicability_for_descriptor(
                       MetadataConceptRole::RawValueCurve, rendered_descriptor),
                   MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+
+        MetadataRawDataDescriptor uncompressed_descriptor;
+        uncompressed_descriptor.encoding = MetadataRawDataEncoding::Uncompressed;
+        uncompressed_descriptor.requires_compressed_raw_encoding = true;
+        const MetadataConceptResolution uncompressed_result
+            = resolve_metadata_concept(store,
+                                       MetadataConceptKind::RawProcessing,
+                                       uncompressed_descriptor);
+
+        const MetadataConceptCandidate* uncompressed_black
+            = find_role(uncompressed_result, MetadataConceptRole::BlackLevel);
+        const MetadataConceptCandidate* uncompressed_curve
+            = find_role(uncompressed_result,
+                        MetadataConceptRole::RawValueCurve);
+        ASSERT_NE(uncompressed_black, nullptr);
+        ASSERT_NE(uncompressed_curve, nullptr);
+        EXPECT_EQ(uncompressed_black->raw_applicability,
+                  MetadataRawApplicabilityState::AppliesToStoredRaw);
+        EXPECT_EQ(uncompressed_curve->raw_applicability,
+                  MetadataRawApplicabilityState::NotApplicableToStoredRaw);
+
+        MetadataRawDataDescriptor unknown_compression_descriptor;
+        unknown_compression_descriptor.encoding
+            = MetadataRawDataEncoding::Unknown;
+        unknown_compression_descriptor.requires_compressed_raw_encoding = true;
+        EXPECT_EQ(metadata_raw_applicability_for_descriptor(
+                      MetadataConceptRole::RawValueCurve,
+                      unknown_compression_descriptor),
+                  MetadataRawApplicabilityState::ConditionalOnRawEncoding);
     }
 
     TEST(MetadataConcepts, SurfacesColorAndGeometryConflicts)

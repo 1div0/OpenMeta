@@ -6312,7 +6312,9 @@ NB_MODULE(_openmeta, m)
         .def_rw("has_compression_code",
                 &MetadataRawDataDescriptor::has_compression_code)
         .def_rw("compression_code",
-                &MetadataRawDataDescriptor::compression_code);
+                &MetadataRawDataDescriptor::compression_code)
+        .def_rw("requires_compressed_raw_encoding",
+                &MetadataRawDataDescriptor::requires_compressed_raw_encoding);
 
     nb::enum_<CcmQueryStatus>(m, "CcmQueryStatus")
         .value("Ok", CcmQueryStatus::Ok)

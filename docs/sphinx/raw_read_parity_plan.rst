@@ -132,8 +132,9 @@ concept candidates:
   pixels, such as uncompressed, packed, lossless-compressed, lossy-compressed,
   rendered, or unknown.
 - ``MetadataRawDataDescriptor`` is the public carrier for dimensions,
-  channel-count, bit-depth, compression code, and storage encoding when a host
-  can provide them.
+  channel-count, bit-depth, compression code, storage encoding, and an optional
+  ``requires_compressed_raw_encoding`` flag when a host or decoder can provide
+  them.
 - ``MetadataRawApplicabilityState`` marks current concept candidates as
   unknown, applicable to stored raw samples, conditional on raw encoding, or
   not applicable to stored raw samples.
@@ -142,9 +143,11 @@ The default resolver still marks curve/LUT-like RAW roles as conditional on raw
 encoding when no storage context is supplied. Descriptor-aware concept
 resolution overloads accept ``MetadataRawDataDescriptor``; those overloads can
 mark recognized RAW-processing roles as applicable to stored RAW samples for
-known RAW encodings or not applicable for rendered data. This is a conservative
-storage-context classification, not proof that a vendor curve is active for a
-specific file.
+known RAW encodings, not applicable for rendered data, or not applicable when a
+curve/LUT-like role is explicitly marked compressed-storage-only but the source
+descriptor says the raw samples are uncompressed or packed. This is a
+conservative storage-context classification, not proof that a vendor curve is
+active for a specific file.
 
 Transfer preparation can also consume
 ``PrepareTransferRequest::source_raw_data_descriptor``. When that descriptor

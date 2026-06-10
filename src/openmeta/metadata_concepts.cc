@@ -784,6 +784,13 @@ namespace {
                       == MetadataRawApplicabilityState::ConditionalOnRawEncoding;
     }
 
+    static bool
+    raw_data_encoding_is_compressed(MetadataRawDataEncoding encoding) noexcept
+    {
+        return encoding == MetadataRawDataEncoding::LosslessCompressed
+               || encoding == MetadataRawDataEncoding::LossyCompressed;
+    }
+
     static void assign_raw_applicability(
         MetadataConceptCandidate* candidate,
         const MetadataRawDataDescriptor* descriptor) noexcept
@@ -1070,7 +1077,8 @@ namespace {
                 dst->margins[i] = src.margins[i];
             }
         }
-        if (dst->text.empty() && !src.text.empty()) {
+        if ((dst->text.empty() || src.text.size() > dst->text.size())
+            && !src.text.empty()) {
             dst->text = src.text;
         }
         if ((dst->value_key.empty()
@@ -2827,6 +2835,90 @@ namespace {
         append_candidate(out, candidate);
     }
 
+    static bool find_xmp_text_entry_leaf(const MetaStore& store,
+                                         std::string_view path_leaf,
+                                         EntryId* out_id, std::string* out)
+    {
+        const std::span<const Entry> entries = store.entries();
+        for (EntryId id = 0U; id < entries.size(); ++id) {
+            const Entry& entry = entries[id];
+            if (any(entry.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            if (entry.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+            const std::string_view path
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.property_path);
+            if (!xmp_leaf_matches(path, path_leaf)) {
+                continue;
+            }
+            if (!value_to_text(store.arena(), entry.value, out)) {
+                continue;
+            }
+            if (out_id) {
+                *out_id = id;
+            }
+            return true;
+        }
+        if (out_id) {
+            *out_id = kInvalidEntryId;
+        }
+        if (out) {
+            out->clear();
+        }
+        return false;
+    }
+
+    static void
+    append_xmp_gps_timestamp_composite(const MetaStore& store,
+                                       MetadataConceptResolution* out)
+    {
+        EntryId date_id = kInvalidEntryId;
+        EntryId time_id = kInvalidEntryId;
+        std::string date_text;
+        std::string time_text;
+        if (!find_xmp_text_entry_leaf(store, "GPSDateStamp", &date_id,
+                                      &date_text)) {
+            return;
+        }
+        if (!find_xmp_text_entry_leaf(store, "GPSTimeStamp", &time_id,
+                                      &time_text)) {
+            return;
+        }
+
+        std::string combined_text = date_text;
+        combined_text.push_back(' ');
+        combined_text.append(time_text);
+
+        MetadataConceptCandidate candidate
+            = make_entry_candidate(store, date_id, MetadataConceptKind::Gps,
+                                   MetadataConceptRole::Timestamp,
+                                   MetadataQuerySemanticKind::Unknown,
+                                   MetadataQueryValueShape::Text, 82U);
+        candidate.text = combined_text;
+        if (!fill_datetime_from_text(date_text, &candidate)) {
+            return;
+        }
+
+        const Entry& time_entry = store.entry(time_id);
+        uint8_t hour            = 0U;
+        uint8_t minute          = 0U;
+        uint8_t second          = 0U;
+        bool has_offset         = false;
+        int16_t offset          = 0;
+        if (!fill_time_from_value(store.arena(), time_entry.value, &hour,
+                                  &minute, &second, &has_offset, &offset)) {
+            return;
+        }
+        (void)attach_time_to_candidate(&candidate, hour, minute, second,
+                                       has_offset, offset);
+        candidate.text = combined_text;
+        add_unique_entry(&candidate.source_entries, time_id);
+        append_candidate(out, candidate);
+    }
+
     static void append_gps_candidates(const MetaStore& store,
                                       MetadataConceptResolution* out)
     {
@@ -2843,6 +2935,7 @@ namespace {
             }
         }
         append_exif_gps_timestamp_composite(store, out);
+        append_xmp_gps_timestamp_composite(store, out);
     }
 
     static MetadataConceptRole
@@ -3293,6 +3386,15 @@ metadata_raw_applicability_for_descriptor(
     case MetadataConceptRole::RawCalibrationCurve:
     case MetadataConceptRole::RawCurveControlPoints:
         if (descriptor.encoding == MetadataRawDataEncoding::Rendered) {
+            return MetadataRawApplicabilityState::NotApplicableToStoredRaw;
+        }
+        if (descriptor.requires_compressed_raw_encoding) {
+            if (descriptor.encoding == MetadataRawDataEncoding::Unknown) {
+                return MetadataRawApplicabilityState::ConditionalOnRawEncoding;
+            }
+            if (raw_data_encoding_is_compressed(descriptor.encoding)) {
+                return MetadataRawApplicabilityState::AppliesToStoredRaw;
+            }
             return MetadataRawApplicabilityState::NotApplicableToStoredRaw;
         }
         if (descriptor.encoding == MetadataRawDataEncoding::Unknown) {
