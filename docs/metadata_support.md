@@ -71,10 +71,10 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, and descriptor-header summaries, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, descriptor-header and simple descriptor-item summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, primary metadata-carrier flags, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
@@ -151,7 +151,8 @@ summaries such as:
 - `IPTCDataBytes`
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
 - `WorkingPath` and numbered path resources as record counts/selectors
-- descriptor-header summaries for resources such as `LayerComps`,
+- descriptor-header summaries and bounded simple descriptor item bodies for
+  resources such as `LayerComps`,
   `MeasurementScale`, `HDRToningInfo`, `PrintInfo`, `TimelineInfo`,
   `SheetDisclosure`, `OnionSkins`, `CountInfo`, `PrintInfo2`, `PrintStyle`,
   `PathSelectionState`, and `OriginPathInfo`
@@ -171,7 +172,7 @@ Current Photoshop IRB interpretation status:
 | Embedded IPTC/XMP/ICC/EXIF carriers | Interpreted where enabled | Payload bytes remain preserved; enabled decoders also emit regular family entries. |
 | Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, `XMLData`, ImageReady text, Lightroom workflow text, and similar bounded fields. |
 | Geometry/display/color-sampler/path headers | Interpreted / record-summary | Display/grid/thumbnail/color-sampler headers are decoded; path resources expose record counts and selectors without interpreting Bezier payloads. |
-| Descriptor-backed Photoshop resources | Descriptor-header only | Descriptor version and remaining byte count are emitted; descriptor body parsing remains out of scope for this subset. |
+| Descriptor-backed Photoshop resources | Descriptor header plus simple items | Descriptor version, remaining byte count, class ID/name, item count, and complete simple item bodies are emitted for `bool`, `long`, `doub`, `UntF`, and `TEXT`; nested/list/object descriptor bodies remain out of scope for this subset. |
 | Legacy halftone/transfer/duotone/EPS resources | Header / byte-count only | OpenMeta emits byte counts and first header words where safe, without claiming full Photoshop semantics. |
 | Proprietary, obsolete, or OS-specific resources | Raw-only | Kept losslessly until a bounded public layout is implemented. |
 
@@ -181,7 +182,7 @@ This is useful, but it is still not full Photoshop-resource parity.
 
 OpenMeta now has a bounded semantic model on top of raw item discovery:
 - `ftyp.*`, including brand names and compatible-brand counts
-- primary item properties
+- primary item properties and primary metadata-carrier flags
 - `ipco` property-container summaries with total, known, unknown, and
   per-known-type property counts
 - `ipma` item-property association rows with item ids, property indices,

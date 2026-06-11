@@ -1332,6 +1332,21 @@ namespace {
                || contains_ascii_case_insensitive(name, "rawdevelopment");
     }
 
+    static bool exif_group_is_canon_colordata_source_transform(
+        std::string_view group) noexcept
+    {
+        return contains_ascii_case_insensitive(group, "mk_canon_colordata")
+               || contains_ascii_case_insensitive(group,
+                                                  "makernote:canon:colordata");
+    }
+
+    static bool exif_group_is_nikonsettings_source_processing(
+        std::string_view group) noexcept
+    {
+        return contains_ascii_case_insensitive(group, "mk_nikonsettings")
+               || contains_ascii_case_insensitive(group, "nikonsettings");
+    }
+
     static uint32_t
     xmp_color_profile_terms(std::string_view path,
                             MatchProvenanceState* provenance) noexcept
@@ -2149,6 +2164,17 @@ namespace {
             terms |= static_cast<uint32_t>(
                 MetadataQueryMatchTerm::SourceProcessing);
         }
+        if (kind == MetadataQueryKind::Color
+            && exif_group_is_canon_colordata_source_transform(ifd)) {
+            note_exact_match(&provenance);
+            terms |= static_cast<uint32_t>(MetadataQueryMatchTerm::Color);
+        }
+        if (kind == MetadataQueryKind::RawProcessing
+            && exif_group_is_nikonsettings_source_processing(ifd)) {
+            note_exact_match(&provenance);
+            terms |= static_cast<uint32_t>(
+                MetadataQueryMatchTerm::SourceProcessing);
+        }
         MetadataQuerySemanticKind explicit_semantic
             = MetadataQuerySemanticKind::Unknown;
         if (kind == MetadataQueryKind::Color
@@ -2163,7 +2189,8 @@ namespace {
                                | static_cast<uint32_t>(
                                    MetadataQueryMatchTerm::Calibration)))
                                == 0U)
-                       || color_name_is_source_transform(name))) {
+                       || color_name_is_source_transform(name)
+                       || exif_group_is_canon_colordata_source_transform(ifd))) {
             explicit_semantic = MetadataQuerySemanticKind::SourceColorTransform;
         } else if (kind == MetadataQueryKind::RawProcessing
                    && semantic_from_terms(kind, terms)

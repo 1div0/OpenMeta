@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.49 - 2026-06-10
+
+Changes compared with `0.4.48`.
+
+### Added
+
+- Added bounded Photoshop IRB action-descriptor item parsing for simple
+  complete item bodies (`bool`, `long`, `doub`, `UntF`, and `TEXT`), including
+  item key, type, parsed-count, and truncation fields.
+- Added BMFF primary-item metadata carrier flags for known primary C2PA/JUMBF
+  metadata items.
+- Added semantic query aliases for Canon ColorData source color-transform
+  tables and NikonSettings source-processing tables.
+
+### Changed
+
+- Updated public interpretation and API status docs for the expanded
+  descriptor-body, BMFF primary-carrier, and MakerNote query coverage.
+
 ## 0.4.48 - 2026-06-10
 
 Changes compared with `0.4.47`.

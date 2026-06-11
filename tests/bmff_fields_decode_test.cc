@@ -3236,6 +3236,20 @@ TEST(BmffDerivedFieldsDecode, EmitsItemSemanticLabelsForMetadataCarrierItems)
     ASSERT_EQ(primary_semantic.size(), 1U);
     EXPECT_EQ(primary_semantic[0], "c2pa");
 
+    const std::vector<uint8_t> primary_metadata_carrier
+        = collect_u8_values(store, "primary.metadata_carrier");
+    ASSERT_EQ(primary_metadata_carrier.size(), 1U);
+    EXPECT_EQ(primary_metadata_carrier[0], 1U);
+
+    const std::vector<uint8_t> primary_c2pa_carrier
+        = collect_u8_values(store, "primary.c2pa_carrier");
+    ASSERT_EQ(primary_c2pa_carrier.size(), 1U);
+    EXPECT_EQ(primary_c2pa_carrier[0], 1U);
+
+    const std::vector<uint8_t> primary_jumbf_carrier
+        = collect_u8_values(store, "primary.jumbf_carrier");
+    EXPECT_TRUE(primary_jumbf_carrier.empty());
+
     const std::vector<std::string> primary_content_type
         = collect_text_values(store, "primary.content_type");
     ASSERT_EQ(primary_content_type.size(), 1U);

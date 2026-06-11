@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 94-95%** for the public target
+Current overall status: **medium-high, about 95%** for the public target
 scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
@@ -127,15 +127,16 @@ Coverage matrix
        vector groups, EXIF color-space evidence, ICC header/tag entries, XMP
        ICC/profile fields, PNG profile text carriers, RAW color/source-
        processing safety buckets, transfer hints, per-family grouped vendor
-       color/WB candidates, long-tail camera-to-XYZ/RGB, style/color, and
-       white-balance gain aliases, and cross-family concept candidates with
-       full grouped value vectors are identified. ICC/profile and color-space
-       records have a distinct ``color_profile`` semantic role, while camera
-       RAW profile/look/tone-curve/style fields and vendor source color tables
-       have a separate ``source_color_transform`` role marked unsafe for
-       rendered-image transfer. Matrix/vector groups require numeric payloads
-       with conservative minimum shapes before promotion.
-     - Medium-high, about 85-92%.
+       color/WB candidates, long-tail camera-to-XYZ/RGB, Canon ColorData
+       source-color tables, style/color, and white-balance gain aliases, and
+       cross-family concept candidates with full grouped value vectors are
+       identified. ICC/profile and color-space records have a distinct
+       ``color_profile`` semantic role, while camera RAW profile/look/
+       tone-curve/style fields and vendor source color tables have a separate
+       ``source_color_transform`` role marked unsafe for rendered-image
+       transfer. Matrix/vector groups require numeric payloads with
+       conservative minimum shapes before promotion.
+     - Medium-high, about 86-92%.
      - Deeper camera/vendor color science interpretation is intentionally
        conservative, especially for rendered-image transfer.
    * - Lens correction and RAW processing
@@ -178,32 +179,35 @@ Coverage matrix
        Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Casio/
        Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh print conversions expose
        bounded human-readable labels, including expanded Canon sub-IFDs and
-       CanonCustom fields, Nikon sub-IFDs and NikonSettings fields, Nikon
-       Active D-Lighting labels, decoded Fujifilm ``mk_fuji*``, Pentax
-       sub-IFDs, Olympus main/focus/equipment fields, Casio Type2 fields, and
-       Panasonic long-tail main-table fields. Canon AF micro-adjustment fields
-       are classified for lens-correction search, and Canon ambience-selection
-       fields are classified as source-processing metadata.
+       CanonCustom fields, Canon ColorData source color-transform aliases,
+       Nikon sub-IFDs and NikonSettings fields, NikonSettings source-processing
+       aliases, Nikon Active D-Lighting labels, decoded Fujifilm ``mk_fuji*``,
+       Pentax sub-IFDs, Olympus main/focus/equipment fields, Casio Type2
+       fields, and Panasonic long-tail main-table fields. Canon AF
+       micro-adjustment fields are classified for lens-correction search, and
+       Canon ambience-selection fields are classified as source-processing
+       metadata.
        Ambiguous per-model, per-version, or value-type-dependent labels
        intentionally remain empty instead of guessing.
-     - Medium-high, about 92-95%.
+     - Medium-high, about 93-95%.
      - Remaining ExifTool-style firmware/version formulas, encrypted/custom
        settings, and per-model private tables.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
      - BMFF derived fields, brand-name fields, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
-       metadata carriers, bounded ``ipco`` property-container summary counts,
-       bounded ``ipma`` item-property association rows and per-property-type
-       association/primary/essential rollups, bounded relations, ``grpl``
-       item-group rows, per-group-type summaries, primary item-group
-       memberships, bounded ``iloc``/``idat`` item-data layout summaries,
-       primary item-location aliases, primary-linked roles with linked-item
-       semantic aggregate counters, aux semantics, primary color/profile
-       property summaries, primary display dimensions and transform summary,
-       primary pixel aspect ratio, primary pixel component bit depth,
-       clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
-       structural fields are exposed.
-     - Medium, about 81-87%.
+       metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
+       primary item itself is a metadata item, bounded ``ipco``
+       property-container summary counts, bounded ``ipma`` item-property
+       association rows and per-property-type association/primary/essential
+       rollups, bounded relations, ``grpl`` item-group rows, per-group-type
+       summaries, primary item-group memberships, bounded ``iloc``/``idat``
+       item-data layout summaries, primary item-location aliases,
+       primary-linked roles with linked-item semantic aggregate counters, aux
+       semantics, primary color/profile property summaries, primary display
+       dimensions and transform summary, primary pixel aspect ratio, primary
+       pixel component bit depth, clean-aperture rationals, JUMBF box labels,
+       and draft C2PA/JUMBF structural fields are exposed.
+     - Medium, about 82-88%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -211,19 +215,20 @@ Coverage matrix
        summaries, resolution/version/print data, print-flag bytes,
        border/background/effective-BW data, display info, grid/guide info,
        color sampler headers/records, descriptor-header summaries plus safe
-       descriptor class-name/class-ID/item-count fields for resources including
-       layer comps, measurement scale, timeline info, sheet disclosure, HDR
-       toning, print info, onion skins, count info, print info/style, path
-       selection state, and origin path info, path record summaries, alpha
-       names/identifiers, captions, QuickMask info, URL/list data, autosave
-       strings, ``XMLData``, ImageReady XML text, Lightroom workflow text,
-       thumbnail headers, channel options, clipping-path names, legacy
-       halftone/transfer/duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF
-       resource byte counts, and embedded IPTC/XMP/ICC payload decode where
-       enabled.
-     - Medium, about 81-88%.
-     - Broader resource-specific descriptor body parsing and long-tail
-       resource interpretation.
+       descriptor class-name/class-ID/item-count fields and bounded simple
+       descriptor item bodies (``bool``, ``long``, ``doub``, ``UntF``,
+       ``TEXT``) for resources including layer comps, measurement scale,
+       timeline info, sheet disclosure, HDR toning, print info, onion skins,
+       count info, print info/style, path selection state, and origin path
+       info, path record summaries, alpha names/identifiers, captions,
+       QuickMask info, URL/list data, autosave strings, ``XMLData``,
+       ImageReady XML text, Lightroom workflow text, thumbnail headers,
+       channel options, clipping-path names, legacy halftone/transfer/
+       duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF resource byte
+       counts, and embedded IPTC/XMP/ICC payload decode where enabled.
+     - Medium, about 82-89%.
+     - Broader nested descriptor body parsing and long-tail resource
+       interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm
@@ -233,10 +238,11 @@ Coverage matrix
        records, descriptive EXIF/IPTC/XMP concepts, explicit color-profile
        records for EXIF/ICC/XMP/PNG profile carriers, explicit
        source-color-transform records for camera RAW profiles, looks, tone
-       curves, and vendor source color tables, explicit ``raw_value_curve``,
-       ``raw_linearity_limit``, ``raw_calibration_curve``, and
-       ``raw_curve_control_points`` records, explicit computational/thermal/
-       stitch source-processing records, expanded source color/style/lens/
+       curves, Canon ColorData tables, and vendor source color tables,
+       explicit ``raw_value_curve``, ``raw_linearity_limit``,
+       ``raw_calibration_curve``, and ``raw_curve_control_points`` records,
+       explicit computational/thermal/stitch/source-processing records
+       including NikonSettings groups, expanded source color/style/lens/
        source-processing aliases including Canon AF micro-adjustment and
        ambience-selection fields, source-processing buckets, optional
        RapidFuzz near-miss matching,
@@ -251,7 +257,7 @@ Coverage matrix
        grouped value vectors, transfer hints, RAW applicability states,
        rendered/compatible safety booleans, and tolerance-aware
        GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 87-92%.
+     - Medium-high, about 88-93%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
@@ -296,8 +302,8 @@ Next interpretation priorities
    altitude-reference display, EXIF/XMP timestamp assembly, and bounded
    digitized-date aliases into broader cross-family reconciliation.
 5. Expand the remaining unambiguous MakerNote long tail: firmware/version
-   formulas, Canon ambience/AF microadjust/color-data fields, NikonSettings
-   residuals, JVC/GE/FLIR/Apple/live-vendor scalar fields, and per-model tables
-   only where context is strong enough to avoid wrong labels.
+   formulas, encrypted/custom settings, NikonSettings residual value labels,
+   JVC/GE/FLIR/Apple/live-vendor scalar fields, and per-model tables only where
+   context is strong enough to avoid wrong labels.
 6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

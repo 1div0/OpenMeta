@@ -17,8 +17,8 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups, item groups, item semantic counts, primary item properties and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, and descriptor-header summaries, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 94%. |
-| Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 77-83%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups, item groups, item semantic counts, primary item properties, primary metadata-carrier flags, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, descriptor-header, and simple descriptor-item summaries, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 95%. |
+| Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 88-93%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
 | Transfer | Move metadata between files using explicit compatible-file or rendered-image safety policies. | Medium-high, about 80-85%. |
@@ -912,9 +912,10 @@ Internal helper conventions (used by vendor decoders):
   `Entry` provenance and resolve it only on explicit display surfaces through
   `exif_entry_name(..., ExifTagNamePolicy::ExifToolCompat)`.
 - Photoshop IRB stays lossless at the raw-resource layer (`PhotoshopIrb`).
-  Add interpreted IRB fields only for fixed-layout resources or bounded
-  descriptor-header summaries and emit them as separate `PhotoshopIrbField`
-  entries instead of weakening the raw payload surface. The current bounded
+  Add interpreted IRB fields only for fixed-layout resources, bounded
+  descriptor-header summaries, or bounded simple descriptor item bodies and
+  emit them as separate `PhotoshopIrbField` entries instead of weakening the
+  raw payload surface. The current bounded
   interpreted subset includes `ResolutionInfo`,
   `AlphaChannelsNames`, `DisplayInfo`, `PStringCaption`, `BorderInformation`,
   `BackgroundColor`, `Photoshop2Info`, `Photoshop2ColorTable`, `VersionInfo`,
@@ -929,7 +930,7 @@ Internal helper conventions (used by vendor decoders):
   `IPTCDataBytes`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`,
   `AutoSaveFilePath`, `AutoSaveFormat`, `XMLData`, `ImageReadyVariables`,
   `ImageReadyDataSets`, path-resource record
-  summaries, descriptor-header summaries for
+  summaries, descriptor-header and simple descriptor-item summaries for
   `LayerComps`, `MeasurementScale`, `HDRToningInfo`, `PrintInfo`,
   `TimelineInfo`, `SheetDisclosure`, `OnionSkins`, `CountInfo`,
   `PrintInfo2`, `PrintStyle`,

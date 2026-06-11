@@ -76,6 +76,25 @@ namespace {
         }
     }
 
+    static void append_descriptor_key4(char a, char b, char c, char d,
+                                       std::vector<std::byte>* out)
+    {
+        append_u32be(0U, out);
+        out->push_back(std::byte { static_cast<unsigned char>(a) });
+        out->push_back(std::byte { static_cast<unsigned char>(b) });
+        out->push_back(std::byte { static_cast<unsigned char>(c) });
+        out->push_back(std::byte { static_cast<unsigned char>(d) });
+    }
+
+    static void append_descriptor_type(char a, char b, char c, char d,
+                                       std::vector<std::byte>* out)
+    {
+        out->push_back(std::byte { static_cast<unsigned char>(a) });
+        out->push_back(std::byte { static_cast<unsigned char>(b) });
+        out->push_back(std::byte { static_cast<unsigned char>(c) });
+        out->push_back(std::byte { static_cast<unsigned char>(d) });
+    }
+
     static void append_pascal_string(std::span<const std::byte> text,
                                      std::vector<std::byte>* out)
     {
@@ -231,6 +250,31 @@ namespace {
                 continue;
             }
             out.push_back(static_cast<uint32_t>(e.value.data.u64));
+        }
+        return out;
+    }
+
+    static std::vector<int32_t> collect_photoshop_irb_i32_fields(
+        const MetaStore& store, uint16_t resource_id, std::string_view field)
+    {
+        std::vector<int32_t> out;
+        for (size_t i = 0; i < store.entries().size(); ++i) {
+            const Entry& e = store.entry(static_cast<EntryId>(i));
+            if (e.key.kind != MetaKeyKind::PhotoshopIrbField) {
+                continue;
+            }
+            if (e.key.data.photoshop_irb_field.resource_id != resource_id) {
+                continue;
+            }
+            if (arena_string(store, e.key.data.photoshop_irb_field.field)
+                != field) {
+                continue;
+            }
+            if (e.value.kind != MetaValueKind::Scalar
+                || e.value.elem_type != MetaElementType::I32) {
+                continue;
+            }
+            out.push_back(static_cast<int32_t>(e.value.data.i64));
         }
         return out;
     }
@@ -650,6 +694,12 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     layer_comps.push_back(std::byte { 'r' });
     layer_comps.push_back(std::byte { 'C' });
     append_u32be(2U, &layer_comps);
+    append_descriptor_key4('e', 'n', 'a', 'b', &layer_comps);
+    append_descriptor_type('b', 'o', 'o', 'l', &layer_comps);
+    layer_comps.push_back(std::byte { 1U });
+    append_descriptor_key4('i', 'n', 'd', 'x', &layer_comps);
+    append_descriptor_type('l', 'o', 'n', 'g', &layer_comps);
+    append_u32be(42U, &layer_comps);
 
     std::vector<std::byte> measurement_scale;
     append_u32be(16U, &measurement_scale);
@@ -813,6 +863,24 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     const std::vector<uint32_t> layer_comp_item_count
         = collect_photoshop_irb_u32_fields(store, 0x0429U,
                                            "DescriptorItemCount");
+    const std::vector<uint32_t> layer_comp_parsed_item_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedItemCount");
+    const std::vector<std::string_view> layer_comp_item_keys
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemKey");
+    const std::vector<std::string_view> layer_comp_item_type_names
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemTypeName");
+    const std::vector<uint8_t> layer_comp_boolean
+        = collect_photoshop_irb_u8_fields(store, 0x0429U,
+                                          "DescriptorItemBoolean");
+    const std::vector<int32_t> layer_comp_integer
+        = collect_photoshop_irb_i32_fields(store, 0x0429U,
+                                           "DescriptorItemInteger");
+    const std::vector<uint8_t> layer_comp_truncated
+        = collect_photoshop_irb_u8_fields(store, 0x0429U,
+                                          "DescriptorItemParseTruncated");
     const std::vector<uint32_t> measurement_bytes
         = collect_photoshop_irb_u32_fields(store, 0x0432U, "DescriptorBytes");
     const std::vector<uint32_t> timeline_bytes
@@ -840,6 +908,12 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     ASSERT_EQ(layer_comp_class_name.size(), 1U);
     ASSERT_EQ(layer_comp_class_id.size(), 1U);
     ASSERT_EQ(layer_comp_item_count.size(), 1U);
+    ASSERT_EQ(layer_comp_parsed_item_count.size(), 1U);
+    ASSERT_EQ(layer_comp_item_keys.size(), 2U);
+    ASSERT_EQ(layer_comp_item_type_names.size(), 2U);
+    ASSERT_EQ(layer_comp_boolean.size(), 1U);
+    ASSERT_EQ(layer_comp_integer.size(), 1U);
+    EXPECT_TRUE(layer_comp_truncated.empty());
     ASSERT_EQ(measurement_bytes.size(), 1U);
     ASSERT_EQ(timeline_bytes.size(), 1U);
     ASSERT_EQ(sheet_bytes.size(), 1U);
@@ -852,10 +926,17 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     ASSERT_EQ(print_style_bytes.size(), 1U);
     ASSERT_EQ(origin_path_version.size(), 1U);
     EXPECT_EQ(layer_comp_version[0], 16U);
-    EXPECT_EQ(layer_comp_bytes[0], 34U);
+    EXPECT_EQ(layer_comp_bytes[0], 63U);
     EXPECT_EQ(layer_comp_class_name[0], "LayerComp");
     EXPECT_EQ(layer_comp_class_id[0], "LyrC");
     EXPECT_EQ(layer_comp_item_count[0], 2U);
+    EXPECT_EQ(layer_comp_parsed_item_count[0], 2U);
+    EXPECT_EQ(layer_comp_item_keys[0], "enab");
+    EXPECT_EQ(layer_comp_item_keys[1], "indx");
+    EXPECT_EQ(layer_comp_item_type_names[0], "boolean");
+    EXPECT_EQ(layer_comp_item_type_names[1], "integer");
+    EXPECT_EQ(layer_comp_boolean[0], 1U);
+    EXPECT_EQ(layer_comp_integer[0], 42);
     EXPECT_EQ(measurement_bytes[0], 2U);
     EXPECT_EQ(timeline_bytes[0], 1U);
     EXPECT_EQ(sheet_bytes[0], 2U);

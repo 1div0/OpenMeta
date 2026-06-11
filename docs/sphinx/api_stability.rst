@@ -100,8 +100,9 @@ Host-facing API map
        interpretation includes fixed-layout resource fields,
        display/grid/thumbnail/color-sampler headers, path-record summaries,
        descriptor-header summaries plus safe descriptor class-name/class-ID/
-       item-count fields, ``XMLData``, ImageReady ASCII text resources,
-       Lightroom workflow text, legacy
+       item-count fields and bounded simple descriptor item bodies for
+       ``bool``, ``long``, ``doub``, ``UntF``, and ``TEXT``, ``XMLData``,
+       ImageReady ASCII text resources, Lightroom workflow text, legacy
        halftone/transfer/duotone/EPS byte summaries, embedded
        IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
        IPTC-IIM, XMP, and ICC payload decode.
@@ -120,10 +121,12 @@ Host-facing API map
        entries, XMP
        ICC/profile/color-space fields, XMP camera RAW profile/look/tone-curve
        fields, PNG profile text carriers, Fujifilm RAF raw crop/zoom
-       rectangles, Canon aspect/crop metadata, Canon AF micro-adjustment and
-       ambience-selection aliases, Nikon Capture crop bounds, Sony panorama
-       crop margins, selected decoded vendor/MakerNote exposure names, fuzzy
-       XMP paths, and vendor RAW-processing classification. Matches report
+       rectangles, Canon aspect/crop metadata, Canon AF micro-adjustment,
+       Canon ambience-selection, Canon ColorData source color-transform,
+       NikonSettings source-processing aliases, Nikon Capture crop bounds,
+       Sony panorama crop margins, selected decoded vendor/MakerNote exposure
+       names, fuzzy XMP paths, and vendor RAW-processing classification.
+       Matches report
        ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
@@ -143,10 +146,11 @@ Host-facing API map
        inspection data instead of becoming normalized groups. Long-tail source
        color/style/lens/source-processing aliases such as camera-to-XYZ/RGB
        matrices, creative/picture style, film simulation, dynamic-range,
-       optical-correction, AF micro-adjustment, ambience selection, and
-       raw-development terms are classified for query and transfer-policy
-       inspection; camera RAW profiles, looks, tone curves, and vendor source
-       color tables use the explicit ``source_color_transform`` semantic, RAW
+       optical-correction, AF micro-adjustment, ambience selection, Canon
+       ColorData, NikonSettings, and raw-development terms are classified for
+       query and transfer-policy inspection; camera RAW profiles, looks, tone
+       curves, and vendor source color tables use the explicit
+       ``source_color_transform`` semantic, RAW
        curve/linearity metadata uses dedicated RAW-processing semantics, and
        computational, thermal, and stitch/panorama fields use explicit
        source-processing subroles.

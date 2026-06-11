@@ -4249,6 +4249,23 @@ namespace {
                                                 "primary.item_semantic",
                                                 item_semantic_name(
                                                     primary_semantic));
+                                if (item_semantic_is_metadata(
+                                        primary_semantic)) {
+                                    emit_u8_field(*ctx->store, ctx->block,
+                                                  (*ctx->order)++,
+                                                  "primary.metadata_carrier",
+                                                  1U);
+                                }
+                                if (primary_semantic == ItemSemantic::C2pa) {
+                                    emit_u8_field(*ctx->store, ctx->block,
+                                                  (*ctx->order)++,
+                                                  "primary.c2pa_carrier", 1U);
+                                } else if (primary_semantic
+                                           == ItemSemantic::Jumbf) {
+                                    emit_u8_field(*ctx->store, ctx->block,
+                                                  (*ctx->order)++,
+                                                  "primary.jumbf_carrier", 1U);
+                                }
                             }
                         }
                         if (p.have_width_height) {

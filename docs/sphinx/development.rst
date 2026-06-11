@@ -35,14 +35,14 @@ model should stay compact:
        color/profile/source-color-transform evidence, RAW curves/linearity
        metadata with descriptor-backed compressed-storage applicability,
        lens-correction, sensor, BMFF brand/item-property
-       associations and rollups, item groups, item semantic counts, and
-       primary item properties and display-transform summaries, JUMBF labels,
-       Photoshop IRB embedded carriers plus fixed-layout, XML/text,
-       path-record, byte-count, and descriptor-header summaries, EXIF/XMP GPS
-       timestamp composites,
+       associations and rollups, item groups, item semantic counts, primary
+       item properties, primary metadata-carrier flags, and display-transform
+       summaries, JUMBF labels, Photoshop IRB embedded carriers plus
+       fixed-layout, XML/text, path-record, byte-count, descriptor-header, and
+       simple descriptor-item summaries, EXIF/XMP GPS timestamp composites,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
-     - Medium-high, about 94%.
+     - Medium-high, about 95%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
@@ -51,7 +51,7 @@ model should stay compact:
        color/WB/profile/source-color-transform, orientation, date/time, GPS,
        lens-correction, computational/thermal/stitch, and
        RAW/source-processing fields across standard and vendor metadata.
-     - Medium-high, about 77-83%.
+     - Medium-high, about 88-93%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.

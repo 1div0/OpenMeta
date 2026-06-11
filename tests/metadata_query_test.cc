@@ -1013,6 +1013,8 @@ TEST(MetadataQuery, MatchesSourceColorTransformCarriers)
     const EntryId tone_curve
         = add_xmp_text(&store, "http://ns.adobe.com/camera-raw-settings/1.0/",
                        "crs:ToneCurvePV2012", "0, 0, 255, 255");
+    const EntryId canon_colordata
+        = add_exif_u32(&store, "mk_canon_colordata8_0", 0x0043U, 64U);
     store.finalize();
 
     const MetadataQueryResult result = query_color_metadata(store);
@@ -1038,9 +1040,18 @@ TEST(MetadataQuery, MatchesSourceColorTransformCarriers)
     EXPECT_EQ(curve_match->semantic,
               MetadataQuerySemanticKind::SourceColorTransform);
 
+    const MetadataQueryMatch* canon_match
+        = find_match_for_entry(result, canon_colordata);
+    ASSERT_NE(canon_match, nullptr);
+    EXPECT_EQ(canon_match->semantic,
+              MetadataQuerySemanticKind::SourceColorTransform);
+    EXPECT_TRUE(canon_match->exact_match);
+    EXPECT_EQ(canon_match->group, "mk_canon_colordata8_0");
+
     EXPECT_NE(find_candidate_for_entry(result, camera_profile), nullptr);
     EXPECT_NE(find_candidate_for_entry(result, look_name), nullptr);
     EXPECT_NE(find_candidate_for_entry(result, tone_curve), nullptr);
+    EXPECT_NE(find_candidate_for_entry(result, canon_colordata), nullptr);
     EXPECT_STREQ(metadata_query_semantic_kind_name(
                      MetadataQuerySemanticKind::SourceColorTransform),
                  "source_color_transform");
@@ -1395,6 +1406,8 @@ TEST(MetadataQuery, MatchesVendorSourceProcessingSubroles)
                                             0x0048U, 98U);
     const EntryId stitch_id  = add_exif_u32(&store, "mk_microsoft_stitch",
                                             0x0003U, 12U);
+    const EntryId nikonsettings_id
+        = add_exif_u32(&store, "mk_nikonsettings_main_0", 0x00B1U, 1U);
     store.finalize();
 
     const MetadataQueryResult result = query_raw_processing_metadata(store);
@@ -1437,6 +1450,18 @@ TEST(MetadataQuery, MatchesVendorSourceProcessingSubroles)
                                                                     stitch_id);
     ASSERT_NE(stitch, nullptr);
     EXPECT_EQ(stitch->semantic, MetadataQuerySemanticKind::StitchProcessing);
+
+    const MetadataQueryMatch* nikonsettings_match
+        = find_match_for_entry(result, nikonsettings_id);
+    ASSERT_NE(nikonsettings_match, nullptr);
+    EXPECT_EQ(nikonsettings_match->semantic,
+              MetadataQuerySemanticKind::SourceProcessing);
+    EXPECT_TRUE(nikonsettings_match->exact_match);
+    const MetadataQueryCandidate* nikonsettings
+        = find_candidate_for_entry(result, nikonsettings_id);
+    ASSERT_NE(nikonsettings, nullptr);
+    EXPECT_EQ(nikonsettings->semantic,
+              MetadataQuerySemanticKind::SourceProcessing);
 
     EXPECT_STREQ(metadata_query_semantic_kind_name(
                      MetadataQuerySemanticKind::ComputationalProcessing),
