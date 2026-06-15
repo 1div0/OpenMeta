@@ -2,8 +2,10 @@
 
 #include "openmeta/photoshop_irb_decode.h"
 
+#include <cstdio>
 #include <cstring>
 #include <string>
+#include <string_view>
 
 namespace openmeta {
 namespace {
@@ -1387,6 +1389,403 @@ namespace {
     }
 
 
+    static constexpr uint32_t kMaxDescriptorItems  = 64U;
+    static constexpr uint32_t kMaxDescriptorValues = 128U;
+    static constexpr uint32_t kMaxDescriptorDepth  = 4U;
+
+
+    struct DescriptorParseState final {
+        MetaStore* store                 = nullptr;
+        BlockId block                    = {};
+        uint32_t order                   = 0U;
+        uint16_t resource_id             = 0U;
+        PhotoshopIrbDecodeResult* result = nullptr;
+        uint32_t parsed_values           = 0U;
+        bool parse_truncated             = false;
+    };
+
+
+    static void descriptor_make_child_path(std::string_view parent,
+                                           std::string_view key,
+                                           std::string* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        out->clear();
+        if (parent.empty()) {
+            out->assign(key.data(), key.size());
+            return;
+        }
+        out->assign(parent.data(), parent.size());
+        if (!key.empty()) {
+            out->push_back('.');
+            out->append(key.data(), key.size());
+        }
+    }
+
+
+    static void descriptor_make_list_path(std::string_view parent,
+                                          uint32_t list_index,
+                                          std::string* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        char index_text[32] = {};
+        const int n = std::snprintf(index_text, sizeof(index_text), "%u",
+                                    list_index);
+        out->assign(parent.data(), parent.size());
+        out->push_back('[');
+        if (n > 0) {
+            out->append(index_text, static_cast<size_t>(n));
+        }
+        out->push_back(']');
+    }
+
+
+    static void emit_descriptor_item_common(DescriptorParseState* state,
+                                            std::string_view key,
+                                            std::string_view path,
+                                            uint32_t item_type, uint32_t depth,
+                                            bool have_list_index,
+                                            uint32_t list_index) noexcept
+    {
+        if (!state || !state->store) {
+            return;
+        }
+        MetaStore& store = *state->store;
+        if (!key.empty()) {
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemKey",
+                               make_text(store.arena(), key,
+                                         TextEncoding::Ascii),
+                               state->result);
+        }
+        if (!path.empty()) {
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemPath",
+                               make_text(store.arena(), path,
+                                         TextEncoding::Ascii),
+                               state->result);
+        }
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorItemDepth",
+                           make_u32(depth), state->result);
+        if (have_list_index) {
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemListIndex",
+                               make_u32(list_index), state->result);
+        }
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorItemType",
+                           make_u32(item_type), state->result);
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorItemTypeName",
+                           make_text(store.arena(),
+                                     descriptor_type_name(item_type),
+                                     TextEncoding::Ascii),
+                           state->result);
+    }
+
+
+    static bool parse_descriptor_value(
+        std::span<const std::byte> payload, uint64_t* io_offset,
+        DescriptorParseState* state, std::string_view item_key,
+        std::string_view item_path, uint32_t item_type, uint32_t depth,
+        bool have_list_index, uint32_t list_index) noexcept;
+
+
+    static bool parse_descriptor_keyed_item(std::span<const std::byte> payload,
+                                            uint64_t* io_offset,
+                                            DescriptorParseState* state,
+                                            std::string_view parent_path,
+                                            uint32_t depth) noexcept
+    {
+        if (!io_offset || !state) {
+            return false;
+        }
+        std::string item_key;
+        if (!read_descriptor_class_id(payload, io_offset, &item_key)) {
+            return false;
+        }
+        uint32_t item_type = 0U;
+        if (!read_u32be(payload, *io_offset, &item_type)) {
+            return false;
+        }
+        *io_offset += 4U;
+
+        std::string item_path;
+        descriptor_make_child_path(parent_path, item_key, &item_path);
+        return parse_descriptor_value(payload, io_offset, state, item_key,
+                                      item_path, item_type, depth, false, 0U);
+    }
+
+
+    static bool parse_descriptor_children(std::span<const std::byte> payload,
+                                          uint64_t* io_offset,
+                                          DescriptorParseState* state,
+                                          std::string_view parent_path,
+                                          uint32_t item_count,
+                                          uint32_t depth) noexcept
+    {
+        if (!io_offset || !state) {
+            return false;
+        }
+        if (item_count == 0U) {
+            return true;
+        }
+        if (depth >= kMaxDescriptorDepth) {
+            state->parse_truncated = true;
+            return true;
+        }
+        const uint32_t item_limit = item_count > kMaxDescriptorItems
+                                        ? kMaxDescriptorItems
+                                        : item_count;
+        if (item_count > kMaxDescriptorItems) {
+            state->parse_truncated = true;
+        }
+        for (uint32_t i = 0U; i < item_limit; ++i) {
+            if (!parse_descriptor_keyed_item(payload, io_offset, state,
+                                             parent_path, depth + 1U)) {
+                state->parse_truncated = true;
+                return true;
+            }
+        }
+        return true;
+    }
+
+
+    static bool parse_descriptor_list_values(std::span<const std::byte> payload,
+                                             uint64_t* io_offset,
+                                             DescriptorParseState* state,
+                                             std::string_view parent_path,
+                                             uint32_t item_count,
+                                             uint32_t depth) noexcept
+    {
+        if (!io_offset || !state) {
+            return false;
+        }
+        if (item_count == 0U) {
+            return true;
+        }
+        if (depth >= kMaxDescriptorDepth) {
+            state->parse_truncated = true;
+            return true;
+        }
+        const uint32_t item_limit = item_count > kMaxDescriptorItems
+                                        ? kMaxDescriptorItems
+                                        : item_count;
+        if (item_count > kMaxDescriptorItems) {
+            state->parse_truncated = true;
+        }
+        for (uint32_t i = 0U; i < item_limit; ++i) {
+            uint32_t item_type = 0U;
+            if (!read_u32be(payload, *io_offset, &item_type)) {
+                state->parse_truncated = true;
+                return true;
+            }
+            *io_offset += 4U;
+
+            std::string item_path;
+            descriptor_make_list_path(parent_path, i, &item_path);
+            if (!parse_descriptor_value(payload, io_offset, state,
+                                        std::string_view(), item_path,
+                                        item_type, depth + 1U, true, i)) {
+                state->parse_truncated = true;
+                return true;
+            }
+        }
+        return true;
+    }
+
+
+    static bool parse_descriptor_value(
+        std::span<const std::byte> payload, uint64_t* io_offset,
+        DescriptorParseState* state, std::string_view item_key,
+        std::string_view item_path, uint32_t item_type, uint32_t depth,
+        bool have_list_index, uint32_t list_index) noexcept
+    {
+        if (!io_offset || !state || !state->store) {
+            return false;
+        }
+        if (state->parsed_values >= kMaxDescriptorValues) {
+            state->parse_truncated = true;
+            return false;
+        }
+
+        MetaStore& store         = *state->store;
+        uint8_t bool_value       = 0U;
+        int32_t int_value        = 0;
+        uint64_t double_bits     = 0U;
+        uint32_t unit_code       = 0U;
+        uint64_t unit_float_bits = 0U;
+        std::string text_value;
+        std::string enum_type;
+        std::string enum_value;
+        std::string object_class_name;
+        std::string object_class_id;
+        uint32_t object_item_count = 0U;
+        uint32_t list_count        = 0U;
+
+        switch (item_type) {
+        case descriptor_fourcc('b', 'o', 'o', 'l'):
+            if (*io_offset + 1U > payload.size()) {
+                return false;
+            }
+            bool_value = u8(payload[static_cast<size_t>(*io_offset)]);
+            *io_offset += 1U;
+            break;
+        case descriptor_fourcc('l', 'o', 'n', 'g'):
+            if (!read_i32be(payload, *io_offset, &int_value)) {
+                return false;
+            }
+            *io_offset += 4U;
+            break;
+        case descriptor_fourcc('d', 'o', 'u', 'b'):
+            if (!read_u64be(payload, *io_offset, &double_bits)) {
+                return false;
+            }
+            *io_offset += 8U;
+            break;
+        case descriptor_fourcc('U', 'n', 't', 'F'):
+            if (!read_u32be(payload, *io_offset, &unit_code)
+                || !read_u64be(payload, *io_offset + 4U, &unit_float_bits)) {
+                return false;
+            }
+            *io_offset += 12U;
+            break;
+        case descriptor_fourcc('T', 'E', 'X', 'T'):
+            if (!read_var_ustr32_utf8(payload, io_offset, &text_value)) {
+                return false;
+            }
+            trim_trailing_nul(&text_value);
+            break;
+        case descriptor_fourcc('e', 'n', 'u', 'm'):
+            if (!read_descriptor_class_id(payload, io_offset, &enum_type)
+                || !read_descriptor_class_id(payload, io_offset, &enum_value)) {
+                return false;
+            }
+            break;
+        case descriptor_fourcc('O', 'b', 'j', 'c'):
+        case descriptor_fourcc('G', 'l', 'b', 'O'):
+            if (!read_var_ustr32_utf8(payload, io_offset, &object_class_name)
+                || !read_descriptor_class_id(payload, io_offset,
+                                             &object_class_id)
+                || !read_u32be(payload, *io_offset, &object_item_count)) {
+                return false;
+            }
+            *io_offset += 4U;
+            trim_trailing_nul(&object_class_name);
+            break;
+        case descriptor_fourcc('V', 'l', 'L', 's'):
+            if (!read_u32be(payload, *io_offset, &list_count)) {
+                return false;
+            }
+            *io_offset += 4U;
+            break;
+        default: state->parse_truncated = true; return false;
+        }
+
+        emit_descriptor_item_common(state, item_key, item_path, item_type,
+                                    depth, have_list_index, list_index);
+        switch (item_type) {
+        case descriptor_fourcc('b', 'o', 'o', 'l'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemBoolean",
+                               make_u8(bool_value), state->result);
+            break;
+        case descriptor_fourcc('l', 'o', 'n', 'g'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemInteger",
+                               make_i32(int_value), state->result);
+            break;
+        case descriptor_fourcc('d', 'o', 'u', 'b'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemDouble",
+                               make_f64_bits(double_bits), state->result);
+            break;
+        case descriptor_fourcc('U', 'n', 't', 'F'): {
+            char unit_text[4] = {};
+            if (descriptor_fourcc_ascii(unit_code, unit_text)) {
+                emit_derived_field(store, state->block, state->order,
+                                   state->resource_id, "DescriptorItemUnit",
+                                   make_text(store.arena(),
+                                             std::string_view(unit_text, 4U),
+                                             TextEncoding::Ascii),
+                                   state->result);
+            }
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemUnitFloat",
+                               make_f64_bits(unit_float_bits), state->result);
+            break;
+        }
+        case descriptor_fourcc('T', 'E', 'X', 'T'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemText",
+                               make_text(store.arena(), text_value,
+                                         TextEncoding::Utf8),
+                               state->result);
+            break;
+        case descriptor_fourcc('e', 'n', 'u', 'm'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemEnumType",
+                               make_text(store.arena(), enum_type,
+                                         TextEncoding::Ascii),
+                               state->result);
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemEnumValue",
+                               make_text(store.arena(), enum_value,
+                                         TextEncoding::Ascii),
+                               state->result);
+            break;
+        case descriptor_fourcc('O', 'b', 'j', 'c'):
+        case descriptor_fourcc('G', 'l', 'b', 'O'):
+            if (!object_class_name.empty()) {
+                emit_derived_field(store, state->block, state->order,
+                                   state->resource_id,
+                                   "DescriptorItemObjectClassName",
+                                   make_text(store.arena(), object_class_name,
+                                             TextEncoding::Utf8),
+                                   state->result);
+            }
+            if (!object_class_id.empty()) {
+                emit_derived_field(store, state->block, state->order,
+                                   state->resource_id,
+                                   "DescriptorItemObjectClassID",
+                                   make_text(store.arena(), object_class_id,
+                                             TextEncoding::Ascii),
+                                   state->result);
+            }
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorItemObjectItemCount",
+                               make_u32(object_item_count), state->result);
+            break;
+        case descriptor_fourcc('V', 'l', 'L', 's'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemListCount",
+                               make_u32(list_count), state->result);
+            break;
+        default: break;
+        }
+
+        state->parsed_values += 1U;
+
+        if (item_type == descriptor_fourcc('O', 'b', 'j', 'c')
+            || item_type == descriptor_fourcc('G', 'l', 'b', 'O')) {
+            return parse_descriptor_children(payload, io_offset, state,
+                                             item_path, object_item_count,
+                                             depth);
+        }
+        if (item_type == descriptor_fourcc('V', 'l', 'L', 's')) {
+            return parse_descriptor_list_values(payload, io_offset, state,
+                                                item_path, list_count, depth);
+        }
+        return true;
+    }
+
+
     static void
     decode_descriptor_header_resource(std::span<const std::byte> payload,
                                       uint16_t resource_id, MetaStore& store,
@@ -1441,231 +1840,34 @@ namespace {
         emit_derived_field(store, block, order, resource_id,
                            "DescriptorItemCount", make_u32(item_count), result);
 
-        static constexpr uint32_t kMaxDescriptorItems = 64U;
         const uint32_t item_limit = item_count > kMaxDescriptorItems
                                         ? kMaxDescriptorItems
                                         : item_count;
         uint32_t parsed_items     = 0U;
-        bool parse_truncated      = item_count > kMaxDescriptorItems;
+        DescriptorParseState parse_state;
+        parse_state.store           = &store;
+        parse_state.block           = block;
+        parse_state.order           = order;
+        parse_state.resource_id     = resource_id;
+        parse_state.result          = result;
+        parse_state.parse_truncated = item_count > kMaxDescriptorItems;
         for (uint32_t item_index = 0U; item_index < item_limit; ++item_index) {
-            std::string item_key;
-            if (!read_descriptor_class_id(payload, &offset, &item_key)) {
-                parse_truncated = true;
+            if (!parse_descriptor_keyed_item(payload, &offset, &parse_state,
+                                             std::string_view(), 0U)) {
+                parse_state.parse_truncated = true;
                 break;
-            }
-
-            uint32_t item_type = 0U;
-            if (!read_u32be(payload, offset, &item_type)) {
-                parse_truncated = true;
-                break;
-            }
-            offset += 4U;
-
-            uint8_t bool_value       = 0U;
-            int32_t int_value        = 0;
-            uint64_t double_bits     = 0U;
-            uint32_t unit_code       = 0U;
-            uint64_t unit_float_bits = 0U;
-            std::string text_value;
-            std::string enum_type;
-            std::string enum_value;
-            std::string object_class_name;
-            std::string object_class_id;
-            uint32_t object_item_count = 0U;
-            uint32_t list_count        = 0U;
-            bool have_value            = false;
-            bool stop_after_emit       = false;
-
-            switch (item_type) {
-            case descriptor_fourcc('b', 'o', 'o', 'l'):
-                if (offset + 1U > payload.size()) {
-                    parse_truncated = true;
-                } else {
-                    bool_value = u8(payload[static_cast<size_t>(offset)]);
-                    offset += 1U;
-                    have_value = true;
-                }
-                break;
-            case descriptor_fourcc('l', 'o', 'n', 'g'):
-                if (read_i32be(payload, offset, &int_value)) {
-                    offset += 4U;
-                    have_value = true;
-                } else {
-                    parse_truncated = true;
-                }
-                break;
-            case descriptor_fourcc('d', 'o', 'u', 'b'):
-                if (read_u64be(payload, offset, &double_bits)) {
-                    offset += 8U;
-                    have_value = true;
-                } else {
-                    parse_truncated = true;
-                }
-                break;
-            case descriptor_fourcc('U', 'n', 't', 'F'):
-                if (read_u32be(payload, offset, &unit_code)
-                    && read_u64be(payload, offset + 4U, &unit_float_bits)) {
-                    offset += 12U;
-                    have_value = true;
-                } else {
-                    parse_truncated = true;
-                }
-                break;
-            case descriptor_fourcc('T', 'E', 'X', 'T'):
-                if (read_var_ustr32_utf8(payload, &offset, &text_value)) {
-                    trim_trailing_nul(&text_value);
-                    have_value = true;
-                } else {
-                    parse_truncated = true;
-                }
-                break;
-            case descriptor_fourcc('e', 'n', 'u', 'm'):
-                if (read_descriptor_class_id(payload, &offset, &enum_type)
-                    && read_descriptor_class_id(payload, &offset, &enum_value)) {
-                    have_value = true;
-                } else {
-                    parse_truncated = true;
-                }
-                break;
-            case descriptor_fourcc('O', 'b', 'j', 'c'):
-            case descriptor_fourcc('G', 'l', 'b', 'O'):
-                if (read_var_ustr32_utf8(payload, &offset, &object_class_name)
-                    && read_descriptor_class_id(payload, &offset,
-                                                &object_class_id)
-                    && read_u32be(payload, offset, &object_item_count)) {
-                    offset += 4U;
-                    trim_trailing_nul(&object_class_name);
-                    have_value = true;
-                    if (object_item_count != 0U) {
-                        parse_truncated = true;
-                        stop_after_emit = true;
-                    }
-                } else {
-                    parse_truncated = true;
-                }
-                break;
-            case descriptor_fourcc('V', 'l', 'L', 's'):
-                if (read_u32be(payload, offset, &list_count)) {
-                    offset += 4U;
-                    have_value = true;
-                    if (list_count != 0U) {
-                        parse_truncated = true;
-                        stop_after_emit = true;
-                    }
-                } else {
-                    parse_truncated = true;
-                }
-                break;
-            default: parse_truncated = true; break;
-            }
-
-            if (!have_value) {
-                break;
-            }
-
-            emit_derived_field(store, block, order, resource_id,
-                               "DescriptorItemKey",
-                               make_text(store.arena(), item_key,
-                                         TextEncoding::Ascii),
-                               result);
-            emit_derived_field(store, block, order, resource_id,
-                               "DescriptorItemType", make_u32(item_type),
-                               result);
-            emit_derived_field(store, block, order, resource_id,
-                               "DescriptorItemTypeName",
-                               make_text(store.arena(),
-                                         descriptor_type_name(item_type),
-                                         TextEncoding::Ascii),
-                               result);
-            switch (item_type) {
-            case descriptor_fourcc('b', 'o', 'o', 'l'):
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemBoolean", make_u8(bool_value),
-                                   result);
-                break;
-            case descriptor_fourcc('l', 'o', 'n', 'g'):
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemInteger", make_i32(int_value),
-                                   result);
-                break;
-            case descriptor_fourcc('d', 'o', 'u', 'b'):
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemDouble",
-                                   make_f64_bits(double_bits), result);
-                break;
-            case descriptor_fourcc('U', 'n', 't', 'F'): {
-                char unit_text[4] = {};
-                if (descriptor_fourcc_ascii(unit_code, unit_text)) {
-                    emit_derived_field(store, block, order, resource_id,
-                                       "DescriptorItemUnit",
-                                       make_text(store.arena(),
-                                                 std::string_view(unit_text, 4U),
-                                                 TextEncoding::Ascii),
-                                       result);
-                }
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemUnitFloat",
-                                   make_f64_bits(unit_float_bits), result);
-                break;
-            }
-            case descriptor_fourcc('T', 'E', 'X', 'T'):
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemText",
-                                   make_text(store.arena(), text_value,
-                                             TextEncoding::Utf8),
-                                   result);
-                break;
-            case descriptor_fourcc('e', 'n', 'u', 'm'):
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemEnumType",
-                                   make_text(store.arena(), enum_type,
-                                             TextEncoding::Ascii),
-                                   result);
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemEnumValue",
-                                   make_text(store.arena(), enum_value,
-                                             TextEncoding::Ascii),
-                                   result);
-                break;
-            case descriptor_fourcc('O', 'b', 'j', 'c'):
-            case descriptor_fourcc('G', 'l', 'b', 'O'):
-                if (!object_class_name.empty()) {
-                    emit_derived_field(store, block, order, resource_id,
-                                       "DescriptorItemObjectClassName",
-                                       make_text(store.arena(),
-                                                 object_class_name,
-                                                 TextEncoding::Utf8),
-                                       result);
-                }
-                if (!object_class_id.empty()) {
-                    emit_derived_field(store, block, order, resource_id,
-                                       "DescriptorItemObjectClassID",
-                                       make_text(store.arena(), object_class_id,
-                                                 TextEncoding::Ascii),
-                                       result);
-                }
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemObjectItemCount",
-                                   make_u32(object_item_count), result);
-                break;
-            case descriptor_fourcc('V', 'l', 'L', 's'):
-                emit_derived_field(store, block, order, resource_id,
-                                   "DescriptorItemListCount",
-                                   make_u32(list_count), result);
-                break;
-            default: break;
             }
             parsed_items += 1U;
-            if (stop_after_emit) {
-                break;
-            }
         }
 
         if (item_count != 0U) {
             emit_derived_field(store, block, order, resource_id,
                                "DescriptorParsedItemCount",
                                make_u32(parsed_items), result);
-            if (parse_truncated || parsed_items != item_count) {
+            emit_derived_field(store, block, order, resource_id,
+                               "DescriptorParsedValueCount",
+                               make_u32(parse_state.parsed_values), result);
+            if (parse_state.parse_truncated || parsed_items != item_count) {
                 emit_derived_field(store, block, order, resource_id,
                                    "DescriptorItemParseTruncated", make_u8(1U),
                                    result);

@@ -998,6 +998,128 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     EXPECT_EQ(origin_path_version[0], 17U);
 }
 
+TEST(PhotoshopIrbDecodeTest, DecodesNestedDescriptorItems)
+{
+    std::vector<std::byte> descriptor;
+    append_u32be(16U, &descriptor);
+    append_utf16be_string32("RootDescriptor", &descriptor);
+    append_descriptor_key4('R', 'o', 'o', 't', &descriptor);
+    append_u32be(1U, &descriptor);
+
+    append_descriptor_key4('n', 'e', 's', 't', &descriptor);
+    append_descriptor_type('O', 'b', 'j', 'c', &descriptor);
+    append_utf16be_string32("Nested", &descriptor);
+    append_descriptor_key4('N', 's', 't', 'D', &descriptor);
+    append_u32be(2U, &descriptor);
+
+    append_descriptor_key4('f', 'l', 'a', 'g', &descriptor);
+    append_descriptor_type('b', 'o', 'o', 'l', &descriptor);
+    descriptor.push_back(std::byte { 1U });
+
+    append_descriptor_key4('n', 'u', 'm', 's', &descriptor);
+    append_descriptor_type('V', 'l', 'L', 's', &descriptor);
+    append_u32be(2U, &descriptor);
+    append_descriptor_type('l', 'o', 'n', 'g', &descriptor);
+    append_u32be(7U, &descriptor);
+    append_descriptor_type('T', 'E', 'X', 'T', &descriptor);
+    append_utf16be_string32("hello", &descriptor);
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x0429U, descriptor, &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 1U);
+
+    const std::vector<uint32_t> item_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemCount");
+    const std::vector<uint32_t> parsed_item_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedItemCount");
+    const std::vector<uint32_t> parsed_value_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedValueCount");
+    const std::vector<std::string_view> keys
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemKey");
+    const std::vector<std::string_view> paths
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemPath");
+    const std::vector<uint32_t> depths
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemDepth");
+    const std::vector<uint32_t> list_indices
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemListIndex");
+    const std::vector<std::string_view> type_names
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemTypeName");
+    const std::vector<uint8_t> bool_values
+        = collect_photoshop_irb_u8_fields(store, 0x0429U,
+                                          "DescriptorItemBoolean");
+    const std::vector<int32_t> int_values
+        = collect_photoshop_irb_i32_fields(store, 0x0429U,
+                                           "DescriptorItemInteger");
+    const std::vector<std::string_view> text_values
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemText");
+    const std::vector<uint32_t> object_item_counts
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemObjectItemCount");
+    const std::vector<uint32_t> list_counts
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemListCount");
+    const std::vector<uint8_t> truncated
+        = collect_photoshop_irb_u8_fields(store, 0x0429U,
+                                          "DescriptorItemParseTruncated");
+
+    ASSERT_EQ(item_count.size(), 1U);
+    ASSERT_EQ(parsed_item_count.size(), 1U);
+    ASSERT_EQ(parsed_value_count.size(), 1U);
+    ASSERT_EQ(keys.size(), 3U);
+    ASSERT_EQ(paths.size(), 5U);
+    ASSERT_EQ(depths.size(), 5U);
+    ASSERT_EQ(list_indices.size(), 2U);
+    ASSERT_EQ(type_names.size(), 5U);
+    ASSERT_EQ(bool_values.size(), 1U);
+    ASSERT_EQ(int_values.size(), 1U);
+    ASSERT_EQ(text_values.size(), 1U);
+    ASSERT_EQ(object_item_counts.size(), 1U);
+    ASSERT_EQ(list_counts.size(), 1U);
+    EXPECT_TRUE(truncated.empty());
+
+    EXPECT_EQ(item_count[0], 1U);
+    EXPECT_EQ(parsed_item_count[0], 1U);
+    EXPECT_EQ(parsed_value_count[0], 5U);
+    EXPECT_EQ(keys[0], "nest");
+    EXPECT_EQ(keys[1], "flag");
+    EXPECT_EQ(keys[2], "nums");
+    EXPECT_EQ(paths[0], "nest");
+    EXPECT_EQ(paths[1], "nest.flag");
+    EXPECT_EQ(paths[2], "nest.nums");
+    EXPECT_EQ(paths[3], "nest.nums[0]");
+    EXPECT_EQ(paths[4], "nest.nums[1]");
+    EXPECT_EQ(depths[0], 0U);
+    EXPECT_EQ(depths[1], 1U);
+    EXPECT_EQ(depths[2], 1U);
+    EXPECT_EQ(depths[3], 2U);
+    EXPECT_EQ(depths[4], 2U);
+    EXPECT_EQ(list_indices[0], 0U);
+    EXPECT_EQ(list_indices[1], 1U);
+    EXPECT_EQ(type_names[0], "object");
+    EXPECT_EQ(type_names[1], "boolean");
+    EXPECT_EQ(type_names[2], "list");
+    EXPECT_EQ(type_names[3], "integer");
+    EXPECT_EQ(type_names[4], "text");
+    EXPECT_EQ(bool_values[0], 1U);
+    EXPECT_EQ(int_values[0], 7);
+    EXPECT_EQ(text_values[0], "hello");
+    EXPECT_EQ(object_item_counts[0], 2U);
+    EXPECT_EQ(list_counts[0], 2U);
+}
+
 TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
 {
     std::vector<std::byte> photoshop2_info;

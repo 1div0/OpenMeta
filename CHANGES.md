@@ -1,5 +1,23 @@
 # OpenMeta Changes
 
+## 0.4.51 - 2026-06-15
+
+Changes compared with `0.4.50`.
+
+### Added
+
+- Added bounded Photoshop IRB action-descriptor traversal for non-empty nested
+  object descriptors and simple list values, including item depth, path, list
+  index, and parsed-value count fields.
+- Added compact BMFF primary-scene summary fields for primary item count,
+  unique linked item count, node count, and edge count around the current
+  primary-linked sidecar model.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development docs
+  for nested descriptor traversal and BMFF primary-scene summaries.
+
 ## 0.4.50 - 2026-06-12
 
 Changes compared with `0.4.49`.

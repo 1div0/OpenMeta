@@ -1854,6 +1854,22 @@ namespace {
                        "primary.linked_item_role_count", role_count);
         emit_u32_field(store, block, (*io_order)++, "primary.sidecar_count",
                        role_count);
+        std::array<uint32_t, 256> unique_linked_item_ids {};
+        uint32_t unique_linked_item_count = 0U;
+        for (uint32_t i = 0; i < role_count; ++i) {
+            push_primary_rel_unique(unique_linked_item_ids,
+                                    &unique_linked_item_count,
+                                    role_item_ids[i]);
+        }
+        emit_u32_field(store, block, (*io_order)++,
+                       "primary.scene_primary_item_count", 1U);
+        emit_u32_field(store, block, (*io_order)++,
+                       "primary.scene_linked_item_count",
+                       unique_linked_item_count);
+        emit_u32_field(store, block, (*io_order)++, "primary.scene_node_count",
+                       1U + unique_linked_item_count);
+        emit_u32_field(store, block, (*io_order)++, "primary.scene_edge_count",
+                       role_count);
 
         ItemSemanticCounts linked_semantic_counts {};
         for (uint32_t i = 0; i < role_count; ++i) {

@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups, item groups, item semantic counts, primary item properties, primary metadata-carrier flags, primary sidecar summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, descriptor-header, simple descriptor-item, and enum/list/object header summaries, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 95%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups, item groups, item semantic counts, primary item properties, primary metadata-carrier flags, primary sidecar and scene summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, descriptor-header, simple descriptor-item, enum, and bounded nested list/object summaries, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 95%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 88-93%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -716,7 +716,10 @@ This policy surface is intentionally marked draft and may be refined.
     primary sidecar summaries (`primary.sidecar_count`,
     `primary.has_metadata_sidecar`, `primary.metadata_sidecar_count`,
     `primary.has_image_sidecar`, `primary.image_sidecar_count`, and
-    per-role `primary.*_sidecar_count` fields), and
+    per-role `primary.*_sidecar_count` fields), compact primary-scene
+    summaries (`primary.scene_primary_item_count`,
+    `primary.scene_linked_item_count`, `primary.scene_node_count`,
+    `primary.scene_edge_count`), and
     `auxC`-based aux semantics (`aux.item_count`, `aux.item_id`,
     `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`,
     `aux.subtype_text`, `aux.subtype_uuid`, `aux.subtype_u32`,
@@ -934,8 +937,8 @@ Internal helper conventions (used by vendor decoders):
   `IPTCDataBytes`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`,
   `AutoSaveFilePath`, `AutoSaveFormat`, `XMLData`, `ImageReadyVariables`,
   `ImageReadyDataSets`, path-resource record
-  summaries, descriptor-header, simple descriptor-item, and enum/list/object
-  header summaries for
+  summaries, descriptor-header, simple descriptor-item, enum, and bounded
+  nested list/object summaries for
   `LayerComps`, `MeasurementScale`, `HDRToningInfo`, `PrintInfo`,
   `TimelineInfo`, `SheetDisclosure`, `OnionSkins`, `CountInfo`,
   `PrintInfo2`, `PrintStyle`,

@@ -101,12 +101,13 @@ Host-facing API map
        interpretation includes fixed-layout resource fields,
        display/grid/thumbnail/color-sampler headers, path-record summaries,
        descriptor-header summaries plus safe descriptor class-name/class-ID/
-       item-count fields, bounded simple descriptor item bodies for ``bool``,
-       ``long``, ``doub``, ``UntF``, and ``TEXT``, safe enum value summaries,
-       and empty list/object descriptor headers, ``XMLData``, ImageReady ASCII
-       text resources, Lightroom workflow text, legacy halftone/transfer/
-       duotone/EPS byte summaries, embedded IPTC/ICC/EXIF/EXIF2/XMP byte-count
-       fields, and optional embedded IPTC-IIM, XMP, and ICC payload decode.
+       item-count fields, bounded descriptor item bodies for ``bool``,
+       ``long``, ``doub``, ``UntF``, ``TEXT``, and ``enum``, nested
+       object/list traversal with item path/depth/list-index and parsed-value
+       count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom
+       workflow text, legacy halftone/transfer/duotone/EPS byte summaries,
+       embedded IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional
+       embedded IPTC-IIM, XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``

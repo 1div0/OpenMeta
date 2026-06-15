@@ -198,40 +198,43 @@ Coverage matrix
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
        primary item itself is a metadata item, primary sidecar counts/flags for
-       linked metadata and image sidecars, bounded ``ipco`` property-container
-       summary counts, bounded ``ipma`` item-property association rows and
-       per-property-type association/primary/essential rollups, bounded
-       relations, ``grpl`` item-group rows, per-group-type summaries, primary
-       item-group memberships, bounded ``iloc``/``idat`` item-data layout
-       summaries, primary item-location aliases, primary-linked roles with
-       linked-item semantic aggregate counters, aux semantics, primary color/
-       profile property summaries, primary display dimensions and transform
-       summary, primary pixel aspect ratio, primary pixel component bit depth,
+       linked metadata and image sidecars, compact primary-scene node/edge
+       summaries, bounded ``ipco`` property-container summary counts, bounded
+       ``ipma`` item-property association rows and per-property-type
+       association/primary/essential rollups, bounded relations, ``grpl``
+       item-group rows, per-group-type summaries, primary item-group
+       memberships, bounded ``iloc``/``idat`` item-data layout summaries,
+       primary item-location aliases, primary-linked roles with linked-item
+       semantic aggregate counters, aux semantics, primary color/profile
+       property summaries, primary display dimensions and transform summary,
+       primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - Medium, about 84-89%.
-     - Full BMFF scene modeling and full C2PA manifest/policy semantics.
+     - Medium, about 85-90%.
+     - Full multi-image BMFF scene modeling and full C2PA manifest/policy
+       semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
        summaries, resolution/version/print data, print-flag bytes,
        border/background/effective-BW data, display info, grid/guide info,
        color sampler headers/records, descriptor-header summaries plus safe
-       descriptor class-name/class-ID/item-count fields, bounded simple
-       descriptor item bodies (``bool``, ``long``, ``doub``, ``UntF``,
-       ``TEXT``), and descriptor enum/list/object header summaries for
-       resources including layer comps, measurement scale, timeline info,
-       sheet disclosure, HDR toning, print info, onion skins, count info,
-       print info/style, path selection state, and origin path info, path
-       record summaries, alpha names/identifiers, captions,
+       descriptor class-name/class-ID/item-count fields, bounded descriptor
+       item bodies (``bool``, ``long``, ``doub``, ``UntF``, ``TEXT``,
+       ``enum``), empty and non-empty nested object/list summaries with item
+       paths, depths, list indices, and parsed-value counts, for resources
+       including layer comps, measurement scale, timeline info, sheet
+       disclosure, HDR toning, print info, onion skins, count info, print
+       info/style, path selection state, and origin path info, path record
+       summaries, alpha names/identifiers, captions,
        QuickMask info, URL/list data, autosave strings, ``XMLData``,
        ImageReady XML text, Lightroom workflow text, thumbnail headers,
        channel options, clipping-path names, legacy halftone/transfer/
        duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF resource byte
        counts, and embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 84-90%.
-     - Non-empty nested descriptor recursion and long-tail resource
-       interpretation.
+     - Medium, about 86-91%.
+     - Full Photoshop action semantics, raw descriptor-data payload
+       interpretation, and long-tail resource interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm
@@ -295,11 +298,11 @@ Next interpretation priorities
 ------------------------------
 
 1. Deepen remaining BMFF/CR3/HEIF/AVIF scene-graph semantics beyond current
-   relations, item groups, primary-item summaries, primary sidecar summaries,
-   and item-property rollups only where hosts can use the result safely.
+   relations, item groups, primary-item summaries, primary-scene summaries,
+   primary sidecar summaries, and item-property rollups only where hosts can
+   use the result safely.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
-   layouts, descriptor headers, descriptor item headers, and embedded metadata
-   carriers.
+   layouts, bounded descriptor traversal, and embedded metadata carriers.
 3. Deepen transfer diagnostics with optional host localization/formatting hooks
    for GUI workflows.
 4. Expand GPS/date policy beyond current coordinate tolerance,
