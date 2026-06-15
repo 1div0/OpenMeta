@@ -1918,6 +1918,44 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     ASSERT_EQ(role_count.size(), 1U);
     EXPECT_EQ(role_count[0], 6U);
 
+    const std::vector<uint32_t> sidecar_count
+        = collect_u32_values(store, "primary.sidecar_count");
+    const std::vector<uint8_t> has_metadata_sidecar
+        = collect_u8_values(store, "primary.has_metadata_sidecar");
+    const std::vector<uint32_t> metadata_sidecar_count
+        = collect_u32_values(store, "primary.metadata_sidecar_count");
+    const std::vector<uint8_t> has_image_sidecar
+        = collect_u8_values(store, "primary.has_image_sidecar");
+    const std::vector<uint32_t> image_sidecar_count
+        = collect_u32_values(store, "primary.image_sidecar_count");
+    const std::vector<uint32_t> auxiliary_sidecar_count
+        = collect_u32_values(store, "primary.auxiliary_sidecar_count");
+    const std::vector<uint32_t> derived_sidecar_count
+        = collect_u32_values(store, "primary.derived_sidecar_count");
+    const std::vector<uint32_t> thumbnail_sidecar_count
+        = collect_u32_values(store, "primary.thumbnail_sidecar_count");
+    const std::vector<uint32_t> content_description_sidecar_count
+        = collect_u32_values(store,
+                             "primary.content_description_sidecar_count");
+    ASSERT_EQ(sidecar_count.size(), 1U);
+    ASSERT_EQ(has_metadata_sidecar.size(), 1U);
+    ASSERT_EQ(metadata_sidecar_count.size(), 1U);
+    ASSERT_EQ(has_image_sidecar.size(), 1U);
+    ASSERT_EQ(image_sidecar_count.size(), 1U);
+    ASSERT_EQ(auxiliary_sidecar_count.size(), 1U);
+    ASSERT_EQ(derived_sidecar_count.size(), 1U);
+    ASSERT_EQ(thumbnail_sidecar_count.size(), 1U);
+    ASSERT_EQ(content_description_sidecar_count.size(), 1U);
+    EXPECT_EQ(sidecar_count[0], 6U);
+    EXPECT_EQ(has_metadata_sidecar[0], 1U);
+    EXPECT_EQ(metadata_sidecar_count[0], 1U);
+    EXPECT_EQ(has_image_sidecar[0], 1U);
+    EXPECT_EQ(image_sidecar_count[0], 5U);
+    EXPECT_EQ(auxiliary_sidecar_count[0], 3U);
+    EXPECT_EQ(derived_sidecar_count[0], 1U);
+    EXPECT_EQ(thumbnail_sidecar_count[0], 1U);
+    EXPECT_EQ(content_description_sidecar_count[0], 1U);
+
     const std::vector<uint32_t> role_item_ids
         = collect_u32_values(store, "primary.linked_item_id");
     ASSERT_EQ(role_item_ids.size(), 6U);

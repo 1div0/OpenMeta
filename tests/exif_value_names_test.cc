@@ -241,6 +241,24 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
                                                  0x0003U, 3U),
                      "Auto");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
+                                                 0x0026U, 1U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
+                                                 0x0046U, 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
+                                                 0x0046U, 1U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
+                                                 0x0090U, 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
+                                                 0x00DAU, 1U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
+                                                 0x009CU, 0U),
+                     "Off");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon0", 0x0103U, 1U), "");
     }
 

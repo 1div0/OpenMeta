@@ -1467,7 +1467,14 @@ namespace {
             uint32_t unit_code       = 0U;
             uint64_t unit_float_bits = 0U;
             std::string text_value;
-            bool have_value = false;
+            std::string enum_type;
+            std::string enum_value;
+            std::string object_class_name;
+            std::string object_class_id;
+            uint32_t object_item_count = 0U;
+            uint32_t list_count        = 0U;
+            bool have_value            = false;
+            bool stop_after_emit       = false;
 
             switch (item_type) {
             case descriptor_fourcc('b', 'o', 'o', 'l'):
@@ -1508,6 +1515,43 @@ namespace {
                 if (read_var_ustr32_utf8(payload, &offset, &text_value)) {
                     trim_trailing_nul(&text_value);
                     have_value = true;
+                } else {
+                    parse_truncated = true;
+                }
+                break;
+            case descriptor_fourcc('e', 'n', 'u', 'm'):
+                if (read_descriptor_class_id(payload, &offset, &enum_type)
+                    && read_descriptor_class_id(payload, &offset, &enum_value)) {
+                    have_value = true;
+                } else {
+                    parse_truncated = true;
+                }
+                break;
+            case descriptor_fourcc('O', 'b', 'j', 'c'):
+            case descriptor_fourcc('G', 'l', 'b', 'O'):
+                if (read_var_ustr32_utf8(payload, &offset, &object_class_name)
+                    && read_descriptor_class_id(payload, &offset,
+                                                &object_class_id)
+                    && read_u32be(payload, offset, &object_item_count)) {
+                    offset += 4U;
+                    trim_trailing_nul(&object_class_name);
+                    have_value = true;
+                    if (object_item_count != 0U) {
+                        parse_truncated = true;
+                        stop_after_emit = true;
+                    }
+                } else {
+                    parse_truncated = true;
+                }
+                break;
+            case descriptor_fourcc('V', 'l', 'L', 's'):
+                if (read_u32be(payload, offset, &list_count)) {
+                    offset += 4U;
+                    have_value = true;
+                    if (list_count != 0U) {
+                        parse_truncated = true;
+                        stop_after_emit = true;
+                    }
                 } else {
                     parse_truncated = true;
                 }
@@ -1571,9 +1615,50 @@ namespace {
                                              TextEncoding::Utf8),
                                    result);
                 break;
+            case descriptor_fourcc('e', 'n', 'u', 'm'):
+                emit_derived_field(store, block, order, resource_id,
+                                   "DescriptorItemEnumType",
+                                   make_text(store.arena(), enum_type,
+                                             TextEncoding::Ascii),
+                                   result);
+                emit_derived_field(store, block, order, resource_id,
+                                   "DescriptorItemEnumValue",
+                                   make_text(store.arena(), enum_value,
+                                             TextEncoding::Ascii),
+                                   result);
+                break;
+            case descriptor_fourcc('O', 'b', 'j', 'c'):
+            case descriptor_fourcc('G', 'l', 'b', 'O'):
+                if (!object_class_name.empty()) {
+                    emit_derived_field(store, block, order, resource_id,
+                                       "DescriptorItemObjectClassName",
+                                       make_text(store.arena(),
+                                                 object_class_name,
+                                                 TextEncoding::Utf8),
+                                       result);
+                }
+                if (!object_class_id.empty()) {
+                    emit_derived_field(store, block, order, resource_id,
+                                       "DescriptorItemObjectClassID",
+                                       make_text(store.arena(), object_class_id,
+                                                 TextEncoding::Ascii),
+                                       result);
+                }
+                emit_derived_field(store, block, order, resource_id,
+                                   "DescriptorItemObjectItemCount",
+                                   make_u32(object_item_count), result);
+                break;
+            case descriptor_fourcc('V', 'l', 'L', 's'):
+                emit_derived_field(store, block, order, resource_id,
+                                   "DescriptorItemListCount",
+                                   make_u32(list_count), result);
+                break;
             default: break;
             }
             parsed_items += 1U;
+            if (stop_after_emit) {
+                break;
+            }
         }
 
         if (item_count != 0U) {

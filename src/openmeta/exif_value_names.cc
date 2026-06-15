@@ -1758,14 +1758,18 @@ nikon_settings_value_name(uint16_t tag, uint64_t value) noexcept
     switch (tag) {
     case 0x0003U: return value == 3U ? "Auto" : "";
     case 0x000BU: return value == 2U ? "Disable" : "";
+    case 0x000CU: return off_on_name(value);
+    case 0x000EU: return off_on_name(value);
     case 0x000FU: return value == 1U ? "Yes" : "";
     case 0x001EU: return value == 2U ? "Focus" : "";
     case 0x0022U: return value == 1U ? "Shutter/AF-On" : "";
     case 0x0023U: return value == 2U ? "No Wrap" : "";
     case 0x0025U: return value == 1U ? "On" : "";
+    case 0x0026U: return off_on_name(value);
     case 0x0027U: return value == 1U ? "On" : "";
     case 0x002AU: return value == 1U ? "1/3 EV" : "";
     case 0x002BU: return value == 3U ? "Off" : "";
+    case 0x002CU: return off_on_name(value);
     case 0x0033U: return value == 3U ? "Off" : "";
     case 0x0035U: return value == 3U ? "10 s" : "";
     case 0x0037U: return value == 1U ? "0.5 s" : "";
@@ -1773,8 +1777,11 @@ nikon_settings_value_name(uint16_t tag, uint64_t value) noexcept
     case 0x0039U: return value == 4U ? "1 min" : "";
     case 0x003BU: return value == 2U ? "4 s" : "";
     case 0x0040U: return value == 6U ? "Off" : "";
+    case 0x0041U: return off_on_name(value);
     case 0x0042U: return value == 1U ? "On" : "";
     case 0x0043U: return value == 2U ? "Off" : "";
+    case 0x0045U: return off_on_name(value);
+    case 0x0046U: return off_on_name(value);
     case 0x0048U: return value == 1U ? "1/60 s" : "";
     case 0x0049U: return value == 1U ? "Entire Frame" : "";
     case 0x004AU: return value == 1U ? "Subject and Background" : "";
@@ -1787,10 +1794,18 @@ nikon_settings_value_name(uint16_t tag, uint64_t value) noexcept
     case 0x008BU: return value == 1U ? "No" : "";
     case 0x008DU: return value == 1U ? "Red" : "";
     case 0x008EU: return value == 1U ? "On" : "";
+    case 0x008FU: return off_on_name(value);
+    case 0x0090U: return off_on_name(value);
     case 0x0091U: return value == 2U ? "248" : "";
+    case 0x0092U: return off_on_name(value);
     case 0x0093U: return value == 3U ? "3 (Normal)" : "";
+    case 0x0095U: return off_on_name(value);
     case 0x0099U: return value == 1U ? "On" : "";
     case 0x009BU: return value == 1U ? "Sync" : "";
+    case 0x009CU: return off_on_name(value);
+    case 0x00ABU: return off_on_name(value);
+    case 0x00DAU: return off_on_name(value);
+    case 0x00DFU: return off_on_name(value);
     case 0x00E0U: return value == 4U ? "Off" : "";
     case 0x00F1U: return value == 3U ? "Off" : "";
     case 0x00F2U:

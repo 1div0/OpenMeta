@@ -693,13 +693,25 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     layer_comps.push_back(std::byte { 'y' });
     layer_comps.push_back(std::byte { 'r' });
     layer_comps.push_back(std::byte { 'C' });
-    append_u32be(2U, &layer_comps);
+    append_u32be(5U, &layer_comps);
     append_descriptor_key4('e', 'n', 'a', 'b', &layer_comps);
     append_descriptor_type('b', 'o', 'o', 'l', &layer_comps);
     layer_comps.push_back(std::byte { 1U });
     append_descriptor_key4('i', 'n', 'd', 'x', &layer_comps);
     append_descriptor_type('l', 'o', 'n', 'g', &layer_comps);
     append_u32be(42U, &layer_comps);
+    append_descriptor_key4('m', 'o', 'd', 'e', &layer_comps);
+    append_descriptor_type('e', 'n', 'u', 'm', &layer_comps);
+    append_descriptor_key4('M', 'o', 'd', 'e', &layer_comps);
+    append_descriptor_key4('N', 'r', 'm', 'l', &layer_comps);
+    append_descriptor_key4('l', 'i', 's', 't', &layer_comps);
+    append_descriptor_type('V', 'l', 'L', 's', &layer_comps);
+    append_u32be(0U, &layer_comps);
+    append_descriptor_key4('o', 'b', 'j', '0', &layer_comps);
+    append_descriptor_type('O', 'b', 'j', 'c', &layer_comps);
+    append_utf16be_string32("SubObj", &layer_comps);
+    append_descriptor_key4('S', 'u', 'b', 'O', &layer_comps);
+    append_u32be(0U, &layer_comps);
 
     std::vector<std::byte> measurement_scale;
     append_u32be(16U, &measurement_scale);
@@ -878,6 +890,24 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     const std::vector<int32_t> layer_comp_integer
         = collect_photoshop_irb_i32_fields(store, 0x0429U,
                                            "DescriptorItemInteger");
+    const std::vector<std::string_view> layer_comp_enum_type
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemEnumType");
+    const std::vector<std::string_view> layer_comp_enum_value
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemEnumValue");
+    const std::vector<uint32_t> layer_comp_list_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemListCount");
+    const std::vector<std::string_view> layer_comp_object_class_name
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemObjectClassName");
+    const std::vector<std::string_view> layer_comp_object_class_id
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemObjectClassID");
+    const std::vector<uint32_t> layer_comp_object_item_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemObjectItemCount");
     const std::vector<uint8_t> layer_comp_truncated
         = collect_photoshop_irb_u8_fields(store, 0x0429U,
                                           "DescriptorItemParseTruncated");
@@ -909,10 +939,16 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     ASSERT_EQ(layer_comp_class_id.size(), 1U);
     ASSERT_EQ(layer_comp_item_count.size(), 1U);
     ASSERT_EQ(layer_comp_parsed_item_count.size(), 1U);
-    ASSERT_EQ(layer_comp_item_keys.size(), 2U);
-    ASSERT_EQ(layer_comp_item_type_names.size(), 2U);
+    ASSERT_EQ(layer_comp_item_keys.size(), 5U);
+    ASSERT_EQ(layer_comp_item_type_names.size(), 5U);
     ASSERT_EQ(layer_comp_boolean.size(), 1U);
     ASSERT_EQ(layer_comp_integer.size(), 1U);
+    ASSERT_EQ(layer_comp_enum_type.size(), 1U);
+    ASSERT_EQ(layer_comp_enum_value.size(), 1U);
+    ASSERT_EQ(layer_comp_list_count.size(), 1U);
+    ASSERT_EQ(layer_comp_object_class_name.size(), 1U);
+    ASSERT_EQ(layer_comp_object_class_id.size(), 1U);
+    ASSERT_EQ(layer_comp_object_item_count.size(), 1U);
     EXPECT_TRUE(layer_comp_truncated.empty());
     ASSERT_EQ(measurement_bytes.size(), 1U);
     ASSERT_EQ(timeline_bytes.size(), 1U);
@@ -926,17 +962,29 @@ TEST(PhotoshopIrbDecodeTest, DecodesColorSamplerAndDescriptorResources)
     ASSERT_EQ(print_style_bytes.size(), 1U);
     ASSERT_EQ(origin_path_version.size(), 1U);
     EXPECT_EQ(layer_comp_version[0], 16U);
-    EXPECT_EQ(layer_comp_bytes[0], 63U);
+    EXPECT_EQ(layer_comp_bytes[0], 147U);
     EXPECT_EQ(layer_comp_class_name[0], "LayerComp");
     EXPECT_EQ(layer_comp_class_id[0], "LyrC");
-    EXPECT_EQ(layer_comp_item_count[0], 2U);
-    EXPECT_EQ(layer_comp_parsed_item_count[0], 2U);
+    EXPECT_EQ(layer_comp_item_count[0], 5U);
+    EXPECT_EQ(layer_comp_parsed_item_count[0], 5U);
     EXPECT_EQ(layer_comp_item_keys[0], "enab");
     EXPECT_EQ(layer_comp_item_keys[1], "indx");
+    EXPECT_EQ(layer_comp_item_keys[2], "mode");
+    EXPECT_EQ(layer_comp_item_keys[3], "list");
+    EXPECT_EQ(layer_comp_item_keys[4], "obj0");
     EXPECT_EQ(layer_comp_item_type_names[0], "boolean");
     EXPECT_EQ(layer_comp_item_type_names[1], "integer");
+    EXPECT_EQ(layer_comp_item_type_names[2], "enum");
+    EXPECT_EQ(layer_comp_item_type_names[3], "list");
+    EXPECT_EQ(layer_comp_item_type_names[4], "object");
     EXPECT_EQ(layer_comp_boolean[0], 1U);
     EXPECT_EQ(layer_comp_integer[0], 42);
+    EXPECT_EQ(layer_comp_enum_type[0], "Mode");
+    EXPECT_EQ(layer_comp_enum_value[0], "Nrml");
+    EXPECT_EQ(layer_comp_list_count[0], 0U);
+    EXPECT_EQ(layer_comp_object_class_name[0], "SubObj");
+    EXPECT_EQ(layer_comp_object_class_id[0], "SubO");
+    EXPECT_EQ(layer_comp_object_item_count[0], 0U);
     EXPECT_EQ(measurement_bytes[0], 2U);
     EXPECT_EQ(timeline_bytes[0], 1U);
     EXPECT_EQ(sheet_bytes[0], 2U);

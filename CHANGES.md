@@ -1,5 +1,25 @@
 # OpenMeta Changes
 
+## 0.4.50 - 2026-06-12
+
+Changes compared with `0.4.49`.
+
+### Added
+
+- Added bounded Photoshop IRB action-descriptor item summaries for enum values
+  plus empty list/object headers. Non-empty nested list/object bodies still
+  report truncation instead of guessing recursive semantics.
+- Added BMFF primary sidecar summary fields for linked primary items, including
+  total sidecar count, metadata/image sidecar flags, and per-role sidecar
+  counters for common metadata and image-sidecar semantics.
+- Added stable On/Off value labels for additional NikonSettings MakerNote
+  fields where the value shape is unambiguous.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development docs
+  for the expanded BMFF, Photoshop descriptor, and NikonSettings coverage.
+
 ## 0.4.49 - 2026-06-10
 
 Changes compared with `0.4.48`.

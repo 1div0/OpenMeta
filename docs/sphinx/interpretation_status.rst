@@ -181,9 +181,10 @@ Coverage matrix
        bounded human-readable labels, including expanded Canon sub-IFDs and
        CanonCustom fields, Canon ColorData source color-transform aliases,
        Nikon sub-IFDs and NikonSettings fields, NikonSettings source-processing
-       aliases, Nikon Active D-Lighting labels, decoded Fujifilm ``mk_fuji*``,
-       Pentax sub-IFDs, Olympus main/focus/equipment fields, Casio Type2
-       fields, and Panasonic long-tail main-table fields. Canon AF
+       aliases, NikonSettings On/Off residual labels, Nikon Active D-Lighting
+       labels, decoded Fujifilm ``mk_fuji*``, Pentax sub-IFDs, Olympus
+       main/focus/equipment fields, Casio Type2 fields, and Panasonic
+       long-tail main-table fields. Canon AF
        micro-adjustment fields are classified for lens-correction search, and
        Canon ambience-selection fields are classified as source-processing
        metadata.
@@ -196,18 +197,19 @@ Coverage matrix
      - BMFF derived fields, brand-name fields, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
-       primary item itself is a metadata item, bounded ``ipco``
-       property-container summary counts, bounded ``ipma`` item-property
-       association rows and per-property-type association/primary/essential
-       rollups, bounded relations, ``grpl`` item-group rows, per-group-type
-       summaries, primary item-group memberships, bounded ``iloc``/``idat``
-       item-data layout summaries, primary item-location aliases,
-       primary-linked roles with linked-item semantic aggregate counters, aux
-       semantics, primary color/profile property summaries, primary display
-       dimensions and transform summary, primary pixel aspect ratio, primary
-       pixel component bit depth, clean-aperture rationals, JUMBF box labels,
-       and draft C2PA/JUMBF structural fields are exposed.
-     - Medium, about 82-88%.
+       primary item itself is a metadata item, primary sidecar counts/flags for
+       linked metadata and image sidecars, bounded ``ipco`` property-container
+       summary counts, bounded ``ipma`` item-property association rows and
+       per-property-type association/primary/essential rollups, bounded
+       relations, ``grpl`` item-group rows, per-group-type summaries, primary
+       item-group memberships, bounded ``iloc``/``idat`` item-data layout
+       summaries, primary item-location aliases, primary-linked roles with
+       linked-item semantic aggregate counters, aux semantics, primary color/
+       profile property summaries, primary display dimensions and transform
+       summary, primary pixel aspect ratio, primary pixel component bit depth,
+       clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
+       structural fields are exposed.
+     - Medium, about 84-89%.
      - Full BMFF scene modeling and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -215,19 +217,20 @@ Coverage matrix
        summaries, resolution/version/print data, print-flag bytes,
        border/background/effective-BW data, display info, grid/guide info,
        color sampler headers/records, descriptor-header summaries plus safe
-       descriptor class-name/class-ID/item-count fields and bounded simple
+       descriptor class-name/class-ID/item-count fields, bounded simple
        descriptor item bodies (``bool``, ``long``, ``doub``, ``UntF``,
-       ``TEXT``) for resources including layer comps, measurement scale,
-       timeline info, sheet disclosure, HDR toning, print info, onion skins,
-       count info, print info/style, path selection state, and origin path
-       info, path record summaries, alpha names/identifiers, captions,
+       ``TEXT``), and descriptor enum/list/object header summaries for
+       resources including layer comps, measurement scale, timeline info,
+       sheet disclosure, HDR toning, print info, onion skins, count info,
+       print info/style, path selection state, and origin path info, path
+       record summaries, alpha names/identifiers, captions,
        QuickMask info, URL/list data, autosave strings, ``XMLData``,
        ImageReady XML text, Lightroom workflow text, thumbnail headers,
        channel options, clipping-path names, legacy halftone/transfer/
        duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF resource byte
        counts, and embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 82-89%.
-     - Broader nested descriptor body parsing and long-tail resource
+     - Medium, about 84-90%.
+     - Non-empty nested descriptor recursion and long-tail resource
        interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
@@ -292,18 +295,19 @@ Next interpretation priorities
 ------------------------------
 
 1. Deepen remaining BMFF/CR3/HEIF/AVIF scene-graph semantics beyond current
-   relations, item groups, primary-item summaries, and item-property rollups
-   only where hosts can use the result safely.
+   relations, item groups, primary-item summaries, primary sidecar summaries,
+   and item-property rollups only where hosts can use the result safely.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
-   layouts, descriptor headers, and embedded metadata carriers.
+   layouts, descriptor headers, descriptor item headers, and embedded metadata
+   carriers.
 3. Deepen transfer diagnostics with optional host localization/formatting hooks
    for GUI workflows.
 4. Expand GPS/date policy beyond current coordinate tolerance,
    altitude-reference display, EXIF/XMP timestamp assembly, and bounded
    digitized-date aliases into broader cross-family reconciliation.
 5. Expand the remaining unambiguous MakerNote long tail: firmware/version
-   formulas, encrypted/custom settings, NikonSettings residual value labels,
-   JVC/GE/FLIR/Apple/live-vendor scalar fields, and per-model tables only where
-   context is strong enough to avoid wrong labels.
+   formulas, encrypted/custom settings, JVC/GE/FLIR/Apple/live-vendor scalar
+   fields, and per-model tables only where context is strong enough to avoid
+   wrong labels.
 6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

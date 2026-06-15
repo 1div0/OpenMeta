@@ -89,8 +89,9 @@ Host-facing API map
        white balance, scene capture type, gain control, CFA layout, and DNG
        calibration illuminants, plus selected bounded Canon/Nikon/Sony/
        Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/
-       Samsung/Ricoh MakerNote contexts. Unknown values return an empty string
-       and remain lossless numeric metadata.
+       Samsung/Ricoh MakerNote contexts including NikonSettings On/Off labels
+       where stable. Unknown values return an empty string and remain lossless
+       numeric metadata.
    * - Photoshop IRB decode: ``decode_photoshop_irb(...)`` and
        ``measure_photoshop_irb(...)``
      - ``openmeta/photoshop_irb_decode.h``
@@ -100,12 +101,12 @@ Host-facing API map
        interpretation includes fixed-layout resource fields,
        display/grid/thumbnail/color-sampler headers, path-record summaries,
        descriptor-header summaries plus safe descriptor class-name/class-ID/
-       item-count fields and bounded simple descriptor item bodies for
-       ``bool``, ``long``, ``doub``, ``UntF``, and ``TEXT``, ``XMLData``,
-       ImageReady ASCII text resources, Lightroom workflow text, legacy
-       halftone/transfer/duotone/EPS byte summaries, embedded
-       IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
-       IPTC-IIM, XMP, and ICC payload decode.
+       item-count fields, bounded simple descriptor item bodies for ``bool``,
+       ``long``, ``doub``, ``UntF``, and ``TEXT``, safe enum value summaries,
+       and empty list/object descriptor headers, ``XMLData``, ImageReady ASCII
+       text resources, Lightroom workflow text, legacy halftone/transfer/
+       duotone/EPS byte summaries, embedded IPTC/ICC/EXIF/EXIF2/XMP byte-count
+       fields, and optional embedded IPTC-IIM, XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``
