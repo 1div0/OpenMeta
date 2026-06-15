@@ -4,6 +4,9 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstddef>
+
 namespace openmeta {
 namespace {
 
@@ -57,6 +60,78 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0xC617U, 1U),
                      "Rectangular");
         EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0x9999U, 1U), "");
+    }
+
+    TEST(ExifValueNames, FormatsVersionLikeNumericValues)
+    {
+        char out[32];
+        EXPECT_TRUE(exif_tag_numeric_value_format("mk_nikon_shotinfo_0",
+                                                  0x0004U, 0x01020304U, out,
+                                                  sizeof(out)));
+        EXPECT_STREQ(out, "1.2.3.4");
+
+        EXPECT_TRUE(exif_tag_numeric_value_format("mk_nikon_lensdata0800_0",
+                                                  0x0034U, 0x0102U, out,
+                                                  sizeof(out)));
+        EXPECT_STREQ(out, "1.2");
+
+        EXPECT_TRUE(exif_tag_numeric_value_format("mk_olympus_equipment_0",
+                                                  0x0104U, 0x1005U, out,
+                                                  sizeof(out)));
+        EXPECT_STREQ(out, "1.005");
+
+        EXPECT_FALSE(exif_tag_numeric_value_format("mk_nikon0", 0x0103U, 1U,
+                                                   out, sizeof(out)));
+        EXPECT_STREQ(out, "");
+
+        char tiny[4];
+        EXPECT_FALSE(exif_tag_numeric_value_format("mk_nikon_shotinfo_0",
+                                                   0x0004U, 0x01020304U, tiny,
+                                                   sizeof(tiny)));
+        EXPECT_STREQ(tiny, "");
+    }
+
+    TEST(ExifValueNames, FormatsVersionLikeByteValues)
+    {
+        char out[32];
+        const std::array<std::byte, 5> ascii_version {
+            std::byte { static_cast<unsigned char>('1') },
+            std::byte { static_cast<unsigned char>('.') },
+            std::byte { static_cast<unsigned char>('0') },
+            std::byte { static_cast<unsigned char>('2') },
+            std::byte { static_cast<unsigned char>(0U) }
+        };
+        EXPECT_TRUE(exif_tag_byte_value_format("exififd", 0x9000U,
+                                               ascii_version, out,
+                                               sizeof(out)));
+        EXPECT_STREQ(out, "1.02");
+
+        const std::array<std::byte, 4> dotted_version {
+            std::byte { static_cast<unsigned char>(1U) },
+            std::byte { static_cast<unsigned char>(2U) },
+            std::byte { static_cast<unsigned char>(3U) },
+            std::byte { static_cast<unsigned char>(4U) }
+        };
+        EXPECT_TRUE(exif_tag_byte_value_format("mk_nikon_shotinfo_0", 0x0004U,
+                                               dotted_version, out,
+                                               sizeof(out)));
+        EXPECT_STREQ(out, "1.2.3.4");
+
+        EXPECT_FALSE(exif_tag_byte_value_format("mk_nikon0", 0x0103U,
+                                                dotted_version, out,
+                                                sizeof(out)));
+        EXPECT_STREQ(out, "");
+
+        EXPECT_FALSE(exif_tag_byte_value_format("mk_olympus_equipment_0",
+                                                0x0104U, dotted_version, out,
+                                                sizeof(out)));
+        EXPECT_STREQ(out, "");
+
+        char tiny[4];
+        EXPECT_FALSE(exif_tag_byte_value_format("mk_nikon_shotinfo_0", 0x0004U,
+                                                dotted_version, tiny,
+                                                sizeof(tiny)));
+        EXPECT_STREQ(tiny, "");
     }
 
     TEST(ExifValueNames, DispatchesCanonMakerNoteCameraSettingsEnums)

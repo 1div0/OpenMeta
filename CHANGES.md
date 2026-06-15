@@ -1,5 +1,25 @@
 # OpenMeta Changes
 
+## 0.4.52 - 2026-06-15
+
+Changes compared with `0.4.51`.
+
+### Added
+
+- Added bounded EXIF/MakerNote version-value formatter helpers:
+  `exif_tag_numeric_value_format(...)` and
+  `exif_tag_byte_value_format(...)`.
+- Added formatter coverage for selected standard EXIF byte-version payloads,
+  Nikon version-like contexts, and Olympus packed firmware values.
+- Added thin Python wrappers for the new version-value formatter helpers.
+
+### Changed
+
+- Kept formatted version/firmware values separate from enum-label lookup so
+  ambiguous values remain lossless instead of being guessed.
+- Updated public interpretation, support, API stability, and development docs
+  for the new formatter path and remaining per-model MakerNote blockers.
+
 ## 0.4.51 - 2026-06-15
 
 Changes compared with `0.4.50`.

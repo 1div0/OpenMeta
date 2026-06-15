@@ -79,8 +79,10 @@ Host-facing API map
        rotation degrees, mirrored-state detection, dimension-swap detection,
        and rotation-only fallbacks. Python exposes the same helpers through
        thin scalar/dictionary wrappers.
-   * - EXIF/TIFF/DNG numeric value names:
-       ``exif_tag_numeric_value_name(...)`` and focused helpers
+   * - EXIF/TIFF/DNG numeric value names and version formatting:
+       ``exif_tag_numeric_value_name(...)``,
+       ``exif_tag_numeric_value_format(...)``,
+       ``exif_tag_byte_value_format(...)``, and focused helpers
      - ``openmeta/exif_value_names.h``
      - Stable
      - Small helper contract for common enum-like TIFF/EXIF/DNG numeric values
@@ -90,8 +92,11 @@ Host-facing API map
        calibration illuminants, plus selected bounded Canon/Nikon/Sony/
        Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/
        Samsung/Ricoh MakerNote contexts including NikonSettings On/Off labels
-       where stable. Unknown values return an empty string and remain lossless
-       numeric metadata.
+       where stable. Version/firmware helpers format selected standard EXIF
+       byte-version fields, Nikon version-like payloads, and Olympus packed
+       firmware values without treating formatted versions as enum labels.
+       Unknown or ambiguous values return an empty string or ``false`` and
+       remain lossless metadata.
    * - Photoshop IRB decode: ``decode_photoshop_irb(...)`` and
        ``measure_photoshop_irb(...)``
      - ``openmeta/photoshop_irb_decode.h``

@@ -37,9 +37,11 @@
 #include <algorithm>
 #include <bit>
 #include <cctype>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -62,6 +64,38 @@ namespace {
                                        uint64_t value) noexcept
     {
         return exif_tag_numeric_value_name(ifd, tag, value);
+    }
+
+    static std::string
+    exif_tag_numeric_value_format_python(const std::string& ifd, uint16_t tag,
+                                         uint64_t value)
+    {
+        char out[128];
+        if (!exif_tag_numeric_value_format(ifd, tag, value, out, sizeof(out))) {
+            return std::string();
+        }
+        return std::string(out);
+    }
+
+
+    static std::string exif_tag_byte_value_format_python(const std::string& ifd,
+                                                         uint16_t tag,
+                                                         nb::bytes value)
+    {
+        char* bytes       = nullptr;
+        Py_ssize_t length = 0;
+        if (PyBytes_AsStringAndSize(value.ptr(), &bytes, &length) != 0
+            || bytes == nullptr || length < 0) {
+            return std::string();
+        }
+        const std::span<const std::byte> span(
+            reinterpret_cast<const std::byte*>(bytes),
+            static_cast<std::size_t>(length));
+        char out[128];
+        if (!exif_tag_byte_value_format(ifd, tag, span, out, sizeof(out))) {
+            return std::string();
+        }
+        return std::string(out);
     }
 
 
@@ -6777,6 +6811,10 @@ NB_MODULE(_openmeta, m)
     m.def("dng_calibration_illuminant_name", &dng_calibration_illuminant_name,
           "value"_a);
     m.def("exif_tag_numeric_value_name", &exif_tag_numeric_value_name_python,
+          "ifd"_a, "tag"_a, "value"_a);
+    m.def("exif_tag_numeric_value_format",
+          &exif_tag_numeric_value_format_python, "ifd"_a, "tag"_a, "value"_a);
+    m.def("exif_tag_byte_value_format", &exif_tag_byte_value_format_python,
           "ifd"_a, "tag"_a, "value"_a);
 
     nb::enum_<TransferPolicySubject>(m, "TransferPolicySubject")

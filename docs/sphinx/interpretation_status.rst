@@ -184,15 +184,18 @@ Coverage matrix
        aliases, NikonSettings On/Off residual labels, Nikon Active D-Lighting
        labels, decoded Fujifilm ``mk_fuji*``, Pentax sub-IFDs, Olympus
        main/focus/equipment fields, Casio Type2 fields, and Panasonic
-       long-tail main-table fields. Canon AF
+       long-tail main-table fields. Version/firmware payloads have a separate
+       bounded formatter path for selected standard EXIF byte-version fields,
+       Nikon version-like contexts, and Olympus packed firmware fields so
+       formatted versions are not confused with enum labels. Canon AF
        micro-adjustment fields are classified for lens-correction search, and
        Canon ambience-selection fields are classified as source-processing
        metadata.
        Ambiguous per-model, per-version, or value-type-dependent labels
        intentionally remain empty instead of guessing.
-     - Medium-high, about 93-95%.
-     - Remaining ExifTool-style firmware/version formulas, encrypted/custom
-       settings, and per-model private tables.
+     - Medium-high, about 94-96%.
+     - Remaining encrypted/custom settings, per-model private tables, and
+       per-model firmware formulas outside currently supported contexts.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
      - BMFF derived fields, brand-name fields, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
@@ -308,9 +311,9 @@ Next interpretation priorities
 4. Expand GPS/date policy beyond current coordinate tolerance,
    altitude-reference display, EXIF/XMP timestamp assembly, and bounded
    digitized-date aliases into broader cross-family reconciliation.
-5. Expand the remaining unambiguous MakerNote long tail: firmware/version
-   formulas, encrypted/custom settings, JVC/GE/FLIR/Apple/live-vendor scalar
-   fields, and per-model tables only where context is strong enough to avoid
-   wrong labels.
+5. Expand the remaining unambiguous MakerNote long tail: encrypted/custom
+   settings, per-model firmware formulas outside currently supported
+   formatter contexts, JVC/GE/FLIR/Apple/live-vendor scalar fields, and
+   per-model tables only where context is strong enough to avoid wrong labels.
 6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

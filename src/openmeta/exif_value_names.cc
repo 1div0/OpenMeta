@@ -2,6 +2,10 @@
 
 #include "openmeta/exif_value_names.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <span>
+
 namespace openmeta {
 
 const char*
@@ -245,6 +249,12 @@ ifd_matches_context(std::string_view ifd, std::string_view decoded_prefix,
                     std::string_view registry_ifd) noexcept
 {
     return ifd_has_prefix(ifd, decoded_prefix) || ifd == registry_ifd;
+}
+
+static bool
+ifd_contains(std::string_view ifd, std::string_view token) noexcept
+{
+    return ifd.find(token) != std::string_view::npos;
 }
 
 static bool
@@ -1504,6 +1514,27 @@ is_nikon_lens_data0800_ifd(std::string_view ifd) noexcept
 {
     return ifd_has_prefix(ifd, "mk_nikon_lensdata0800_")
            || ifd == "makernote:nikon:lensdata0800";
+}
+
+static bool
+is_nikon_lens_data_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_lensdata")
+           || ifd_has_prefix(ifd, "makernote:nikon:lensdata");
+}
+
+static bool
+is_nikon_shot_info_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_shotinfo")
+           || ifd_has_prefix(ifd, "makernote:nikon:shotinfo");
+}
+
+static bool
+is_nikon_makernotes_firmware_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_nikon_makernotes0x")
+           || ifd_has_prefix(ifd, "makernote:nikon:makernotes0x");
 }
 
 static bool
@@ -6695,6 +6726,266 @@ makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
         return ricoh_value_name(ifd, tag, value);
     }
     return "";
+}
+
+static void
+clear_format_output(char* out, std::size_t out_size) noexcept
+{
+    if (out != nullptr && out_size > 0U) {
+        out[0] = '\0';
+    }
+}
+
+static bool
+append_char(char* out, std::size_t out_size, std::size_t* pos,
+            char value) noexcept
+{
+    if (out == nullptr || pos == nullptr || out_size == 0U) {
+        return false;
+    }
+    if ((*pos + 1U) >= out_size) {
+        return false;
+    }
+    out[*pos] = value;
+    ++(*pos);
+    out[*pos] = '\0';
+    return true;
+}
+
+static bool
+append_decimal(char* out, std::size_t out_size, std::size_t* pos,
+               uint64_t value, unsigned min_digits) noexcept
+{
+    char digits[20];
+    std::size_t digit_count = 0U;
+    uint64_t current        = value;
+    do {
+        digits[digit_count] = static_cast<char>('0' + (current % 10U));
+        ++digit_count;
+        current /= 10U;
+    } while (current != 0U && digit_count < sizeof(digits));
+
+    const std::size_t total_digits = digit_count < min_digits ? min_digits
+                                                              : digit_count;
+    if (out == nullptr || pos == nullptr || out_size == 0U) {
+        return false;
+    }
+    if ((*pos + total_digits) >= out_size) {
+        return false;
+    }
+    for (std::size_t i = digit_count; i < total_digits; ++i) {
+        out[*pos] = '0';
+        ++(*pos);
+    }
+    for (std::size_t i = 0U; i < digit_count; ++i) {
+        out[*pos] = digits[digit_count - 1U - i];
+        ++(*pos);
+    }
+    out[*pos] = '\0';
+    return true;
+}
+
+static bool
+format_olympus_packed_firmware(uint64_t value, char* out,
+                               std::size_t out_size) noexcept
+{
+    std::size_t pos = 0U;
+    clear_format_output(out, out_size);
+    if (!append_decimal(out, out_size, &pos, value >> 12U, 0U)) {
+        clear_format_output(out, out_size);
+        return false;
+    }
+    if (!append_char(out, out_size, &pos, '.')) {
+        clear_format_output(out, out_size);
+        return false;
+    }
+    if (!append_decimal(out, out_size, &pos, value & 0x0FFFU, 3U)) {
+        clear_format_output(out, out_size);
+        return false;
+    }
+    return true;
+}
+
+static bool
+format_dotted_integer_bytes(uint64_t value, unsigned byte_count, char* out,
+                            std::size_t out_size) noexcept
+{
+    std::size_t pos = 0U;
+    clear_format_output(out, out_size);
+    if (byte_count == 0U || byte_count > 8U) {
+        return false;
+    }
+    for (unsigned i = 0U; i < byte_count; ++i) {
+        const unsigned shift = (byte_count - 1U - i) * 8U;
+        const uint64_t part  = (value >> shift) & 0xFFU;
+        if (i != 0U && !append_char(out, out_size, &pos, '.')) {
+            clear_format_output(out, out_size);
+            return false;
+        }
+        if (!append_decimal(out, out_size, &pos, part, 0U)) {
+            clear_format_output(out, out_size);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool
+format_dotted_payload_bytes(std::span<const std::byte> value, char* out,
+                            std::size_t out_size) noexcept
+{
+    std::size_t pos = 0U;
+    clear_format_output(out, out_size);
+    if (value.empty() || value.size() > 16U) {
+        return false;
+    }
+    for (std::size_t i = 0U; i < value.size(); ++i) {
+        const uint64_t part = static_cast<uint64_t>(
+            std::to_integer<unsigned char>(value[i]));
+        if (i != 0U && !append_char(out, out_size, &pos, '.')) {
+            clear_format_output(out, out_size);
+            return false;
+        }
+        if (!append_decimal(out, out_size, &pos, part, 0U)) {
+            clear_format_output(out, out_size);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool
+format_ascii_payload_bytes(std::span<const std::byte> value, char* out,
+                           std::size_t out_size) noexcept
+{
+    bool has_digit       = false;
+    std::size_t text_end = 0U;
+    clear_format_output(out, out_size);
+    while (text_end < value.size()) {
+        const unsigned char byte = std::to_integer<unsigned char>(
+            value[text_end]);
+        if (byte == 0U) {
+            break;
+        }
+        if (byte < 0x20U || byte > 0x7EU) {
+            return false;
+        }
+        if (byte >= static_cast<unsigned char>('0')
+            && byte <= static_cast<unsigned char>('9')) {
+            has_digit = true;
+        }
+        ++text_end;
+    }
+    while (text_end > 0U) {
+        const unsigned char byte = std::to_integer<unsigned char>(
+            value[text_end - 1U]);
+        if (byte != static_cast<unsigned char>(' ')) {
+            break;
+        }
+        --text_end;
+    }
+    if (text_end == 0U || !has_digit) {
+        return false;
+    }
+    if (out == nullptr || out_size == 0U || text_end >= out_size) {
+        return false;
+    }
+    for (std::size_t i = 0U; i < text_end; ++i) {
+        out[i] = static_cast<char>(std::to_integer<unsigned char>(value[i]));
+    }
+    out[text_end] = '\0';
+    return true;
+}
+
+static bool
+is_standard_byte_version_tag(std::string_view ifd, uint16_t tag) noexcept
+{
+    if (tag == 0x9000U || tag == 0xA000U) {
+        return true;
+    }
+    if (tag == 0x0000U
+        && (ifd_contains(ifd, "gps") || ifd_contains(ifd, "GPS"))) {
+        return true;
+    }
+    return false;
+}
+
+static bool
+is_nikon_version_like_tag(std::string_view ifd, uint16_t tag) noexcept
+{
+    if (is_nikon_main_ifd(ifd) && tag == 0x0001U) {
+        return true;
+    }
+    if (is_nikon_shot_info_ifd(ifd)
+        && (tag == 0x0004U || tag == 0x000EU || tag == 0x0018U)) {
+        return true;
+    }
+    if (is_nikon_lens_data_ifd(ifd) && (tag == 0x0000U || tag == 0x0034U)) {
+        return true;
+    }
+    if (is_nikon_flash_info_ifd(ifd) && tag == 0x0006U) {
+        return true;
+    }
+    if (is_nikon_makernotes_firmware_ifd(ifd) && tag == 0x0000U) {
+        return true;
+    }
+    return false;
+}
+
+static bool
+is_olympus_packed_firmware_tag(std::string_view ifd, uint16_t tag) noexcept
+{
+    if (!is_olympus_equipment_ifd(ifd)) {
+        return false;
+    }
+    return tag == 0x0104U || tag == 0x0204U || tag == 0x0304U || tag == 0x1002U;
+}
+
+static unsigned
+numeric_version_byte_count(uint64_t value) noexcept
+{
+    if (value <= 0xFFU) {
+        return 1U;
+    }
+    if (value <= 0xFFFFU) {
+        return 2U;
+    }
+    if (value <= 0xFFFFFFU) {
+        return 3U;
+    }
+    return 4U;
+}
+
+bool
+exif_tag_numeric_value_format(std::string_view ifd, uint16_t tag,
+                              uint64_t value, char* out,
+                              std::size_t out_size) noexcept
+{
+    clear_format_output(out, out_size);
+    if (is_olympus_packed_firmware_tag(ifd, tag)) {
+        return format_olympus_packed_firmware(value, out, out_size);
+    }
+    if (is_nikon_version_like_tag(ifd, tag)) {
+        const unsigned byte_count = numeric_version_byte_count(value);
+        return format_dotted_integer_bytes(value, byte_count, out, out_size);
+    }
+    return false;
+}
+
+bool
+exif_tag_byte_value_format(std::string_view ifd, uint16_t tag,
+                           std::span<const std::byte> value, char* out,
+                           std::size_t out_size) noexcept
+{
+    clear_format_output(out, out_size);
+    if (!is_standard_byte_version_tag(ifd, tag)
+        && !is_nikon_version_like_tag(ifd, tag)) {
+        return false;
+    }
+    if (format_ascii_payload_bytes(value, out, out_size)) {
+        return true;
+    }
+    return format_dotted_payload_bytes(value, out, out_size);
 }
 
 const char*

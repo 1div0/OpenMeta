@@ -2,7 +2,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 /**
@@ -69,5 +71,31 @@ dng_calibration_illuminant_name(uint64_t value) noexcept;
 const char*
 exif_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
                             uint64_t value) noexcept;
+
+/**
+ * \brief Formats selected version/firmware-style numeric values.
+ *
+ * This is separate from \ref exif_tag_numeric_value_name because firmware and
+ * version fields are formatted values, not enum labels. Returns false when the
+ * context is unsupported or the output buffer is too small; in both cases the
+ * output buffer is cleared when possible.
+ */
+bool
+exif_tag_numeric_value_format(std::string_view ifd, uint16_t tag,
+                              uint64_t value, char* out,
+                              std::size_t out_size) noexcept;
+
+/**
+ * \brief Formats selected version/firmware-style byte payloads.
+ *
+ * Printable ASCII payloads are copied after NUL/space trimming. Non-text byte
+ * payloads are formatted as bounded dotted decimal bytes only for version-like
+ * contexts. Returns false when the context is unsupported or the output buffer
+ * is too small; in both cases the output buffer is cleared when possible.
+ */
+bool
+exif_tag_byte_value_format(std::string_view ifd, uint16_t tag,
+                           std::span<const std::byte> value, char* out,
+                           std::size_t out_size) noexcept;
 
 }  // namespace openmeta

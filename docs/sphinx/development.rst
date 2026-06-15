@@ -40,10 +40,11 @@ model should stay compact:
        scene summaries, and display-transform summaries, JUMBF labels,
        Photoshop IRB embedded carriers plus fixed-layout, XML/text,
        path-record, byte-count, descriptor-header, simple descriptor-item,
-       enum, and bounded nested list/object summaries, EXIF/XMP GPS timestamp
-       composites, computational, thermal, stitch/panorama capture state, and
-       vendor-private fields.
-     - Medium-high, about 95%.
+       enum, and bounded nested list/object summaries,
+       version/firmware-style value formatting for selected EXIF/Nikon/Olympus
+       contexts, EXIF/XMP GPS timestamp composites, computational, thermal,
+       stitch/panorama capture state, and vendor-private fields.
+     - Medium-high, about 95-96%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and
@@ -77,7 +78,8 @@ model should stay compact:
      - Medium, about 60-70%.
    * - Utilities
      - Small standalone helpers such as capability queries, compatibility
-       dumps, safety audits, tag-name lookup, and orientation conversion.
+       dumps, safety audits, tag-name lookup, version-value formatting, and
+       orientation conversion.
      - Medium, about 65-75%.
 
 Query results should expose both inspection-level matches and interpreted
@@ -118,6 +120,9 @@ targets. Standard EXIF exposure program/mode and gain-control values and
 selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/
 Minolta/Sigma/Samsung/Ricoh MakerNote exposure-adjacent print conversions are
 exposed as bounded labels when a stable enum mapping is available.
+Version/firmware-like fields use ``exif_tag_numeric_value_format(...)`` and
+``exif_tag_byte_value_format(...)`` instead of enum-label lookup where the
+value is a formatted payload rather than a closed numeric choice.
 Current source-private aliases include camera-to-XYZ/RGB matrices, creative and
 picture styles, film simulation, dynamic-range processing, optical/lens
 correction, white-balance gains, and raw-development terms.
