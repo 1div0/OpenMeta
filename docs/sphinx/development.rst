@@ -42,8 +42,9 @@ model should stay compact:
        path-record, byte-count, descriptor-header, simple descriptor-item,
        enum, and bounded nested list/object summaries,
        version/firmware-style value formatting for selected EXIF/Nikon/Olympus
-       contexts, EXIF/XMP GPS timestamp composites, computational, thermal,
-       stitch/panorama capture state, and vendor-private fields.
+       contexts, Apple/FLIR/JVC/GE scalar MakerNote labels, EXIF/XMP GPS
+       timestamp composites, computational, thermal, stitch/panorama capture
+       state, and vendor-private fields.
      - Medium-high, about 95-96%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
@@ -118,8 +119,9 @@ exposure bias, exposure program/mode, gain, and raw exposure-adjustment records
 into host-visible roles, with raw exposure adjustments kept unsafe for rendered
 targets. Standard EXIF exposure program/mode and gain-control values and
 selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/
-Minolta/Sigma/Samsung/Ricoh MakerNote exposure-adjacent print conversions are
-exposed as bounded labels when a stable enum mapping is available.
+Minolta/Sigma/Samsung/Ricoh/Apple/FLIR/JVC/GE MakerNote scalar print
+conversions are exposed as bounded labels when a stable enum mapping is
+available.
 Version/firmware-like fields use ``exif_tag_numeric_value_format(...)`` and
 ``exif_tag_byte_value_format(...)`` instead of enum-label lookup where the
 value is a formatted payload rather than a closed numeric choice.

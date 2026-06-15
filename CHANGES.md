@@ -1,5 +1,23 @@
 # OpenMeta Changes
 
+## 0.4.53 - 2026-06-15
+
+Changes compared with `0.4.52`.
+
+### Added
+
+- Added bounded Apple MakerNote scalar labels for AE/AF stability,
+  HDR image type, image-capture type, and camera type.
+- Added bounded FLIR GPS-valid, JVC quality, and General Imaging macro-mode
+  MakerNote labels.
+
+### Changed
+
+- Kept ambiguous Apple fields, FLIR text-valued image-type fields, and
+  unsupported private values empty instead of guessing labels.
+- Updated public interpretation, API stability, and development docs for the
+  expanded live-vendor and long-tail scalar coverage.
+
 ## 0.4.52 - 2026-06-15
 
 Changes compared with `0.4.51`.

@@ -776,5 +776,52 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_ricoh0", 0x1012U, 0U), "");
     }
 
+    TEST(ExifValueNames, DispatchesAppleFlirJvcGeMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0004U, 1U),
+                     "Yes");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0007U, 0U),
+                     "No");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x000AU, 3U),
+                     "HDR Image");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x000AU, 4U),
+                     "Original Image");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0014U, 1U),
+                     "ProRAW");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0014U, 10U),
+                     "Photo");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:apple:main",
+                                                 0x0014U, 12U),
+                     "Scene");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x002EU, 0U),
+                     "Back Wide Angle");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x002EU, 6U),
+                     "Front");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x000FU, 2U), "");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0045U, 1U), "");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_flir_fff_gpsinfo_0",
+                                                 0x0000U, 1U),
+                     "Yes");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:flir:fff_gpsinfo",
+                                                 0x0000U, 0U),
+                     "No");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_flir_fff_rawdata_0",
+                                                 0x0010U, 1U),
+                     "");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_jvc0", 0x0003U, 0U),
+                     "Low");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_jvc0", 0x0003U, 2U),
+                     "Fine");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_jvc0", 0x0004U, 1U), "");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ge0", 0x0202U, 1U), "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:ge:main", 0x0202U,
+                                                 0U),
+                     "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_ge0", 0x0203U, 0U), "");
+    }
+
 }  // namespace
 }  // namespace openmeta

@@ -6618,6 +6618,122 @@ ricoh_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     return "";
 }
 
+static bool
+is_apple_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_apple0" || ifd_has_prefix(ifd, "mk_apple_main")
+           || ifd == "makernote:apple:main";
+}
+
+static const char*
+apple_hdr_image_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 3U: return "HDR Image";
+    case 4U: return "Original Image";
+    default: return "";
+    }
+}
+
+static const char*
+apple_image_capture_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "ProRAW";
+    case 2U: return "Portrait";
+    case 10U: return "Photo";
+    case 11U: return "Manual Focus";
+    case 12U: return "Scene";
+    default: return "";
+    }
+}
+
+static const char*
+apple_camera_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Back Wide Angle";
+    case 1U: return "Back Normal";
+    case 6U: return "Front";
+    default: return "";
+    }
+}
+
+static const char*
+apple_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (!is_apple_main_ifd(ifd)) {
+        return "";
+    }
+    switch (tag) {
+    case 0x0004U: return no_yes_name(value);
+    case 0x0007U: return no_yes_name(value);
+    case 0x000AU: return apple_hdr_image_type_name(value);
+    case 0x0014U: return apple_image_capture_type_name(value);
+    case 0x002EU: return apple_camera_type_name(value);
+    default: return "";
+    }
+}
+
+static bool
+is_flir_gpsinfo_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_flir_fff_gpsinfo")
+           || ifd_has_prefix(ifd, "makernote:flir:fff_gpsinfo");
+}
+
+static const char*
+flir_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (is_flir_gpsinfo_ifd(ifd) && tag == 0x0000U) {
+        return no_yes_name(value);
+    }
+    return "";
+}
+
+static bool
+is_jvc_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_jvc0" || ifd_has_prefix(ifd, "mk_jvc_main")
+           || ifd == "makernote:jvc:main";
+}
+
+static const char*
+jvc_quality_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Low";
+    case 1U: return "Normal";
+    case 2U: return "Fine";
+    default: return "";
+    }
+}
+
+static const char*
+jvc_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (is_jvc_main_ifd(ifd) && tag == 0x0003U) {
+        return jvc_quality_name(value);
+    }
+    return "";
+}
+
+static bool
+is_ge_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_ge0" || ifd_has_prefix(ifd, "mk_ge_main")
+           || ifd == "makernote:ge:main";
+}
+
+static const char*
+ge_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (is_ge_main_ifd(ifd) && tag == 0x0202U) {
+        return off_on_name(value);
+    }
+    return "";
+}
+
 static const char*
 makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
                                  uint64_t value) noexcept
@@ -6724,6 +6840,21 @@ makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     if (ifd_has_prefix(ifd, "mk_ricoh")
         || ifd_has_prefix(ifd, "makernote:ricoh:")) {
         return ricoh_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_apple")
+        || ifd_has_prefix(ifd, "makernote:apple:")) {
+        return apple_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_flir")
+        || ifd_has_prefix(ifd, "makernote:flir:")) {
+        return flir_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_jvc")
+        || ifd_has_prefix(ifd, "makernote:jvc:")) {
+        return jvc_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_ge") || ifd_has_prefix(ifd, "makernote:ge:")) {
+        return ge_value_name(ifd, tag, value);
     }
     return "";
 }
