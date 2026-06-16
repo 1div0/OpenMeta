@@ -823,5 +823,79 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_ge0", 0x0203U, 0U), "");
     }
 
+    TEST(ExifValueNames, DispatchesReconyxMicrosoftMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:microsoft:stitch",
+                                                 0x0001U, 4U),
+                     "3D Rotation");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_microsoft_stitch_0",
+                                                 0x0002U, 258U),
+                     "Vertical Spherical");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_microsoft_stitch_0",
+                                                 0x0003U, 1U),
+                     "");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire_0",
+                                                 0x0006U,
+                                                 static_cast<uint64_t>('M')),
+                     "Motion Detection");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire_0",
+                                                 0x0012U, 4U),
+                     "Full");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire_0",
+                                                 0x0028U, 1U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire_0",
+                                                 0x0029U, 1U),
+                     "");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_ultrafire_0",
+                                                 0x0034U,
+                                                 static_cast<uint64_t>('P')),
+                     "Point and Shoot");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_ultrafire_0",
+                                                 0x0042U, 0U),
+                     "Sunday");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_ultrafire_0",
+                                                 0x0048U, 0U),
+                     "Off");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire2_0",
+                                                 0x0034U,
+                                                 static_cast<uint64_t>('T')),
+                     "Time Lapse");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:reconyx:hyperfire2",
+                                                 0x004AU, 6U),
+                     "Saturday");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire2_0",
+                                                 0x005AU, 1U),
+                     "On");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_microfire_0",
+                                                 0x0044U,
+                                                 static_cast<uint64_t>('M')),
+                     "Motion Sensor");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_microfire_0",
+                                                 0x005AU, 1U),
+                     "Sunday");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_microfire_0",
+                                                 0x0074U, 3U),
+                     "Lead Acid");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire4k_0",
+                                                 0x0028U,
+                                                 static_cast<uint64_t>('L')),
+                     "Cell Live View");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire4k_0",
+                                                 0x0036U, 7U),
+                     "Saturday");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire4k_0",
+                                                 0x004FU, 4U),
+                     "SC10 Solar");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire4k_0",
+                                                 0x004DU, 1U),
+                     "");
+    }
+
 }  // namespace
 }  // namespace openmeta

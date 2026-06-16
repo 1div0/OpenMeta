@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.54 - 2026-06-16
+
+Changes compared with `0.4.53`.
+
+### Added
+
+- Added bounded Microsoft stitch MakerNote display labels for camera-motion and
+  map-type scalar values.
+- Added bounded Reconyx MakerNote display labels for selected moon phase,
+  weekday, flash/illumination, battery-type, and single-character trigger-mode
+  values across supported Reconyx subdirectories.
+
+### Changed
+
+- Kept measurement fields, text/count payloads, unsupported private fields, and
+  device-specific values unformatted unless the mapping is stable.
+- Updated public interpretation, API stability, and development docs for the
+  expanded long-tail display-label coverage.
+
 ## 0.4.53 - 2026-06-15
 
 Changes compared with `0.4.52`.

@@ -178,27 +178,30 @@ Coverage matrix
        query/interpretation candidates where safe to expose structurally.
        Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Casio/
        Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh/Apple/FLIR/JVC/General
-       Imaging print conversions expose bounded human-readable labels,
-       including expanded Canon sub-IFDs and CanonCustom fields, Canon
-       ColorData source color-transform aliases, Nikon sub-IFDs and
-       NikonSettings fields, NikonSettings source-processing aliases,
-       NikonSettings On/Off residual labels, Nikon Active D-Lighting labels,
-       decoded Fujifilm ``mk_fuji*``, Pentax sub-IFDs, Olympus
-       main/focus/equipment fields, Casio Type2 fields, Panasonic long-tail
-       main-table fields, Apple AE/AF/HDR/capture/camera-type fields, FLIR
-       GPS-valid state, JVC quality, and General Imaging macro state.
+       Imaging/Reconyx/Microsoft print conversions expose bounded
+       human-readable labels, including expanded Canon sub-IFDs and
+       CanonCustom fields, Canon ColorData source color-transform aliases,
+       Nikon sub-IFDs and NikonSettings fields, NikonSettings
+       source-processing aliases, NikonSettings On/Off residual labels, Nikon
+       Active D-Lighting labels, decoded Fujifilm ``mk_fuji*``, Pentax
+       sub-IFDs, Olympus main/focus/equipment fields, Casio Type2 fields,
+       Panasonic long-tail main-table fields, Apple AE/AF/HDR/capture/camera-
+       type fields, FLIR GPS-valid state, JVC quality, General Imaging macro
+       state, Reconyx moon phase/weekday/flash/illumination/battery/trigger
+       labels, and Microsoft stitch camera-motion/map-type labels.
        Version/firmware payloads have a separate bounded formatter path for
        selected standard EXIF byte-version fields, Nikon version-like
        contexts, and Olympus packed firmware fields so formatted versions are
        not confused with enum labels. Canon AF micro-adjustment fields are
        classified for lens-correction search, and Canon ambience-selection
        fields are classified as source-processing metadata.
-       Ambiguous per-model, per-version, or value-type-dependent labels
-       intentionally remain empty instead of guessing.
-     - Medium-high, about 95-96%.
+       Ambiguous per-model, per-version, text/count, measurement, or
+       value-type-dependent labels intentionally remain empty instead of
+       guessing.
+     - Medium-high, about 96-97%.
      - Remaining encrypted/custom settings, per-model private tables,
-       remaining live-vendor scalar fields, and per-model firmware formulas
-       outside currently supported contexts.
+       remaining live-vendor scalar/string-coded fields, and per-model
+       firmware formulas outside currently supported contexts.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
      - BMFF derived fields, brand-name fields, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
@@ -316,7 +319,7 @@ Next interpretation priorities
    digitized-date aliases into broader cross-family reconciliation.
 5. Expand the remaining unambiguous MakerNote long tail: encrypted/custom
    settings, per-model firmware formulas outside currently supported
-   formatter contexts, remaining live-vendor scalar fields, and per-model
-   tables only where context is strong enough to avoid wrong labels.
+   formatter contexts, remaining live-vendor scalar/string-coded fields, and
+   per-model tables only where context is strong enough to avoid wrong labels.
 6. Keep transfer-safety classification conservative when interpretation is
    incomplete.

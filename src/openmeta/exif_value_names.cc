@@ -6734,6 +6734,250 @@ ge_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     return "";
 }
 
+static bool
+is_microsoft_stitch_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_microsoft_stitch_0"
+           || ifd_has_prefix(ifd, "mk_microsoft_stitch")
+           || ifd == "makernote:microsoft:stitch";
+}
+
+static const char*
+microsoft_stitch_camera_motion_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 2U: return "Rigid Scale";
+    case 3U: return "Affine";
+    case 4U: return "3D Rotation";
+    case 5U: return "Homography";
+    default: return "";
+    }
+}
+
+static const char*
+microsoft_stitch_map_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Perspective";
+    case 1U: return "Horizontal Cylindrical";
+    case 2U: return "Horizontal Spherical";
+    case 257U: return "Vertical Cylindrical";
+    case 258U: return "Vertical Spherical";
+    default: return "";
+    }
+}
+
+static const char*
+microsoft_value_name(std::string_view ifd, uint16_t tag,
+                     uint64_t value) noexcept
+{
+    if (!is_microsoft_stitch_ifd(ifd)) {
+        return "";
+    }
+    switch (tag) {
+    case 0x0001U: return microsoft_stitch_camera_motion_name(value);
+    case 0x0002U: return microsoft_stitch_map_type_name(value);
+    default: return "";
+    }
+}
+
+static bool
+is_reconyx_hyperfire_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_reconyx_hyperfire_0"
+           || ifd_has_prefix(ifd, "mk_reconyx_hyperfire_")
+           || ifd == "makernote:reconyx:hyperfire";
+}
+
+static bool
+is_reconyx_hyperfire2_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_reconyx_hyperfire2_0"
+           || ifd_has_prefix(ifd, "mk_reconyx_hyperfire2_")
+           || ifd == "makernote:reconyx:hyperfire2";
+}
+
+static bool
+is_reconyx_hyperfire4k_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_reconyx_hyperfire4k_0"
+           || ifd_has_prefix(ifd, "mk_reconyx_hyperfire4k_")
+           || ifd == "makernote:reconyx:hyperfire4k";
+}
+
+static bool
+is_reconyx_microfire_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_reconyx_microfire_0"
+           || ifd_has_prefix(ifd, "mk_reconyx_microfire_")
+           || ifd == "makernote:reconyx:microfire";
+}
+
+static bool
+is_reconyx_ultrafire_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_reconyx_ultrafire_0"
+           || ifd_has_prefix(ifd, "mk_reconyx_ultrafire_")
+           || ifd == "makernote:reconyx:ultrafire";
+}
+
+static const char*
+reconyx_trigger_mode_name(uint64_t value, bool point_and_shoot,
+                          bool live_view) noexcept
+{
+    switch (value) {
+    case static_cast<uint64_t>('C'): return "CodeLoc Not Entered";
+    case static_cast<uint64_t>('E'): return "External Sensor";
+    case static_cast<uint64_t>('M'): return "Motion Detection";
+    case static_cast<uint64_t>('T'): return "Time Lapse";
+    case static_cast<uint64_t>('P'):
+        return point_and_shoot ? "Point and Shoot" : "";
+    case static_cast<uint64_t>('S'): return live_view ? "Cell Status" : "";
+    case static_cast<uint64_t>('L'): return live_view ? "Cell Live View" : "";
+    default: return "";
+    }
+}
+
+static const char*
+reconyx_trigger_mode_microfire_name(uint64_t value) noexcept
+{
+    if (value == static_cast<uint64_t>('M')) {
+        return "Motion Sensor";
+    }
+    return reconyx_trigger_mode_name(value, false, false);
+}
+
+static const char*
+reconyx_trigger_mode_hyperfire4k_name(uint64_t value) noexcept
+{
+    if (value == static_cast<uint64_t>('M')) {
+        return "Motion Sensor";
+    }
+    return reconyx_trigger_mode_name(value, false, true);
+}
+
+static const char*
+reconyx_moon_phase_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "New";
+    case 1U: return "New Crescent";
+    case 2U: return "First Quarter";
+    case 3U: return "Waxing Gibbous";
+    case 4U: return "Full";
+    case 5U: return "Waning Gibbous";
+    case 6U: return "Last Quarter";
+    case 7U: return "Old Crescent";
+    default: return "";
+    }
+}
+
+static const char*
+reconyx_day_sunday0_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Sunday";
+    case 1U: return "Monday";
+    case 2U: return "Tuesday";
+    case 3U: return "Wednesday";
+    case 4U: return "Thursday";
+    case 5U: return "Friday";
+    case 6U: return "Saturday";
+    default: return "";
+    }
+}
+
+static const char*
+reconyx_day_sunday1_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "Sunday";
+    case 2U: return "Monday";
+    case 3U: return "Tuesday";
+    case 4U: return "Wednesday";
+    case 5U: return "Thursday";
+    case 6U: return "Friday";
+    case 7U: return "Saturday";
+    default: return "";
+    }
+}
+
+static const char*
+reconyx_microfire_battery_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Lithium";
+    case 1U: return "NiMH";
+    case 2U: return "Alkaline";
+    case 3U: return "Lead Acid";
+    default: return "";
+    }
+}
+
+static const char*
+reconyx_hyperfire4k_battery_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 1U: return "NiMH";
+    case 2U: return "Lithium";
+    case 3U: return "External";
+    case 4U: return "SC10 Solar";
+    default: return "";
+    }
+}
+
+static const char*
+reconyx_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (is_reconyx_hyperfire_ifd(ifd)) {
+        switch (tag) {
+        case 0x0006U: return reconyx_trigger_mode_name(value, false, false);
+        case 0x0012U: return reconyx_moon_phase_name(value);
+        case 0x0028U: return off_on_name(value);
+        default: return "";
+        }
+    }
+    if (is_reconyx_ultrafire_ifd(ifd)) {
+        switch (tag) {
+        case 0x0034U: return reconyx_trigger_mode_name(value, true, false);
+        case 0x0042U: return reconyx_day_sunday0_name(value);
+        case 0x0043U: return reconyx_moon_phase_name(value);
+        case 0x0048U: return off_on_name(value);
+        default: return "";
+        }
+    }
+    if (is_reconyx_hyperfire2_ifd(ifd)) {
+        switch (tag) {
+        case 0x0034U: return reconyx_trigger_mode_name(value, true, false);
+        case 0x004AU: return reconyx_day_sunday0_name(value);
+        case 0x004CU: return reconyx_moon_phase_name(value);
+        case 0x005AU: return off_on_name(value);
+        default: return "";
+        }
+    }
+    if (is_reconyx_microfire_ifd(ifd)) {
+        switch (tag) {
+        case 0x0044U: return reconyx_trigger_mode_microfire_name(value);
+        case 0x005AU: return reconyx_day_sunday1_name(value);
+        case 0x005CU: return reconyx_moon_phase_name(value);
+        case 0x006AU: return off_on_name(value);
+        case 0x0074U: return reconyx_microfire_battery_type_name(value);
+        default: return "";
+        }
+    }
+    if (is_reconyx_hyperfire4k_ifd(ifd)) {
+        switch (tag) {
+        case 0x0028U: return reconyx_trigger_mode_hyperfire4k_name(value);
+        case 0x0036U: return reconyx_day_sunday1_name(value);
+        case 0x0037U: return reconyx_moon_phase_name(value);
+        case 0x0044U: return off_on_name(value);
+        case 0x004FU: return reconyx_hyperfire4k_battery_type_name(value);
+        default: return "";
+        }
+    }
+    return "";
+}
+
 static const char*
 makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
                                  uint64_t value) noexcept
@@ -6855,6 +7099,14 @@ makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     }
     if (ifd_has_prefix(ifd, "mk_ge") || ifd_has_prefix(ifd, "makernote:ge:")) {
         return ge_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_microsoft")
+        || ifd_has_prefix(ifd, "makernote:microsoft:")) {
+        return microsoft_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_reconyx")
+        || ifd_has_prefix(ifd, "makernote:reconyx:")) {
+        return reconyx_value_name(ifd, tag, value);
     }
     return "";
 }

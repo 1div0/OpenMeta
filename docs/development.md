@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups, item groups, item semantic counts, primary item properties, primary metadata-carrier flags, primary sidecar and scene summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, descriptor-header, simple descriptor-item, enum, and bounded nested list/object summaries, version/firmware-style value formatting for selected EXIF/Nikon/Olympus contexts, Apple/FLIR/JVC/GE scalar MakerNote labels, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 95-96%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups, item groups, item semantic counts, primary item properties, primary metadata-carrier flags, primary sidecar and scene summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, path-record, byte-count, descriptor-header, simple descriptor-item, enum, and bounded nested list/object summaries, version/firmware-style value formatting for selected EXIF/Nikon/Olympus contexts, Apple/FLIR/JVC/GE/Reconyx/Microsoft scalar MakerNote labels, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 96-97%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, and RAW/source-processing fields across standard and vendor metadata. | Medium-high, about 88-93%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -63,7 +63,8 @@ exposure bias, exposure program/mode, gain, and raw exposure-adjustment records
 into host-visible roles, with raw exposure adjustments kept unsafe for rendered
 targets. Standard EXIF exposure program/mode and gain-control values and
 selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/
-Minolta/Sigma/Samsung/Ricoh/Apple/FLIR/JVC/GE MakerNote scalar print
+Minolta/Sigma/Samsung/Ricoh/Apple/FLIR/JVC/GE/Reconyx/Microsoft MakerNote
+scalar print
 conversions are exposed as bounded labels when a stable enum mapping is
 available.
 Version/firmware-like fields use `exif_tag_numeric_value_format(...)` and
