@@ -1,5 +1,23 @@
 # OpenMeta Changes
 
+## 0.4.55 - 2026-06-16
+
+Changes compared with `0.4.54`.
+
+### Added
+
+- Added bounded Nintendo CameraInfo category display labels.
+- Added bounded Sanyo public-context display labels for main MakerNote quality,
+  macro, sequential-shot, on/off state, shutter-release, scene, interval, flash,
+  and MOV white-balance scalar values.
+
+### Changed
+
+- Kept Sanyo measurement fields, MP4 numeric fields, text payloads, and
+  unsupported values unformatted instead of guessing labels.
+- Updated public interpretation, API stability, and development docs for the
+  expanded Nintendo/Sanyo display-label coverage.
+
 ## 0.4.54 - 2026-06-16
 
 Changes compared with `0.4.53`.

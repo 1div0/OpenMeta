@@ -897,5 +897,46 @@ namespace {
                      "");
     }
 
+    TEST(ExifValueNames, DispatchesNintendoSanyoMakerNoteEnums)
+    {
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nintendo_camerainfo_0",
+                                                 0x0030U, 0x1000U),
+                     "Mii");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:nintendo:camerainfo",
+                                                 0x0030U, 0x4000U),
+                     "Woman");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nintendo_camerainfo_0",
+                                                 0x0028U, 0U),
+                     "");
+
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x0201U, 0x0105U),
+                     "Fine/High");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:sanyo:main",
+                                                 0x0201U, 0x0207U),
+                     "Super Fine/Super High");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x0202U, 1U),
+                     "Macro");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x020EU, 3U),
+                     "Adjust Exposure");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x020FU, 1U),
+                     "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x0217U, 1U),
+                     "Press start, press stop");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x021EU, 0U),
+                     "No");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x021FU, 6U),
+                     "Lamp");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x0224U, 2U),
+                     "15 frames/s");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x0225U, 3U),
+                     "Red eye");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo_mov_0", 0x0044U, 4U),
+                     "Tungsten");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_sanyo0", 0x0204U, 1U), "");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:sanyo:mp4", 0x006AU,
+                                                 100U),
+                     "");
+    }
+
 }  // namespace
 }  // namespace openmeta

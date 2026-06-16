@@ -6978,6 +6978,198 @@ reconyx_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     return "";
 }
 
+static bool
+is_nintendo_camerainfo_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_nintendo_camerainfo_0"
+           || ifd_has_prefix(ifd, "mk_nintendo_camerainfo_")
+           || ifd == "makernote:nintendo:camerainfo";
+}
+
+static const char*
+nintendo_category_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0x0000U: return "(none)";
+    case 0x1000U: return "Mii";
+    case 0x2000U: return "Man";
+    case 0x4000U: return "Woman";
+    default: return "";
+    }
+}
+
+static const char*
+nintendo_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (is_nintendo_camerainfo_ifd(ifd) && tag == 0x0030U) {
+        return nintendo_category_name(value);
+    }
+    return "";
+}
+
+static bool
+is_sanyo_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_sanyo0" || ifd_has_prefix(ifd, "mk_sanyo_main")
+           || ifd == "makernote:sanyo:main";
+}
+
+static bool
+is_sanyo_mov_ifd(std::string_view ifd) noexcept
+{
+    return ifd_has_prefix(ifd, "mk_sanyo_mov") || ifd == "makernote:sanyo:mov";
+}
+
+static const char*
+sanyo_quality_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0x0000U: return "Normal/Very Low";
+    case 0x0001U: return "Normal/Low";
+    case 0x0002U: return "Normal/Medium Low";
+    case 0x0003U: return "Normal/Medium";
+    case 0x0004U: return "Normal/Medium High";
+    case 0x0005U: return "Normal/High";
+    case 0x0006U: return "Normal/Very High";
+    case 0x0007U: return "Normal/Super High";
+    case 0x0100U: return "Fine/Very Low";
+    case 0x0101U: return "Fine/Low";
+    case 0x0102U: return "Fine/Medium Low";
+    case 0x0103U: return "Fine/Medium";
+    case 0x0104U: return "Fine/Medium High";
+    case 0x0105U: return "Fine/High";
+    case 0x0106U: return "Fine/Very High";
+    case 0x0107U: return "Fine/Super High";
+    case 0x0200U: return "Super Fine/Very Low";
+    case 0x0201U: return "Super Fine/Low";
+    case 0x0202U: return "Super Fine/Medium Low";
+    case 0x0203U: return "Super Fine/Medium";
+    case 0x0204U: return "Super Fine/Medium High";
+    case 0x0205U: return "Super Fine/High";
+    case 0x0206U: return "Super Fine/Very High";
+    case 0x0207U: return "Super Fine/Super High";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_macro_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Normal";
+    case 1U: return "Macro";
+    case 2U: return "View";
+    case 3U: return "Manual";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_sequential_shot_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "None";
+    case 1U: return "Standard";
+    case 2U: return "Best";
+    case 3U: return "Adjust Exposure";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_record_shutter_release_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Record while down";
+    case 1U: return "Press start, press stop";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_scene_select_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Off";
+    case 1U: return "Sport";
+    case 2U: return "TV";
+    case 3U: return "Night";
+    case 4U: return "User 1";
+    case 5U: return "User 2";
+    case 6U: return "Lamp";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_sequence_shot_interval_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "5 frames/s";
+    case 1U: return "10 frames/s";
+    case 2U: return "15 frames/s";
+    case 3U: return "20 frames/s";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_flash_mode_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Auto";
+    case 1U: return "Force";
+    case 2U: return "Disabled";
+    case 3U: return "Red eye";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_mov_white_balance_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Auto";
+    case 1U: return "Daylight";
+    case 2U: return "Shade";
+    case 3U: return "Fluorescent";
+    case 4U: return "Tungsten";
+    case 5U: return "Manual";
+    default: return "";
+    }
+}
+
+static const char*
+sanyo_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (is_sanyo_main_ifd(ifd)) {
+        switch (tag) {
+        case 0x0201U: return sanyo_quality_name(value);
+        case 0x0202U: return sanyo_macro_name(value);
+        case 0x020EU: return sanyo_sequential_shot_name(value);
+        case 0x020FU:
+        case 0x0210U:
+        case 0x0213U:
+        case 0x0214U:
+        case 0x0216U:
+        case 0x0218U:
+        case 0x0219U:
+        case 0x021BU:
+        case 0x021DU: return off_on_name(value);
+        case 0x0217U: return sanyo_record_shutter_release_name(value);
+        case 0x021EU: return no_yes_name(value);
+        case 0x021FU: return sanyo_scene_select_name(value);
+        case 0x0224U: return sanyo_sequence_shot_interval_name(value);
+        case 0x0225U: return sanyo_flash_mode_name(value);
+        default: return "";
+        }
+    }
+    if (is_sanyo_mov_ifd(ifd) && tag == 0x0044U) {
+        return sanyo_mov_white_balance_name(value);
+    }
+    return "";
+}
+
 static const char*
 makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
                                  uint64_t value) noexcept
@@ -7107,6 +7299,14 @@ makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     if (ifd_has_prefix(ifd, "mk_reconyx")
         || ifd_has_prefix(ifd, "makernote:reconyx:")) {
         return reconyx_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_nintendo")
+        || ifd_has_prefix(ifd, "makernote:nintendo:")) {
+        return nintendo_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_sanyo")
+        || ifd_has_prefix(ifd, "makernote:sanyo:")) {
+        return sanyo_value_name(ifd, tag, value);
     }
     return "";
 }

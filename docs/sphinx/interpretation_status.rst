@@ -178,7 +178,8 @@ Coverage matrix
        query/interpretation candidates where safe to expose structurally.
        Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Casio/
        Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh/Apple/FLIR/JVC/General
-       Imaging/Reconyx/Microsoft print conversions expose bounded
+       Imaging/Reconyx/Microsoft/Nintendo/Sanyo print conversions expose
+       bounded
        human-readable labels, including expanded Canon sub-IFDs and
        CanonCustom fields, Canon ColorData source color-transform aliases,
        Nikon sub-IFDs and NikonSettings fields, NikonSettings
@@ -188,17 +189,18 @@ Coverage matrix
        Panasonic long-tail main-table fields, Apple AE/AF/HDR/capture/camera-
        type fields, FLIR GPS-valid state, JVC quality, General Imaging macro
        state, Reconyx moon phase/weekday/flash/illumination/battery/trigger
-       labels, and Microsoft stitch camera-motion/map-type labels.
+       labels, Microsoft stitch camera-motion/map-type labels, Nintendo
+       category labels, and Sanyo main/MOV public-context scalar labels.
        Version/firmware payloads have a separate bounded formatter path for
        selected standard EXIF byte-version fields, Nikon version-like
        contexts, and Olympus packed firmware fields so formatted versions are
        not confused with enum labels. Canon AF micro-adjustment fields are
        classified for lens-correction search, and Canon ambience-selection
        fields are classified as source-processing metadata.
-       Ambiguous per-model, per-version, text/count, measurement, or
-       value-type-dependent labels intentionally remain empty instead of
+       Ambiguous per-model, per-version, text/count, measurement, MP4 numeric,
+       or value-type-dependent labels intentionally remain empty instead of
        guessing.
-     - Medium-high, about 96-97%.
+     - Medium-high, about 97%.
      - Remaining encrypted/custom settings, per-model private tables,
        remaining live-vendor scalar/string-coded fields, and per-model
        firmware formulas outside currently supported contexts.

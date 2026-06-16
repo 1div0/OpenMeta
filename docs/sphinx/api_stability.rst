@@ -91,10 +91,11 @@ Host-facing API map
        white balance, scene capture type, gain control, CFA layout, and DNG
        calibration illuminants, plus selected bounded Canon/Nikon/Sony/
        Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/
-       Samsung/Ricoh/Apple/FLIR/JVC/GE/Reconyx/Microsoft MakerNote contexts
-       including NikonSettings On/Off labels, Reconyx scalar labels, and
-       Microsoft stitch labels where stable. Version/firmware helpers format
-       selected standard EXIF
+       Samsung/Ricoh/Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo
+       MakerNote contexts including NikonSettings On/Off labels, Reconyx
+       scalar labels, Microsoft stitch labels, Nintendo category labels, and
+       Sanyo public-context scalar labels where stable. Version/firmware
+       helpers format selected standard EXIF
        byte-version fields, Nikon version-like payloads, and Olympus packed
        firmware values without treating formatted versions as enum labels.
        Unknown or ambiguous values return an empty string or ``false`` and
