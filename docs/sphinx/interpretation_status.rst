@@ -6,7 +6,7 @@ meaningful interpretation. Interpretation means that decoded entries have
 stable names, typed values, semantic groups, query shapes, and transfer-safety
 classification that host applications can use directly.
 
-Current overall status: **medium-high, about 95%** for the public target
+Current overall status: **medium-high, about 97%** for the public target
 scope.
 This is intentionally lower than decode coverage. Decode parity only proves
 that metadata carriers and entries are visible; interpretation also requires
@@ -66,11 +66,14 @@ Coverage matrix
      - Main remaining gap
    * - Standard EXIF/TIFF/DNG tag names and typed values
      - Standard tag names, common scalar/vector values, DNG crop/color/
-       exposure/RAW-processing fields, GeoTIFF key names, and common
-       EXIF/TIFF/DNG numeric value-name helpers are available. Exposure time,
-       aperture, ISO sensitivity, exposure bias, exposure program/mode, gain,
-       and raw exposure-adjustment records now flow into concept candidates.
-     - High, about 92-95%.
+       exposure/RAW-processing fields, GeoTIFF key names, EXIF 3.1 learning/
+       development/correction/noise tag names, and common EXIF/TIFF/DNG
+       numeric value-name helpers are available. Exposure time, aperture, ISO
+       sensitivity, exposure bias, exposure program/mode, gain,
+       correction/noise status values, and raw exposure-adjustment records now
+       flow into concept candidates or stable display helpers where
+       appropriate.
+     - High, about 93-96%.
      - More enum-style human-readable values and richer conflict handling
        between duplicated families.
    * - ICC profiles
@@ -152,17 +155,19 @@ Coverage matrix
        safety. Current public RAW curve coverage includes DNG linearization/
        linearity-limit tags plus conservative Sony, Nikon, Kodak, Panasonic,
        and Phase One/Leaf-style curve or calibration names where decoded
-       metadata is visible. RAW concept candidates now expose a conservative
-       RAW applicability state; descriptor-aware concept-resolution overloads
-       let a host or decoder provide a ``MetadataRawDataDescriptor`` so
-       curve/LUT-like entries can remain conditional, apply to stored RAW
-       samples, require compressed RAW storage, require the primary RAW plane,
-       or be marked not applicable for rendered, uncompressed, packed, or
-       non-primary-plane data. Transfer preparation can also consume the
-       descriptor and drop RAW-processing metadata when source pixels are
-       already rendered. Lens-correction grouped tables require numeric
-       payloads before promotion.
-     - Medium-high, about 89-94%.
+       metadata is visible. Sony model-specific correction-offset routing
+       includes the current ILCE-7RM6 Tag9416 offsets where the decoded payload
+       exposes numeric correction arrays. RAW concept candidates now expose a
+       conservative RAW applicability state; descriptor-aware
+       concept-resolution overloads let a host or decoder provide a
+       ``MetadataRawDataDescriptor`` so curve/LUT-like entries can remain
+       conditional, apply to stored RAW samples, require compressed RAW
+       storage, require the primary RAW plane, or be marked not applicable for
+       rendered, uncompressed, packed, or non-primary-plane data. Transfer
+       preparation can also consume the descriptor and drop RAW-processing
+       metadata when source pixels are already rendered. Lens-correction
+       grouped tables require numeric payloads before promotion.
+     - Medium-high, about 90-94%.
      - Long-tail per-model correction tables, exact blob/decoder-stage
        applicability, and richer numeric normalization.
    * - Vendor MakerNotes
@@ -184,19 +189,21 @@ Coverage matrix
        CanonCustom fields, Canon ColorData source color-transform aliases,
        Nikon sub-IFDs and NikonSettings fields, NikonSettings
        source-processing aliases, NikonSettings On/Off residual labels, Nikon
-       Active D-Lighting labels, decoded Fujifilm ``mk_fuji*``, Pentax
-       sub-IFDs, Olympus main/focus/equipment fields, Casio Type2 fields,
-       Panasonic long-tail main-table fields, Apple AE/AF/HDR/capture/camera-
-       type fields, FLIR GPS-valid state, JVC quality, General Imaging macro
-       state, Reconyx moon phase/weekday/flash/illumination/battery/trigger
-       labels, Microsoft stitch camera-motion/map-type labels, Nintendo
-       category labels, and Sanyo main/MOV public-context scalar labels.
+       Active D-Lighting labels, decoded Fujifilm ``mk_fuji*`` including flash
+       white-balance naming, native RAF firmware naming, Pentax sub-IFDs,
+       Olympus main/focus/equipment fields, Casio Type2 fields, Panasonic
+       long-tail main-table fields, Apple AE/AF/HDR/capture/camera-type
+       fields, FLIR GPS-valid state, JVC quality, General Imaging macro state,
+       Reconyx moon phase/weekday/flash/illumination/battery/trigger labels,
+       Microsoft stitch camera-motion/map-type labels, Nintendo category
+       labels, and Sanyo main/MOV public-context scalar labels.
        Version/firmware payloads have a separate bounded formatter path for
        selected standard EXIF byte-version fields, Nikon version-like
-       contexts, and Olympus packed firmware fields so formatted versions are
-       not confused with enum labels. Canon AF micro-adjustment fields are
-       classified for lens-correction search, and Canon ambience-selection
-       fields are classified as source-processing metadata.
+       contexts, Olympus packed firmware fields, and native RAF firmware fields
+       so formatted versions are not confused with enum labels. Canon AF
+       micro-adjustment fields are classified for lens-correction search, and
+       Canon ambience-selection fields are classified as source-processing
+       metadata.
        Ambiguous per-model, per-version, text/count, measurement, MP4 numeric,
        or value-type-dependent labels intentionally remain empty instead of
        guessing.
@@ -205,7 +212,8 @@ Coverage matrix
        remaining live-vendor scalar/string-coded fields, and per-model
        firmware formulas outside currently supported contexts.
    * - BMFF item graph, HEIF/AVIF/CR3, JUMBF, and C2PA
-     - BMFF derived fields, brand-name fields, item-info rows,
+     - BMFF derived fields, brand-name fields including ``avif`` / ``avis`` /
+       ``avio`` AVIF-compatible brands, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
        primary item itself is a metadata item, primary sidecar counts/flags for

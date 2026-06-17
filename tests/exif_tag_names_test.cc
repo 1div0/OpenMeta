@@ -19,6 +19,18 @@ TEST(ExifTagNames, MapsCommonTags)
     EXPECT_EQ(exif_tag_name("exififd", 0x9003),
               std::string_view("DateTimeOriginal"));
     EXPECT_EQ(exif_tag_name("exififd", 0x927C), std::string_view("MakerNote"));
+    EXPECT_EQ(exif_tag_name("exififd", 0x9287),
+              std::string_view("LearningOptOutIn"));
+    EXPECT_EQ(exif_tag_name("exififd", 0xA40D),
+              std::string_view("DevelopmentType"));
+    EXPECT_EQ(exif_tag_name("exififd", 0xA40F),
+              std::string_view("DistortionCorrection"));
+    EXPECT_EQ(exif_tag_name("exififd", 0xA410),
+              std::string_view("ChromaticAberrationCorrection"));
+    EXPECT_EQ(exif_tag_name("exififd", 0xA411),
+              std::string_view("ShadingCorrection"));
+    EXPECT_EQ(exif_tag_name("exififd", 0xA412),
+              std::string_view("NoiseReduction"));
 
     EXPECT_EQ(exif_tag_name("gpsifd", 0x0001),
               std::string_view("GPSLatitudeRef"));
@@ -36,6 +48,8 @@ TEST(ExifTagNames, MapsCommonTags)
     EXPECT_EQ(exif_tag_name("mk_canon0", 0x0003),
               std::string_view("CanonFlashInfo"));
     EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1000), std::string_view("Quality"));
+    EXPECT_EQ(exif_tag_name("mk_fuji0", 0x2410),
+              std::string_view("WB_GRGBLevelsFlash"));
     EXPECT_EQ(exif_tag_name("mk_kodak0", 0x0028),
               std::string_view("Distance1"));
     EXPECT_EQ(exif_tag_name("mk_fuji0", 0x1200),
@@ -274,7 +288,7 @@ TEST(ExifTagNames, MapsNativeRafTags)
     using openmeta::exif_tag_name;
 
     EXPECT_EQ(exif_tag_name("raf_header", 0x003c),
-              std::string_view("RAFVersion"));
+              std::string_view("FirmwareVersion"));
     EXPECT_EQ(exif_tag_name("raf_header", 0x0064),
               std::string_view("FujiIFDOffset"));
     EXPECT_EQ(exif_tag_name("raf_0", 0x0100),

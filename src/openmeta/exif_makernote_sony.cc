@@ -622,15 +622,15 @@ static constexpr SonyCipherField kSonyTag9400bFields[] = {
 };
 
 static constexpr SonyCipherField kSonyTag9400cFields[] = {
-    { 0x0009, SonyCipherFieldKind::U8 },      // ReleaseMode2
-    { 0x000A, SonyCipherFieldKind::U32LE },   // ShotNumberSincePowerUp
-    { 0x0012, SonyCipherFieldKind::U32LE },   // SequenceImageNumber
-    { 0x0016, SonyCipherFieldKind::U8 },      // SequenceLength
-    { 0x001A, SonyCipherFieldKind::U32LE },   // SequenceFileNumber
-    { 0x001E, SonyCipherFieldKind::U8 },      // SequenceLength
-    { 0x0029, SonyCipherFieldKind::U8 },      // CameraOrientation
-    { 0x002A, SonyCipherFieldKind::U8 },      // Quality2
-    { 0x0053, SonyCipherFieldKind::U16LE },   // ModelReleaseYear
+    { 0x0009, SonyCipherFieldKind::U8 },     // ReleaseMode2
+    { 0x000A, SonyCipherFieldKind::U32LE },  // ShotNumberSincePowerUp
+    { 0x0012, SonyCipherFieldKind::U32LE },  // SequenceImageNumber
+    { 0x0016, SonyCipherFieldKind::U8 },     // SequenceLength
+    { 0x001A, SonyCipherFieldKind::U32LE },  // SequenceFileNumber
+    { 0x001E, SonyCipherFieldKind::U8 },     // SequenceLength
+    { 0x0029, SonyCipherFieldKind::U8 },     // CameraOrientation
+    { 0x002A, SonyCipherFieldKind::U8 },     // Quality2
+    { 0x0053, SonyCipherFieldKind::U16LE },  // ModelReleaseYear
 };
 
 static constexpr SonyCipherField kSonyTag9406Fields[]
@@ -642,9 +642,8 @@ static constexpr SonyCipherField kSonyTag9406Fields[]
 static bool
 sony_tag9406_0005_prefers_battery_level_name(std::string_view model) noexcept
 {
-    return model == "ILCE-6700" || model == "ILCE-7CR"
-           || model == "ILCE-7M5" || model == "ILCE-9M3"
-           || model == "ZV-E10M2";
+    return model == "ILCE-6700" || model == "ILCE-7CR" || model == "ILCE-7M5"
+           || model == "ILCE-9M3" || model == "ZV-E10M2";
 }
 
 static constexpr SonyCipherField kSonyTag940cFields[]
@@ -981,81 +980,72 @@ enum class SonyTag9400Variant : uint8_t {
 static SonyTag2010Variant
 select_sony_tag2010_variant(std::string_view model) noexcept
 {
-    static constexpr std::string_view kTag2010bModels[] = {
-        "SLT-A65", "SLT-A65V", "SLT-A77", "SLT-A77V", "NEX-7",
-        "NEX-VG20E", "Lunar"
-    };
+    static constexpr std::string_view kTag2010bModels[]
+        = { "SLT-A65", "SLT-A65V",  "SLT-A77", "SLT-A77V",
+            "NEX-7",   "NEX-VG20E", "Lunar" };
     static constexpr std::string_view kTag2010cModels[]
         = { "SLT-A37", "SLT-A57", "NEX-F3" };
-    static constexpr std::string_view kTag2010eModels[] = {
-        "SLT-A99", "SLT-A99V", "HV", "SLT-A58", "ILCE-3000", "ILCE-3500",
-        "NEX-3N", "NEX-5R", "NEX-5T", "NEX-6", "NEX-VG900", "NEX-VG30E",
-        "DSC-RX100", "DSC-RX1", "DSC-RX1R", "Stellar"
-    };
+    static constexpr std::string_view kTag2010eModels[]
+        = { "SLT-A99",   "SLT-A99V",  "HV",        "SLT-A58",
+            "ILCE-3000", "ILCE-3500", "NEX-3N",    "NEX-5R",
+            "NEX-5T",    "NEX-6",     "NEX-VG900", "NEX-VG30E",
+            "DSC-RX100", "DSC-RX1",   "DSC-RX1R",  "Stellar" };
     static constexpr std::string_view kTag2010fModels[]
         = { "DSC-RX100M2", "DSC-QX10", "DSC-QX100" };
-    static constexpr std::string_view kTag2010gModels[] = {
-        "DSC-QX30", "DSC-RX10", "DSC-RX100M3", "DSC-HX60V", "DSC-HX350",
-        "DSC-HX400V", "DSC-WX220", "DSC-WX350", "ILCE-7", "ILCE-7R",
-        "ILCE-7S", "ILCE-7M2", "ILCE-5000", "ILCE-5100", "ILCE-6000",
-        "ILCE-QX1", "ILCA-68", "ILCA-77M2"
-    };
+    static constexpr std::string_view kTag2010gModels[]
+        = { "DSC-QX30",   "DSC-RX10",  "DSC-RX100M3", "DSC-HX60V", "DSC-HX350",
+            "DSC-HX400V", "DSC-WX220", "DSC-WX350",   "ILCE-7",    "ILCE-7R",
+            "ILCE-7S",    "ILCE-7M2",  "ILCE-5000",   "ILCE-5100", "ILCE-6000",
+            "ILCE-QX1",   "ILCA-68",   "ILCA-77M2" };
     static constexpr std::string_view kTag2010hModels[] = {
-        "DSC-HX80", "DSC-HX90", "DSC-HX90V", "DSC-RX0", "DSC-RX1RM2",
-        "DSC-RX10M2", "DSC-RX10M3", "DSC-RX100M4", "DSC-RX100M5",
-        "DSC-WX500", "ILCE-6300", "ILCE-6500", "ILCE-7RM2", "ILCE-7SM2",
-        "ILCA-99M2"
+        "DSC-HX80",   "DSC-HX90",   "DSC-HX90V",   "DSC-RX0",     "DSC-RX1RM2",
+        "DSC-RX10M2", "DSC-RX10M3", "DSC-RX100M4", "DSC-RX100M5", "DSC-WX500",
+        "ILCE-6300",  "ILCE-6500",  "ILCE-7RM2",   "ILCE-7SM2",   "ILCA-99M2"
     };
     static constexpr std::string_view kTag2010iPrefixes[] = {
-        "ILCE-6100", "ILCE-6400", "ILCE-6600", "ILCE-7C",   "ILCE-7M3",
-        "ILCE-7RM3", "ILCE-7RM4", "ILCE-9",    "ILCE-9M2",  "DSC-RX10M4",
-        "DSC-RX100M6", "DSC-RX100M5A", "DSC-RX100M7", "DSC-HX95",
-        "DSC-HX99", "DSC-RX0M2", "ZV-1", "ZV-E10"
+        "ILCE-6100",   "ILCE-6400",    "ILCE-6600",   "ILCE-7C",  "ILCE-7M3",
+        "ILCE-7RM3",   "ILCE-7RM4",    "ILCE-9",      "ILCE-9M2", "DSC-RX10M4",
+        "DSC-RX100M6", "DSC-RX100M5A", "DSC-RX100M7", "DSC-HX95", "DSC-HX99",
+        "DSC-RX0M2",   "ZV-1",         "ZV-E10"
     };
 
     if (model == "NEX-5N") {
         return SonyTag2010Variant::A;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag2010bModels,
-                                   sizeof(kTag2010bModels)
-                                       / sizeof(kTag2010bModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag2010bModels,
+                                          sizeof(kTag2010bModels)
+                                              / sizeof(kTag2010bModels[0])))) {
         return SonyTag2010Variant::B;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag2010cModels,
-                                   sizeof(kTag2010cModels)
-                                       / sizeof(kTag2010cModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag2010cModels,
+                                          sizeof(kTag2010cModels)
+                                              / sizeof(kTag2010cModels[0])))) {
         return SonyTag2010Variant::C;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag2010eModels,
-                                   sizeof(kTag2010eModels)
-                                       / sizeof(kTag2010eModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag2010eModels,
+                                          sizeof(kTag2010eModels)
+                                              / sizeof(kTag2010eModels[0])))) {
         return SonyTag2010Variant::E;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag2010fModels,
-                                   sizeof(kTag2010fModels)
-                                       / sizeof(kTag2010fModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag2010fModels,
+                                          sizeof(kTag2010fModels)
+                                              / sizeof(kTag2010fModels[0])))) {
         return SonyTag2010Variant::F;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag2010gModels,
-                                   sizeof(kTag2010gModels)
-                                       / sizeof(kTag2010gModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag2010gModels,
+                                          sizeof(kTag2010gModels)
+                                              / sizeof(kTag2010gModels[0])))) {
         return SonyTag2010Variant::G;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag2010hModels,
-                                   sizeof(kTag2010hModels)
-                                       / sizeof(kTag2010hModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag2010hModels,
+                                          sizeof(kTag2010hModels)
+                                              / sizeof(kTag2010hModels[0])))) {
         return SonyTag2010Variant::H;
     }
     if (sony_model_has_prefix_any(model,
@@ -1070,33 +1060,29 @@ select_sony_tag2010_variant(std::string_view model) noexcept
 
 static SonyTag9400Variant
 select_sony_tag9400_variant(std::string_view model, uint8_t deciphered_v0,
-                            bool is_legacy_slt_family,
-                            bool is_lunar,
+                            bool is_legacy_slt_family, bool is_lunar,
                             bool is_stellar) noexcept
 {
     static constexpr std::string_view kTag9400aModels[] = {
-        "NEX-5R", "NEX-5T", "NEX-6",   "NEX-7",    "NEX-VG20E",
-        "NEX-VG30E", "NEX-VG900", "DSC-RX100", "DSC-RX1",
-        "DSC-RX1R",
+        "NEX-5R",    "NEX-5T",    "NEX-6",     "NEX-7",   "NEX-VG20E",
+        "NEX-VG30E", "NEX-VG900", "DSC-RX100", "DSC-RX1", "DSC-RX1R",
     };
     static constexpr std::string_view kTag9400bModels[] = {
-        "SLT-A58", "ILCE-3000", "ILCE-3500", "NEX-3N",   "DSC-WX60",
+        "SLT-A58",   "ILCE-3000",   "ILCE-3500", "NEX-3N",   "DSC-WX60",
         "DSC-WX300", "DSC-RX100M2", "DSC-HX50V", "DSC-QX10", "DSC-QX100",
     };
 
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag9400bModels,
-                                   sizeof(kTag9400bModels)
-                                       / sizeof(kTag9400bModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag9400bModels,
+                                          sizeof(kTag9400bModels)
+                                              / sizeof(kTag9400bModels[0])))) {
         return SonyTag9400Variant::B;
     }
     if (is_lunar || is_stellar || is_legacy_slt_family
-        || sony_model_matches_any(model,
-                                  std::span<const std::string_view>(
-                                      kTag9400aModels,
-                                      sizeof(kTag9400aModels)
-                                          / sizeof(kTag9400aModels[0])))) {
+        || sony_model_matches_any(
+            model, std::span<const std::string_view>(
+                       kTag9400aModels,
+                       sizeof(kTag9400aModels) / sizeof(kTag9400aModels[0])))) {
         return SonyTag9400Variant::A;
     }
     if (deciphered_v0 == 0x0C) {
@@ -1110,10 +1096,9 @@ sony_model_uses_tag9405a(std::string_view model, bool is_legacy_slt_family,
                          bool is_lunar, bool is_stellar) noexcept
 {
     static constexpr std::string_view kTag9405aDscModels[] = {
-        "DSC-HX50V",  "DSC-HX300", "DSC-QX10",   "DSC-QX100",
-        "DSC-RX100",  "DSC-RX100M2", "DSC-RX1",  "DSC-RX1R",
-        "DSC-TX30",   "DSC-WX60",  "DSC-WX80",   "DSC-WX200",
-        "DSC-WX300",
+        "DSC-HX50V",   "DSC-HX300", "DSC-QX10",  "DSC-QX100", "DSC-RX100",
+        "DSC-RX100M2", "DSC-RX1",   "DSC-RX1R",  "DSC-TX30",  "DSC-WX60",
+        "DSC-WX80",    "DSC-WX200", "DSC-WX300",
     };
 
     if (is_legacy_slt_family || is_lunar || is_stellar
@@ -1121,11 +1106,11 @@ sony_model_uses_tag9405a(std::string_view model, bool is_legacy_slt_family,
         || model == "ILCE-3500") {
         return true;
     }
-    return sony_model_matches_any(model,
-                                  std::span<const std::string_view>(
-                                      kTag9405aDscModels,
-                                      sizeof(kTag9405aDscModels)
-                                          / sizeof(kTag9405aDscModels[0])));
+    return sony_model_matches_any(
+        model,
+        std::span<const std::string_view>(kTag9405aDscModels,
+                                          sizeof(kTag9405aDscModels)
+                                              / sizeof(kTag9405aDscModels[0])));
 }
 
 static uint16_t
@@ -1138,26 +1123,24 @@ sony_tag9405b_lens_zoom_tag(std::string_view model) noexcept
         "ZV-E10",
     };
     static constexpr std::string_view kTag034ePrefixes[] = {
-        "ILCE-7RM3", "ILCE-7RM4",
+        "ILCE-7RM3",
+        "ILCE-7RM4",
     };
     static constexpr std::string_view kTag035aModels[] = {
-        "ILCE-7RM2",       "ILCE-7SM2",      "DSC-HX80",
-        "DSC-HX90V",       "DSC-RX10M2",     "DSC-RX10M3",
-        "DSC-RX100M4",     "DSC-WX500",
+        "ILCE-7RM2",  "ILCE-7SM2",  "DSC-HX80",    "DSC-HX90V",
+        "DSC-RX10M2", "DSC-RX10M3", "DSC-RX100M4", "DSC-WX500",
     };
 
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag035aModels,
-                                   sizeof(kTag035aModels)
-                                       / sizeof(kTag035aModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag035aModels,
+                                          sizeof(kTag035aModels)
+                                              / sizeof(kTag035aModels[0])))) {
         return 0x035AU;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag034eModels,
-                                   sizeof(kTag034eModels)
-                                       / sizeof(kTag034eModels[0])))
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag034eModels,
+                                          sizeof(kTag034eModels)
+                                              / sizeof(kTag034eModels[0])))
         || sony_model_has_prefix_any(model,
                                      std::span<const std::string_view>(
                                          kTag034ePrefixes,
@@ -1176,32 +1159,32 @@ sony_tag9405b_vignetting_tag(std::string_view model) noexcept
         "ILCE-7",  "ILCE-7R",   "ILCE-7S",   "ILCE-QX1",  "Lusso",
     };
     static constexpr std::string_view kTag035cModels[] = {
-        "ILCA-99M2", "ILCE-6100", "ILCE-6400", "ILCE-6500",
-        "ILCE-6600", "ILCE-7C",   "ILCE-7M3",  "ILCE-9",
-        "ILCE-9M2",  "ZV-E10",
+        "ILCA-99M2", "ILCE-6100", "ILCE-6400", "ILCE-6500", "ILCE-6600",
+        "ILCE-7C",   "ILCE-7M3",  "ILCE-9",    "ILCE-9M2",  "ZV-E10",
     };
     static constexpr std::string_view kTag035cPrefixes[] = {
-        "ILCE-7RM3", "ILCE-7RM4",
+        "ILCE-7RM3",
+        "ILCE-7RM4",
     };
     static constexpr std::string_view kTag0368Models[] = {
-        "ILCE-6300", "ILCE-7RM2", "ILCE-7SM2",
+        "ILCE-6300",
+        "ILCE-7RM2",
+        "ILCE-7SM2",
     };
 
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag034aModels,
-                                   sizeof(kTag034aModels)
-                                       / sizeof(kTag034aModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag034aModels,
+                                          sizeof(kTag034aModels)
+                                              / sizeof(kTag034aModels[0])))) {
         return 0x034AU;
     }
     if (model == "ILCE-7M2") {
         return 0x0350U;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag035cModels,
-                                   sizeof(kTag035cModels)
-                                       / sizeof(kTag035cModels[0])))
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag035cModels,
+                                          sizeof(kTag035cModels)
+                                              / sizeof(kTag035cModels[0])))
         || sony_model_has_prefix_any(model,
                                      std::span<const std::string_view>(
                                          kTag035cPrefixes,
@@ -1209,11 +1192,10 @@ sony_tag9405b_vignetting_tag(std::string_view model) noexcept
                                              / sizeof(kTag035cPrefixes[0])))) {
         return 0x035CU;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag0368Models,
-                                   sizeof(kTag0368Models)
-                                       / sizeof(kTag0368Models[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag0368Models,
+                                          sizeof(kTag0368Models)
+                                              / sizeof(kTag0368Models[0])))) {
         return 0x0368U;
     }
     return 0U;
@@ -1227,41 +1209,41 @@ sony_tag9405b_chromatic_tag(std::string_view model) noexcept
         "ILCE-7",  "ILCE-7R",   "ILCE-7S",   "ILCE-QX1",  "Lusso",
     };
     static constexpr std::string_view kTag039cModels[] = {
-        "ILCE-6300", "ILCE-7RM2", "ILCE-7SM2",
+        "ILCE-6300",
+        "ILCE-7RM2",
+        "ILCE-7SM2",
     };
     static constexpr std::string_view kTag03b8Models[] = {
         "ILCE-6100", "ILCE-6400", "ILCE-6600", "ILCE-7C",
         "ILCE-7M3",  "ILCE-9",    "ILCE-9M2",  "ZV-E10",
     };
     static constexpr std::string_view kTag03b8Prefixes[] = {
-        "ILCE-7RM3", "ILCE-7RM4",
+        "ILCE-7RM3",
+        "ILCE-7RM4",
     };
 
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag037cModels,
-                                   sizeof(kTag037cModels)
-                                       / sizeof(kTag037cModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag037cModels,
+                                          sizeof(kTag037cModels)
+                                              / sizeof(kTag037cModels[0])))) {
         return 0x037CU;
     }
     if (model == "ILCE-7M2") {
         return 0x0384U;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag039cModels,
-                                   sizeof(kTag039cModels)
-                                       / sizeof(kTag039cModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag039cModels,
+                                          sizeof(kTag039cModels)
+                                              / sizeof(kTag039cModels[0])))) {
         return 0x039CU;
     }
     if (model == "ILCA-99M2" || model == "ILCE-6500") {
         return 0x03B0U;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag03b8Models,
-                                   sizeof(kTag03b8Models)
-                                       / sizeof(kTag03b8Models[0])))
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag03b8Models,
+                                          sizeof(kTag03b8Models)
+                                              / sizeof(kTag03b8Models[0])))
         || sony_model_has_prefix_any(model,
                                      std::span<const std::string_view>(
                                          kTag03b8Prefixes,
@@ -1282,10 +1264,12 @@ sony_tag9416_vignetting_tag(std::string_view model) noexcept
     if (model == "ILCE-7M4") {
         return 0x0891U;
     }
+    if (model == "ILCE-7RM6") {
+        return 0x0708U;
+    }
     if (model == "ILCE-1M2" || model == "ILCE-6700" || model == "ILCE-7CM2"
-        || model == "ILCE-7CR" || model == "ILCE-7RM5"
-        || model == "ILME-FX2" || model == "ILME-FX30"
-        || model == "ZV-E1" || model == "ZV-E10M2") {
+        || model == "ILCE-7CR" || model == "ILCE-7RM5" || model == "ILME-FX2"
+        || model == "ILME-FX30" || model == "ZV-E1" || model == "ZV-E10M2") {
         return 0x089DU;
     }
     return 0U;
@@ -1300,6 +1284,9 @@ sony_tag9416_apsc_tag(std::string_view model) noexcept
     }
     if (model == "ILCE-7M4") {
         return 0x08B7U;
+    }
+    if (model == "ILCE-7RM6") {
+        return 0x074FU;
     }
     if (model == "ILCE-1M2" || model == "ILCE-7CM2" || model == "ILCE-7CR"
         || model == "ILCE-7RM5" || model == "ZV-E1") {
@@ -1318,10 +1305,12 @@ sony_tag9416_chromatic_tag(std::string_view model) noexcept
     if (model == "ILCE-7M4") {
         return 0x0916U;
     }
+    if (model == "ILCE-7RM6") {
+        return 0x0843U;
+    }
     if (model == "ILCE-1M2" || model == "ILCE-6700" || model == "ILCE-7CM2"
-        || model == "ILCE-7CR" || model == "ILCE-7RM5"
-        || model == "ILME-FX2" || model == "ILME-FX30"
-        || model == "ZV-E1" || model == "ZV-E10M2") {
+        || model == "ILCE-7CR" || model == "ILCE-7RM5" || model == "ILME-FX2"
+        || model == "ILME-FX30" || model == "ZV-E1" || model == "ZV-E10M2") {
         return 0x0945U;
     }
     return 0U;
@@ -1331,31 +1320,28 @@ static uint16_t
 sony_tag9400c_shutter_type_tag(std::string_view model) noexcept
 {
     static constexpr std::string_view kTag0133Models[] = {
-        "DSC-HX350", "DSC-HX400V", "DSC-HX60V", "DSC-HX80",
-        "DSC-HX90",  "DSC-HX90V",  "DSC-QX30",  "DSC-RX10",
-        "DSC-RX10M2","DSC-RX10M3", "DSC-RX100M3", "DSC-RX100M4",
+        "DSC-HX350",  "DSC-HX400V", "DSC-HX60V",   "DSC-HX80",
+        "DSC-HX90",   "DSC-HX90V",  "DSC-QX30",    "DSC-RX10",
+        "DSC-RX10M2", "DSC-RX10M3", "DSC-RX100M3", "DSC-RX100M4",
     };
     static constexpr std::string_view kTag0139Models[] = {
-        "DSC-HX95",   "DSC-HX99",   "DSC-RX0",     "DSC-RX0M2",
-        "DSC-RX10M4", "DSC-RX100M5","DSC-RX100M5A","DSC-RX100M6",
+        "DSC-HX95",   "DSC-HX99",    "DSC-RX0",      "DSC-RX0M2",
+        "DSC-RX10M4", "DSC-RX100M5", "DSC-RX100M5A", "DSC-RX100M6",
     };
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag0133Models,
-                                   sizeof(kTag0133Models)
-                                       / sizeof(kTag0133Models[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag0133Models,
+                                          sizeof(kTag0133Models)
+                                              / sizeof(kTag0133Models[0])))) {
         return 0x0133U;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag0139Models,
-                                   sizeof(kTag0139Models)
-                                       / sizeof(kTag0139Models[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag0139Models,
+                                          sizeof(kTag0139Models)
+                                              / sizeof(kTag0139Models[0])))) {
         return 0x0139U;
     }
-    if (model == "DSC-RX100M7" || model == "DSC-RX100M7A"
-        || model == "ZV-1" || model == "ZV-1A" || model == "ZV-1F"
-        || model == "ZV-1M2") {
+    if (model == "DSC-RX100M7" || model == "DSC-RX100M7A" || model == "ZV-1"
+        || model == "ZV-1A" || model == "ZV-1F" || model == "ZV-1M2") {
         return 0x013FU;
     }
     return 0U;
@@ -1376,18 +1362,15 @@ enum class SonyTag9404Variant : uint8_t {
 };
 
 static SonyTag9050Variant
-select_sony_tag9050_variant(std::string_view model,
-                            bool is_slt_family,
+select_sony_tag9050_variant(std::string_view model, bool is_slt_family,
                             bool is_lunar) noexcept
 {
-    static constexpr std::string_view kTag9050bModels[] = {
-        "ILCE-6300", "ILCE-6500", "ILCA-99M2", "ILCE-6600",
-        "ILCE-7C",   "ILCE-7M3",  "ILCE-7RM2", "ILCE-7SM2",
-        "ILCE-9",    "ILCE-9M2",  "ZV-E10"
-    };
-    static constexpr std::string_view kTag9050bPrefixes[] = {
-        "ILCE-6100", "ILCE-6400", "ILCE-7RM3", "ILCE-7RM4"
-    };
+    static constexpr std::string_view kTag9050bModels[]
+        = { "ILCE-6300", "ILCE-6500", "ILCA-99M2", "ILCE-6600",
+            "ILCE-7C",   "ILCE-7M3",  "ILCE-7RM2", "ILCE-7SM2",
+            "ILCE-9",    "ILCE-9M2",  "ZV-E10" };
+    static constexpr std::string_view kTag9050bPrefixes[]
+        = { "ILCE-6100", "ILCE-6400", "ILCE-7RM3", "ILCE-7RM4" };
     static constexpr std::string_view kTag9050cModels[] = {
         "ILCE-7M4",
         "ILCE-7RM5",
@@ -1398,45 +1381,36 @@ select_sony_tag9050_variant(std::string_view model,
         "ILME-FX3",
     };
     static constexpr std::string_view kTag9050dModels[] = {
-        "ILCE-6700",
-        "ILCE-7CM2",
-        "ILCE-7CR",
-        "ILME-FX2",
-        "ZV-E1",
-        "ZV-E10M2",
+        "ILCE-6700", "ILCE-7CM2", "ILCE-7CR", "ILCE-7RM6",
+        "ILME-FX2",  "ZV-E1",     "ZV-E10M2",
     };
 
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag9050dModels,
-                                   sizeof(kTag9050dModels)
-                                       / sizeof(kTag9050dModels[0])))) {
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag9050dModels,
+                                          sizeof(kTag9050dModels)
+                                              / sizeof(kTag9050dModels[0])))) {
         return SonyTag9050Variant::D;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag9050cModels,
-                                   sizeof(kTag9050cModels)
-                                       / sizeof(kTag9050cModels[0])))
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag9050cModels,
+                                          sizeof(kTag9050cModels)
+                                              / sizeof(kTag9050cModels[0])))
         || sony_model_has_prefix_any(model,
                                      std::span<const std::string_view>(
                                          kTag9050cPrefixes,
                                          sizeof(kTag9050cPrefixes)
-                                             / sizeof(
-                                                 kTag9050cPrefixes[0])))) {
+                                             / sizeof(kTag9050cPrefixes[0])))) {
         return SonyTag9050Variant::C;
     }
-    if (sony_model_matches_any(model,
-                               std::span<const std::string_view>(
-                                   kTag9050bModels,
-                                   sizeof(kTag9050bModels)
-                                       / sizeof(kTag9050bModels[0])))
+    if (sony_model_matches_any(model, std::span<const std::string_view>(
+                                          kTag9050bModels,
+                                          sizeof(kTag9050bModels)
+                                              / sizeof(kTag9050bModels[0])))
         || sony_model_has_prefix_any(model,
                                      std::span<const std::string_view>(
                                          kTag9050bPrefixes,
                                          sizeof(kTag9050bPrefixes)
-                                             / sizeof(
-                                                 kTag9050bPrefixes[0])))) {
+                                             / sizeof(kTag9050bPrefixes[0])))) {
         return SonyTag9050Variant::B;
     }
     if (is_slt_family || is_lunar) {
@@ -1669,11 +1643,10 @@ decode_sony_afinfo_from_tag940e(std::span<const std::byte> bytes,
     MetaValue vals_out[32];
     uint32_t out_count = 0;
 
-    uint8_t u8v              = 0;
+    uint8_t u8v = 0;
     if (af_type == 3) {
-        const uint16_t u8_tags[] = {
-            0x0002, 0x0005, 0x0037, 0x0038, 0x0039, 0x003A, 0x003B, 0x0043
-        };
+        const uint16_t u8_tags[] = { 0x0002, 0x0005, 0x0037, 0x0038,
+                                     0x0039, 0x003A, 0x003B, 0x0043 };
         for (uint32_t i = 0; i < sizeof(u8_tags) / sizeof(u8_tags[0]); ++i) {
             const uint16_t t = u8_tags[i];
             if (!sony_read_u8(bytes, t, rounds, &u8v)) {
@@ -1687,8 +1660,9 @@ decode_sony_afinfo_from_tag940e(std::span<const std::byte> bytes,
             uint8_t af_points_used[10];
             bool ok = true;
             for (uint32_t i = 0; i < 10U; ++i) {
-                ok = ok && sony_read_u8(bytes, uint16_t(0x0010U + i), rounds,
-                                        &af_points_used[i]);
+                ok = ok
+                     && sony_read_u8(bytes, uint16_t(0x0010U + i), rounds,
+                                     &af_points_used[i]);
             }
             if (ok) {
                 tags_out[out_count] = 0x0010U;
@@ -1852,8 +1826,8 @@ decode_sony_tag9400(std::span<const std::byte> bytes,
     }
 
     // Tag9400 variant selection (based on first deciphered byte).
-    const uint8_t allowed[] = { 0x07, 0x09, 0x0A, 0x0C, 0x23, 0x24,
-                                0x26, 0x28, 0x31, 0x32, 0x33 };
+    const uint8_t allowed[] = { 0x07, 0x09, 0x0A, 0x0C, 0x23, 0x24, 0x26,
+                                0x28, 0x31, 0x32, 0x33, 0x41, 0x43 };
     const uint32_t rounds
         = sony_guess_cipher_rounds(bytes, 0, std::span<const uint8_t>(allowed));
 
@@ -1896,8 +1870,7 @@ decode_sony_tag9400(std::span<const std::byte> bytes,
                                                  std::span<char>(sub_ifd_buf));
                 uint8_t shutter_type = 0;
                 if (!ifd_name.empty()
-                    && sony_read_u8(bytes, shutter_tag, rounds,
-                                    &shutter_type)) {
+                    && sony_read_u8(bytes, shutter_tag, rounds, &shutter_type)) {
                     const uint16_t tags_out[]  = { shutter_tag };
                     const MetaValue vals_out[] = { make_u8(shutter_type) };
                     emit_bin_dir_entries(ifd_name, store,
@@ -2015,11 +1988,11 @@ decode_sony_faceinfo_from_shotinfo(bool le, std::span<const std::byte> bytes,
         return;
     }
 
-    const uint16_t max_faces = 8;
-    const uint16_t face_count
-        = (faces_detected < max_faces) ? faces_detected : max_faces;
-    const uint64_t total_bytes
-        = uint64_t(face_off) + uint64_t(face_len) * uint64_t(face_count);
+    const uint16_t max_faces   = 8;
+    const uint16_t face_count  = (faces_detected < max_faces) ? faces_detected
+                                                              : max_faces;
+    const uint64_t total_bytes = uint64_t(face_off)
+                                 + uint64_t(face_len) * uint64_t(face_count);
     if (total_bytes > bytes.size()) {
         return;
     }
@@ -2038,8 +2011,8 @@ decode_sony_faceinfo_from_shotinfo(bool le, std::span<const std::byte> bytes,
     uint32_t out_count = 0;
 
     for (uint16_t i = 0; i < face_count; ++i) {
-        const uint32_t tag32
-            = static_cast<uint32_t>(face_len) * static_cast<uint32_t>(i);
+        const uint32_t tag32 = static_cast<uint32_t>(face_len)
+                               * static_cast<uint32_t>(i);
         if (tag32 > static_cast<uint32_t>(UINT16_MAX)) {
             continue;
         }
@@ -2048,15 +2021,16 @@ decode_sony_faceinfo_from_shotinfo(bool le, std::span<const std::byte> bytes,
         uint16_t rect[4];
         bool ok = true;
         for (uint32_t j = 0; j < 4; ++j) {
-            ok = ok && read_u16_endian(le, bytes, off + uint64_t(j) * 2u,
-                                       &rect[j]);
+            ok = ok
+                 && read_u16_endian(le, bytes, off + uint64_t(j) * 2u,
+                                    &rect[j]);
         }
         if (!ok) {
             continue;
         }
         tags_out[out_count] = tag;
-        vals_out[out_count] = make_u16_array(store.arena(),
-                                             std::span<const uint16_t>(rect, 4));
+        vals_out[out_count]
+            = make_u16_array(store.arena(), std::span<const uint16_t>(rect, 4));
         out_count += 1;
     }
 
@@ -2103,14 +2077,14 @@ decode_sony_shotinfo_from_tag3000(std::span<const std::byte> bytes,
 
     uint16_t tags_out[16];
     MetaValue vals_out[16];
-    uint32_t out_count = 0;
-    uint16_t face_info_off = 0;
-    uint16_t face_info_len = 0;
+    uint32_t out_count      = 0;
+    uint16_t face_info_off  = 0;
+    uint16_t face_info_len  = 0;
     uint16_t faces_detected = 0;
 
     uint16_t u16v = 0;
     if (read_u16_endian(le, bytes, 0x0002, &u16v)) {
-        face_info_off = u16v;
+        face_info_off       = u16v;
         tags_out[out_count] = 0x0002;
         vals_out[out_count] = make_u16(u16v);
         out_count += 1;
@@ -2135,13 +2109,13 @@ decode_sony_shotinfo_from_tag3000(std::span<const std::byte> bytes,
     }
 
     if (read_u16_endian(le, bytes, 0x0030, &u16v)) {
-        faces_detected = u16v;
+        faces_detected      = u16v;
         tags_out[out_count] = 0x0030;
         vals_out[out_count] = make_u16(u16v);
         out_count += 1;
     }
     if (read_u16_endian(le, bytes, 0x0032, &u16v)) {
-        face_info_len = u16v;
+        face_info_len       = u16v;
         tags_out[out_count] = 0x0032;
         vals_out[out_count] = make_u16(u16v);
         out_count += 1;
@@ -2301,8 +2275,7 @@ decode_sony_tag940e(std::span<const std::byte> bytes,
 static void
 decode_sony_tag9405b(std::span<const std::byte> bytes,
                      std::string_view mk_prefix, std::string_view model,
-                     MetaStore& store,
-                     const ExifDecodeOptions& options,
+                     MetaStore& store, const ExifDecodeOptions& options,
                      ExifDecodeResult* status_out) noexcept
 {
     if (bytes.empty()) {
@@ -2350,8 +2323,8 @@ decode_sony_tag9405b(std::span<const std::byte> bytes,
     }
 
     const uint16_t lens_zoom_tag = sony_tag9405b_lens_zoom_tag(model);
-    if (lens_zoom_tag != 0U && sony_read_u16le(bytes, lens_zoom_tag, rounds,
-                                               &u16v)) {
+    if (lens_zoom_tag != 0U
+        && sony_read_u16le(bytes, lens_zoom_tag, rounds, &u16v)) {
         tags_out[out_count] = lens_zoom_tag;
         vals_out[out_count] = make_u16(u16v);
         out_count += 1;
@@ -2454,8 +2427,7 @@ decode_sony_tag9405b(std::span<const std::byte> bytes,
 static void
 decode_sony_tag9416(std::span<const std::byte> bytes,
                     std::string_view mk_prefix, std::string_view model,
-                    MetaStore& store,
-                    const ExifDecodeOptions& options,
+                    MetaStore& store, const ExifDecodeOptions& options,
                     ExifDecodeResult* status_out) noexcept
 {
     if (bytes.empty()) {
@@ -2547,18 +2519,19 @@ decode_sony_tag9416(std::span<const std::byte> bytes,
 
     const uint16_t vignetting_tag = sony_tag9416_vignetting_tag(model);
     if (vignetting_tag != 0U) {
-        if (vignetting_tag == 0x089DU) {
+        if (vignetting_tag == 0x0708U || vignetting_tag == 0x089DU) {
             std::array<int16_t, 32> v {};
             bool ok = true;
             for (uint32_t i = 0; i < v.size(); ++i) {
                 ok = ok
-                     && sony_read_i16le(bytes, vignetting_tag + i * 2U,
-                                        rounds, &v[i]);
+                     && sony_read_i16le(bytes, vignetting_tag + i * 2U, rounds,
+                                        &v[i]);
             }
             if (ok) {
                 tags_out[out_count] = vignetting_tag;
-                vals_out[out_count] = make_i16_array(
-                    store.arena(), std::span<const int16_t>(v));
+                vals_out[out_count]
+                    = make_i16_array(store.arena(),
+                                     std::span<const int16_t>(v));
                 out_count += 1;
             }
         } else {
@@ -2566,13 +2539,14 @@ decode_sony_tag9416(std::span<const std::byte> bytes,
             bool ok = true;
             for (uint32_t i = 0; i < v.size(); ++i) {
                 ok = ok
-                     && sony_read_i16le(bytes, vignetting_tag + i * 2U,
-                                        rounds, &v[i]);
+                     && sony_read_i16le(bytes, vignetting_tag + i * 2U, rounds,
+                                        &v[i]);
             }
             if (ok) {
                 tags_out[out_count] = vignetting_tag;
-                vals_out[out_count] = make_i16_array(
-                    store.arena(), std::span<const int16_t>(v));
+                vals_out[out_count]
+                    = make_i16_array(store.arena(),
+                                     std::span<const int16_t>(v));
                 out_count += 1;
             }
         }
@@ -2615,14 +2589,14 @@ decode_sony_tag2010e(std::span<const std::byte> bytes,
                      ExifDecodeResult* status_out) noexcept
 {
     const uint32_t rounds = 1;
-    sony_decode_cipher_fields(bytes, mk_prefix, "tag2010e", rounds,
-                              std::span<const SonyCipherField>(
-                                  kSonyTag2010eFields,
-                                  sizeof(kSonyTag2010eFields)
-                                      / sizeof(kSonyTag2010eFields[0])),
-                              store, options, status_out);
-    decode_sony_meterinfo_from_tag2010(bytes, rounds, 0x04B8, mk_prefix,
-                                       store, options, status_out);
+    sony_decode_cipher_fields(
+        bytes, mk_prefix, "tag2010e", rounds,
+        std::span<const SonyCipherField>(kSonyTag2010eFields,
+                                         sizeof(kSonyTag2010eFields)
+                                             / sizeof(kSonyTag2010eFields[0])),
+        store, options, status_out);
+    decode_sony_meterinfo_from_tag2010(bytes, rounds, 0x04B8, mk_prefix, store,
+                                       options, status_out);
 
     char sub_ifd_buf[96];
     const std::string_view ifd_name
@@ -2638,8 +2612,8 @@ decode_sony_tag2010e(std::span<const std::byte> bytes,
 
     if ((model == "SLT-A99" || model == "SLT-A99V" || model == "HV"
          || model == "NEX-5R" || model == "NEX-5T" || model == "NEX-6"
-         || model == "NEX-VG900" || model == "NEX-VG30E"
-         || model == "DSC-RX100" || model == "Stellar")) {
+         || model == "NEX-VG900" || model == "NEX-VG30E" || model == "DSC-RX100"
+         || model == "Stellar")) {
         uint16_t v = 0;
         if (sony_read_u16le(bytes, 0x1254, rounds, &v)) {
             tags_out[out_count] = 0x1254;
@@ -2656,9 +2630,8 @@ decode_sony_tag2010e(std::span<const std::byte> bytes,
         }
     }
     if ((model == "SLT-A58" || model == "ILCE-3000" || model == "ILCE-3500"
-         || model == "NEX-3N" || model == "DSC-HX300"
-         || model == "DSC-HX50V" || model == "DSC-WX60"
-         || model == "DSC-WX80" || model == "DSC-WX200"
+         || model == "NEX-3N" || model == "DSC-HX300" || model == "DSC-HX50V"
+         || model == "DSC-WX60" || model == "DSC-WX80" || model == "DSC-WX200"
          || model == "DSC-WX300" || model == "DSC-TX30")) {
         const uint16_t focal_tags[] = { 0x1278, 0x127A, 0x127C, 0x1280 };
         for (uint32_t i = 0; i < sizeof(focal_tags) / sizeof(focal_tags[0]);
@@ -2702,9 +2675,8 @@ decode_sony_tag9406(std::span<const std::byte> bytes,
     uint16_t tags_out[8];
     MetaValue vals_out[8];
     uint32_t out_count = 0;
-    for (size_t i = 0; i < sizeof(kSonyTag9406Fields)
-                                / sizeof(kSonyTag9406Fields[0]);
-         ++i) {
+    for (size_t i = 0;
+         i < sizeof(kSonyTag9406Fields) / sizeof(kSonyTag9406Fields[0]); ++i) {
         uint8_t v = 0;
         if (!sony_read_u8(bytes, kSonyTag9406Fields[i].tag, 1, &v)) {
             continue;
@@ -2752,9 +2724,8 @@ decode_sony_tag9406(std::span<const std::byte> bytes,
 
 static void
 decode_sony_tag9050c_extras(std::span<const std::byte> bytes,
-                            std::string_view mk_prefix,
-                            std::string_view model, MetaStore& store,
-                            const ExifDecodeOptions& options,
+                            std::string_view mk_prefix, std::string_view model,
+                            MetaStore& store, const ExifDecodeOptions& options,
                             ExifDecodeResult* status_out) noexcept
 {
     if (model != "ILCE-1") {
@@ -2846,19 +2817,17 @@ decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
     (void)ctx.find_first_text("ifd0", 0x0110 /* Model */, &model);
     model = sony_trim_model(model);
     char model_buf[64];
-    const size_t model_n
-        = (model.size() < sizeof(model_buf) - 1U)
-              ? model.size()
-              : (sizeof(model_buf) - 1U);
+    const size_t model_n = (model.size() < sizeof(model_buf) - 1U)
+                               ? model.size()
+                               : (sizeof(model_buf) - 1U);
     for (size_t i = 0; i < model_n; ++i) {
         model_buf[i] = model[i];
     }
-    model_buf[model_n] = '\0';
-    model = std::string_view(model_buf, model_n);
-    const bool is_ilca_family
-        = model.starts_with("ILCA-");
-    const bool is_legacy_slt_family
-        = model.starts_with("SLT-") || (model == "HV");
+    model_buf[model_n]              = '\0';
+    model                           = std::string_view(model_buf, model_n);
+    const bool is_ilca_family       = model.starts_with("ILCA-");
+    const bool is_legacy_slt_family = model.starts_with("SLT-")
+                                      || (model == "HV");
     const bool is_slt_family = is_legacy_slt_family || is_ilca_family;
     const bool is_lunar      = (model == "Lunar");
     const bool is_stellar    = (model == "Stellar");
@@ -3088,8 +3057,8 @@ decode_sony_cipher_subdirs(std::string_view mk_ifd0, MetaStore& store,
         }
         if (tag == 0x9050) {
             const uint32_t rounds = 1;
-            switch (select_sony_tag9050_variant(model, is_slt_family,
-                                                is_lunar)) {
+            switch (
+                select_sony_tag9050_variant(model, is_slt_family, is_lunar)) {
             case SonyTag9050Variant::A:
                 sony_decode_cipher_fields(raw, mk_prefix, "tag9050a", rounds,
                                           std::span<const SonyCipherField>(

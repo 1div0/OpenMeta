@@ -1238,6 +1238,9 @@
 {"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x0071","name":"FocalLength"}
 {"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x0073","name":"MinFocalLength"}
 {"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x0075","name":"MaxFocalLength"}
+{"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x0708","name":"VignettingCorrParams"}
+{"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x074f","name":"APS-CSizeCapture"}
+{"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x0843","name":"ChromaticAberrationCorrParams"}
 {"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x088f","name":"VignettingCorrParams"}
 {"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x0891","name":"VignettingCorrParams"}
 {"kind":"exif.tag","ifd":"makernote:sony:tag9416","tag":"0x089d","name":"VignettingCorrParams"}

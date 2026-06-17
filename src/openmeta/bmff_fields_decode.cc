@@ -198,7 +198,8 @@ namespace {
         }
 
         if (brand == fourcc('a', 'v', 'i', 'f')
-            || brand == fourcc('a', 'v', 'i', 's')) {
+            || brand == fourcc('a', 'v', 'i', 's')
+            || brand == fourcc('a', 'v', 'i', 'o')) {
             *is_avif = true;
         }
 

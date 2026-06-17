@@ -131,7 +131,7 @@ namespace {
     static std::string_view raf_header_tag_name(uint16_t tag) noexcept
     {
         switch (tag) {
-        case 0x003cU: return "RAFVersion";
+        case 0x003cU: return "FirmwareVersion";
         case 0x0048U: return "MRawHeaderOffset";
         case 0x004cU: return "MRawHeaderLength";
         case 0x0054U: return "PreviewImageStart";

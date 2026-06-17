@@ -4256,12 +4256,13 @@ namespace {
         return mn;
     }
 
-    static std::vector<std::byte> make_sony_makernote_tag9400_ciphered()
+    static std::vector<std::byte>
+    make_sony_makernote_tag9400_ciphered_with_v0(uint8_t v0)
     {
         std::vector<std::byte> plain(0x140, std::byte { 0 });
 
         // v0 != 0x0C so the default decoder path stays on tag9400c.
-        plain[0x0000] = std::byte { 0x07 };
+        plain[0x0000] = std::byte { v0 };
 
         plain[0x0009] = std::byte { 1 };
         plain[0x000A] = std::byte { 2 };
@@ -4287,6 +4288,11 @@ namespace {
         plain[0x013F] = std::byte { 7 };
 
         return make_sony_makernote_ciphered_blob(0x9400, plain);
+    }
+
+    static std::vector<std::byte> make_sony_makernote_tag9400_ciphered()
+    {
+        return make_sony_makernote_tag9400_ciphered_with_v0(0x07);
     }
 
     static std::vector<std::byte> make_sony_makernote_tag9400b_ciphered()
@@ -4457,6 +4463,10 @@ namespace {
         plain[0x08B7] = std::byte { 1 };
         plain[0x08E5] = std::byte { 1 };
         for (size_t i = 0; i < 32; ++i) {
+            write_u16le_at(&plain, 0x0708U + i * 2U,
+                           static_cast<uint16_t>(340 + int(i)));
+            write_u16le_at(&plain, 0x0843U + i * 2U,
+                           static_cast<uint16_t>(380 + int(i)));
             write_u16le_at(&plain, 0x089DU + i * 2U,
                            static_cast<uint16_t>(180 + int(i)));
             write_u16le_at(&plain, 0x0914U + i * 2U,
@@ -4466,6 +4476,7 @@ namespace {
             write_u16le_at(&plain, 0x0945U + i * 2U,
                            static_cast<uint16_t>(300 + int(i)));
         }
+        plain[0x074F] = std::byte { 1 };
 
         return make_sony_makernote_ciphered_blob(0x9416, plain);
     }
@@ -5808,6 +5819,34 @@ TEST(MakerNoteDecode, DecodesSonyTag9400cShutterTypeForRx100m7Model)
     EXPECT_EQ(e.value.data.u64, 7U);
 }
 
+TEST(MakerNoteDecode, DecodesSonyTag9400cForIlce7rm6Model)
+{
+    std::vector<std::byte> mn = make_sony_makernote_tag9400_ciphered_with_v0(
+        0x43);
+
+    const std::string_view make  = "Sony";
+    const std::string_view model = "ILCE-7RM6";
+    std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model(make, model, mn);
+    ASSERT_TRUE(patch_sony_makernote_value_offset_in_tiff(&tiff));
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    const std::span<const EntryId> ids = store.find_all(
+        exif_key("mk_sony_tag9400c_0", 0x0012));
+    ASSERT_EQ(ids.size(), 1U);
+    const Entry& e = store.entry(ids[0]);
+    EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(e.value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(e.value.data.u64, 0x11223344U);
+}
+
 TEST(MakerNoteDecode, DecodesSonyTag9401IsoInfoIntoDerivedIfd)
 {
     std::vector<std::byte> mn   = make_sony_makernote_tag9401_ciphered();
@@ -6018,6 +6057,54 @@ TEST(MakerNoteDecode, DecodesSonyTag9416LegacyCorrectionOffsetsForIlce1Model)
     {
         const std::span<const EntryId> ids = store.find_all(
             exif_key("mk_sony_tag9416_0", 0x0914));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.count, 32U);
+    }
+}
+
+TEST(MakerNoteDecode, DecodesSonyTag9416CorrectionOffsetsForIlce7rm6Model)
+{
+    std::vector<std::byte> mn = make_sony_makernote_tag9416_ciphered();
+
+    const std::string_view make  = "Sony";
+    const std::string_view model = "ILCE-7RM6";
+    std::vector<std::byte> tiff
+        = make_test_tiff_with_makernote_and_model(make, model, mn);
+    ASSERT_TRUE(patch_sony_makernote_value_offset_in_tiff(&tiff));
+
+    MetaStore store;
+    std::array<ExifIfdRef, 8> ifds {};
+    ExifDecodeOptions options;
+    options.decode_makernote   = true;
+    const ExifDecodeResult res = decode_exif_tiff(tiff, store, ifds, options);
+    EXPECT_EQ(res.status, ExifDecodeStatus::Ok);
+
+    store.finalize();
+    EXPECT_TRUE(store.find_all(exif_key("mk_sony_tag9416_0", 0x089D)).empty());
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag9416_0", 0x0708));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Array);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::I16);
+        EXPECT_EQ(e.value.count, 32U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag9416_0", 0x074F));
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        EXPECT_EQ(e.value.kind, MetaValueKind::Scalar);
+        EXPECT_EQ(e.value.elem_type, MetaElementType::U8);
+        EXPECT_EQ(e.value.data.u64, 1U);
+    }
+    {
+        const std::span<const EntryId> ids = store.find_all(
+            exif_key("mk_sony_tag9416_0", 0x0843));
         ASSERT_EQ(ids.size(), 1U);
         const Entry& e = store.entry(ids[0]);
         EXPECT_EQ(e.value.kind, MetaValueKind::Array);

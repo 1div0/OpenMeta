@@ -1530,9 +1530,11 @@ namespace {
             ContainerFormat expect_fmt = ContainerFormat::Unknown;
         };
 
-        const std::array<Case, 4> cases = {
+        const std::array<Case, 6> cases = {
             Case { fourcc('h', 'e', 'i', 'c'), ContainerFormat::Heif },
             Case { fourcc('a', 'v', 'i', 'f'), ContainerFormat::Avif },
+            Case { fourcc('a', 'v', 'i', 's'), ContainerFormat::Avif },
+            Case { fourcc('a', 'v', 'i', 'o'), ContainerFormat::Avif },
             Case { fourcc('c', 'r', 'x', ' '), ContainerFormat::Cr3 },
             Case { fourcc('j', 'p', 'h', ' '), ContainerFormat::Jp2 },
         };

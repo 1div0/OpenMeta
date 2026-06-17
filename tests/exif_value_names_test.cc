@@ -14,6 +14,7 @@ namespace {
     {
         EXPECT_STREQ(tiff_compression_name(1U), "Uncompressed");
         EXPECT_STREQ(tiff_compression_name(8U), "Adobe Deflate");
+        EXPECT_STREQ(tiff_compression_name(9U), "JBIG B&W or VC-5");
         EXPECT_STREQ(tiff_photometric_interpretation_name(2U), "RGB");
         EXPECT_STREQ(tiff_photometric_interpretation_name(32803U),
                      "Color Filter Array");
@@ -30,6 +31,8 @@ namespace {
         EXPECT_STREQ(exif_exposure_mode_name(2U), "Auto bracket");
         EXPECT_STREQ(exif_metering_mode_name(5U), "Multi-segment");
         EXPECT_STREQ(exif_light_source_name(21U), "D65");
+        EXPECT_STREQ(exif_light_source_name(30U), "Daylight LED");
+        EXPECT_STREQ(exif_light_source_name(34U), "Warm white LED");
         EXPECT_STREQ(exif_flash_name(25U), "Auto, fired");
         EXPECT_STREQ(exif_color_space_name(1U), "sRGB");
         EXPECT_STREQ(exif_color_space_name(0xFFFFU), "Uncalibrated");
@@ -57,6 +60,10 @@ namespace {
                      "Flash");
         EXPECT_STREQ(exif_tag_numeric_value_name("exififd", 0xA402U, 2U),
                      "Auto bracket");
+        EXPECT_STREQ(exif_tag_numeric_value_name("exififd", 0xA40FU, 1U),
+                     "Applied");
+        EXPECT_STREQ(exif_tag_numeric_value_name("exififd", 0xA412U, 3U),
+                     "High strength");
         EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0xC617U, 1U),
                      "Rectangular");
         EXPECT_STREQ(exif_tag_numeric_value_name("ifd0", 0x9999U, 1U), "");

@@ -241,6 +241,7 @@ static constexpr StandardTagNameEntry kStandardExifIfdTags[] = {
     { 0x923Fu, "StoNits" },
     { 0x927Cu, "MakerNote" },
     { 0x9286u, "UserComment" },
+    { 0x9287u, "LearningOptOutIn" },
     { 0x9290u, "SubSecTime" },
     { 0x9291u, "SubSecTimeOriginal" },
     { 0x9292u, "SubSecTimeDigitized" },
@@ -293,6 +294,12 @@ static constexpr StandardTagNameEntry kStandardExifIfdTags[] = {
     { 0xA40Au, "Sharpness" },
     { 0xA40Bu, "DeviceSettingDescription" },
     { 0xA40Cu, "SubjectDistanceRange" },
+    { 0xA40Du, "DevelopmentType" },
+    { 0xA40Eu, "DevelopmentTypeDescription" },
+    { 0xA40Fu, "DistortionCorrection" },
+    { 0xA410u, "ChromaticAberrationCorrection" },
+    { 0xA411u, "ShadingCorrection" },
+    { 0xA412u, "NoiseReduction" },
     { 0xA420u, "ImageUniqueID" },
     { 0xA430u, "CameraOwnerName" },
     { 0xA431u, "BodySerialNumber" },
@@ -739,4 +746,3 @@ static constexpr StandardTagNameEntry kStandardMpfTags[] = {
     { 0xB20Cu, "MPFPitchAngle" },
     { 0xB20Du, "MPFRollAngle" },
 };
-

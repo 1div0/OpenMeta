@@ -80,6 +80,7 @@
 {"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x144b","name":"WBGreen"}
 {"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x144c","name":"WBBlue"}
 {"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x144d","name":"RollAngle"}
+{"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x2410","name":"WB_GRGBLevelsFlash"}
 {"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x3803","name":"VideoRecordingMode"}
 {"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x3804","name":"PeripheralLighting"}
 {"kind":"exif.tag","ifd":"makernote:fujifilm:main","tag":"0x3806","name":"VideoCompression"}

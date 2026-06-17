@@ -237,6 +237,7 @@
 {"kind":"exif.tag","ifd":"exififd","tag":"0x923f","name":"StoNits"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0x927c","name":"MakerNote","aliases":["MakerNoteApple","MakerNoteCanon","MakerNoteCasio","MakerNoteCasio2","MakerNoteDJI","MakerNoteDJIInfo","MakerNoteFLIR","MakerNoteFujiFilm","MakerNoteGE","MakerNoteGE2","MakerNoteGoogle","MakerNoteHP","MakerNoteHP2","MakerNoteHP4","MakerNoteHP6","MakerNoteHasselblad","MakerNoteISL","MakerNoteJVC","MakerNoteJVCText","MakerNoteKodak10","MakerNoteKodak11","MakerNoteKodak12","MakerNoteKodak1a","MakerNoteKodak1b","MakerNoteKodak2","MakerNoteKodak3","MakerNoteKodak4","MakerNoteKodak5","MakerNoteKodak6a","MakerNoteKodak6b","MakerNoteKodak7","MakerNoteKodak8a","MakerNoteKodak8b","MakerNoteKodak8c","MakerNoteKodak9","MakerNoteKodakUnknown","MakerNoteKyocera","MakerNoteLeica","MakerNoteLeica10","MakerNoteLeica2","MakerNoteLeica3","MakerNoteLeica4","MakerNoteLeica5","MakerNoteLeica6","MakerNoteLeica7","MakerNoteLeica8","MakerNoteLeica9","MakerNoteMinolta","MakerNoteMinolta2","MakerNoteMinolta3","MakerNoteMotorola","MakerNoteNikon","MakerNoteNikon2","MakerNoteNikon3","MakerNoteNintendo","MakerNoteOlympus","MakerNoteOlympus2","MakerNoteOlympus3","MakerNotePanasonic","MakerNotePanasonic2","MakerNotePanasonic3","MakerNotePentax","MakerNotePentax2","MakerNotePentax3","MakerNotePentax4","MakerNotePentax5","MakerNotePentax6","MakerNotePhaseOne","MakerNoteReconyxHyperFire","MakerNoteReconyxHyperFire2","MakerNoteReconyxHyperFire4K","MakerNoteReconyxMicroFire","MakerNoteReconyxUltraFire","MakerNoteRicoh","MakerNoteRicoh2","MakerNoteRicohPentax","MakerNoteRicohText","MakerNoteSamsung1a","MakerNoteSamsung1b","MakerNoteSamsung2","MakerNoteSanyo","MakerNoteSanyoC4","MakerNoteSanyoPatch","MakerNoteSigma","MakerNoteSony","MakerNoteSony2","MakerNoteSony3","MakerNoteSony4","MakerNoteSony5","MakerNoteSonyEricsson","MakerNoteSonySRF","MakerNoteUnknown","MakerNoteUnknownBinary","MakerNoteUnknownText"]}
 {"kind":"exif.tag","ifd":"exififd","tag":"0x9286","name":"UserComment"}
+{"kind":"exif.tag","ifd":"exififd","tag":"0x9287","name":"LearningOptOutIn"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0x9290","name":"SubSecTime"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0x9291","name":"SubSecTimeOriginal"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0x9292","name":"SubSecTimeDigitized"}
@@ -289,6 +290,12 @@
 {"kind":"exif.tag","ifd":"exififd","tag":"0xa40a","name":"Sharpness"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0xa40b","name":"DeviceSettingDescription"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0xa40c","name":"SubjectDistanceRange"}
+{"kind":"exif.tag","ifd":"exififd","tag":"0xa40d","name":"DevelopmentType"}
+{"kind":"exif.tag","ifd":"exififd","tag":"0xa40e","name":"DevelopmentTypeDescription"}
+{"kind":"exif.tag","ifd":"exififd","tag":"0xa40f","name":"DistortionCorrection"}
+{"kind":"exif.tag","ifd":"exififd","tag":"0xa410","name":"ChromaticAberrationCorrection"}
+{"kind":"exif.tag","ifd":"exififd","tag":"0xa411","name":"ShadingCorrection"}
+{"kind":"exif.tag","ifd":"exififd","tag":"0xa412","name":"NoiseReduction"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0xa420","name":"ImageUniqueID"}
 {"kind":"exif.tag","ifd":"exififd","tag":"0xa430","name":"CameraOwnerName","aliases":["OwnerName"]}
 {"kind":"exif.tag","ifd":"exififd","tag":"0xa431","name":"BodySerialNumber","aliases":["SerialNumber"]}

@@ -1,5 +1,28 @@
 # OpenMeta Changes
 
+## 0.4.56 - 2026-06-17
+
+Changes compared with `0.4.55`.
+
+### Added
+
+- Added standard EXIF 3.1 tag names for learning-intent, development-type,
+  lens-correction, shading-correction, and noise-reduction fields.
+- Added EXIF 3.1 light-source values, VC-5 compression labeling, and bounded
+  correction/noise-reduction display labels.
+- Added Fujifilm `WB_GRGBLevelsFlash` MakerNote naming and corrected the native
+  RAF header version field name to `FirmwareVersion`.
+- Added Sony ILCE-7RM6 routing for decoded `Tag9050d`, `Tag9400c`, and
+  model-specific `Tag9416` correction offsets.
+- Added `avio` AVIF brand detection for BMFF scanning and field decode paths.
+
+### Changed
+
+- Kept generic MIAF brand handling conservative instead of treating `miaf`
+  alone as AVIF without an AV1-specific brand.
+- Updated public interpretation, API stability, and development docs for the
+  refreshed upstream-delta coverage.
+
 ## 0.4.55 - 2026-06-16
 
 Changes compared with `0.4.54`.

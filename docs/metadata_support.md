@@ -36,6 +36,8 @@ Current tracked-gate status:
   smoke tests.
 - MakerNote coverage is tracked by baseline gates with broad vendor support;
   unknown vendor tags are preserved as raw metadata for lossless workflows.
+  Current public naming includes Fujifilm flash white-balance and native RAF
+  firmware fields, plus selected model-specific Sony correction-offset routes.
 - Decoded vendor MakerNote sub-IFDs are interpreted/query metadata. Writers do
   not reconstruct MakerNote blobs from those decoded fields; they preserve the
   original raw MakerNote payload when it is present.
@@ -59,22 +61,22 @@ Current tracked-gate status:
 | RAF / X3F | Partial | Partial | RAF includes header-declared preview-JPEG EXIF/XMP discovery, FujiIFD/TIFF follow path, native RAF header/directory geometry tags, RAFData geometry projection, and standalone XMP fallback; X3F includes header fields, known PROP properties, section-directory JPEG metadata follow path, and legacy embedded-EXIF fallback |
 | JP2 | Yes | Yes | EXIF, XMP, IPTC, ICC, and GeoTIFF |
 | JXL | Yes | Yes | EXIF, XMP, and bounded JUMBF/C2PA; supported `brob` wrapped metadata is decoded |
-| HEIF / AVIF / CR3 | Yes | Partial | EXIF, XMP, ICC, CR3 maker blocks, BMFF derived fields, and bounded JUMBF/C2PA |
+| HEIF / AVIF / CR3 | Yes | Partial | EXIF, XMP, ICC, CR3 maker blocks, BMFF derived fields including `avif`/`avis`/`avio` AVIF brands, and bounded JUMBF/C2PA |
 | EXR | n/a via `scan_auto(...)` | Yes | Header attributes only; no pixel decode |
 
 ## Metadata Family Coverage
 
 | Metadata family | Decode | Name mapping | Dump / export | Notes |
 | --- | --- | --- | --- | --- |
-| EXIF (`MetaKeyKind::ExifTag`) | Yes | Yes | Yes | Standard EXIF plus pointer IFDs |
-| MakerNote | Partial / Yes | Partial / Yes | Lossless yes; portable limited | Broad vendor coverage; unknown tags may remain raw; selected version/firmware payloads, live-vendor scalar fields, Reconyx scalar/string-coded fields, Microsoft stitch fields, Nintendo category fields, and Sanyo public-context scalar fields have bounded display helpers |
+| EXIF (`MetaKeyKind::ExifTag`) | Yes | Yes | Yes | Standard EXIF plus pointer IFDs, including current EXIF 3.1 learning/development/correction/noise tag names and bounded correction/noise value labels |
+| MakerNote | Partial / Yes | Partial / Yes | Lossless yes; portable limited | Broad vendor coverage; unknown tags may remain raw; selected version/firmware payloads, live-vendor scalar fields, Fujifilm flash white-balance and native RAF firmware names, selected Sony correction-offset routes, Reconyx scalar/string-coded fields, Microsoft stitch fields, Nintendo category fields, and Sanyo public-context scalar fields have bounded display helpers |
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
 | Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, descriptor-header, simple descriptor-item, enum, and nested list/object summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp`, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 

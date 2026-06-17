@@ -20,7 +20,7 @@ tiff_compression_name(uint64_t value) noexcept
     case 6U: return "JPEG (old-style)";
     case 7U: return "JPEG";
     case 8U: return "Adobe Deflate";
-    case 9U: return "JBIG B&W";
+    case 9U: return "JBIG B&W or VC-5";
     case 10U: return "JBIG Color";
     case 32770U: return "Samsung SRW Compressed";
     case 32773U: return "PackBits";
@@ -141,6 +141,16 @@ exif_light_source_name(uint64_t value) noexcept
     case 22U: return "D75";
     case 23U: return "D50";
     case 24U: return "ISO studio tungsten";
+    case 25U: return "Daylight";
+    case 26U: return "Day white";
+    case 27U: return "Cool white";
+    case 28U: return "White";
+    case 29U: return "Warm white";
+    case 30U: return "Daylight LED";
+    case 31U: return "Day white LED";
+    case 32U: return "Cool white LED";
+    case 33U: return "White LED";
+    case 34U: return "Warm white LED";
     case 255U: return "Other";
     default: return "";
     }
@@ -214,6 +224,28 @@ exif_gain_control_name(uint64_t value) noexcept
     case 2U: return "High gain up";
     case 3U: return "Low gain down";
     case 4U: return "High gain down";
+    default: return "";
+    }
+}
+
+static const char*
+exif_lens_correction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Not applied";
+    case 1U: return "Applied";
+    default: return "";
+    }
+}
+
+static const char*
+exif_noise_reduction_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Not applied";
+    case 1U: return "Low strength";
+    case 2U: return "Normal strength";
+    case 3U: return "High strength";
     default: return "";
     }
 }
@@ -7592,6 +7624,10 @@ exif_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     case 0xA403U: return exif_white_balance_name(value);
     case 0xA406U: return exif_scene_capture_type_name(value);
     case 0xA407U: return exif_gain_control_name(value);
+    case 0xA40FU:
+    case 0xA410U:
+    case 0xA411U: return exif_lens_correction_name(value);
+    case 0xA412U: return exif_noise_reduction_name(value);
     case 0xC617U: return dng_cfa_layout_name(value);
     case 0xC65AU:
     case 0xC65BU:

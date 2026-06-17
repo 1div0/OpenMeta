@@ -89,15 +89,16 @@ Host-facing API map
        such as compression, photometric interpretation, planar configuration,
        exposure program/mode, metering mode, light source, flash, color space,
        white balance, scene capture type, gain control, CFA layout, and DNG
-       calibration illuminants, plus selected bounded Canon/Nikon/Sony/
-       Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/
+       calibration illuminants, and EXIF 3.1 lens-correction /
+       noise-reduction status values, plus selected bounded Canon/Nikon/
+       Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/
        Samsung/Ricoh/Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo
        MakerNote contexts including NikonSettings On/Off labels, Reconyx
        scalar labels, Microsoft stitch labels, Nintendo category labels, and
        Sanyo public-context scalar labels where stable. Version/firmware
-       helpers format selected standard EXIF
-       byte-version fields, Nikon version-like payloads, and Olympus packed
-       firmware values without treating formatted versions as enum labels.
+       helpers format selected standard EXIF byte-version fields, Nikon
+       version-like payloads, Olympus packed firmware values, and native RAF
+       firmware payloads without treating formatted versions as enum labels.
        Unknown or ambiguous values return an empty string or ``false`` and
        remain lossless metadata.
    * - Photoshop IRB decode: ``decode_photoshop_irb(...)`` and
