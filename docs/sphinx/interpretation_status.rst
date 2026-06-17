@@ -218,8 +218,9 @@ Coverage matrix
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
        primary item itself is a metadata item, primary sidecar counts/flags for
-       linked metadata and image sidecars, compact primary-scene node/edge
-       summaries, bounded ``ipco`` property-container summary counts, bounded
+       linked metadata and image sidecars, content-bound C2PA/JUMBF sidecar
+       policy hints, compact primary-scene node/edge summaries, bounded
+       ``ipco`` property-container summary counts, bounded
        ``ipma`` item-property association rows and per-property-type
        association/primary/essential rollups, bounded relations, ``grpl``
        item-group rows, per-group-type summaries, primary item-group
@@ -241,7 +242,8 @@ Coverage matrix
        color sampler headers/records, descriptor-header summaries plus safe
        descriptor class-name/class-ID/item-count fields, bounded descriptor
        item bodies (``bool``, ``long``, ``doub``, ``UntF``, ``TEXT``,
-       ``enum``), empty and non-empty nested object/list summaries with item
+       ``enum``) plus raw-data byte-count summaries, empty and non-empty
+       nested object/list summaries with item
        paths, depths, list indices, and parsed-value counts, for resources
        including layer comps, measurement scale, timeline info, sheet
        disclosure, HDR toning, print info, onion skins, count info, print
@@ -253,7 +255,7 @@ Coverage matrix
        duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF resource byte
        counts, and embedded IPTC/XMP/ICC payload decode where enabled.
      - Medium, about 86-91%.
-     - Full Photoshop action semantics, raw descriptor-data payload
+     - Full Photoshop action semantics, raw descriptor-data payload content
        interpretation, and long-tail resource interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,

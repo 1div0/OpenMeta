@@ -1017,23 +1017,34 @@ namespace {
         const EntryId time_id = add_xmp_text(&store,
                                              "http://ns.adobe.com/exif/1.0/",
                                              "exif:GPSTimeStamp", "12:34:56Z");
+        const EntryId direct_id = add_xmp_text(
+            &store, "http://ns.adobe.com/exif/1.0/", "exif:GPSDateTime",
+            "2024-04-19T12:34:56Z");
         store.finalize();
 
         const MetadataConceptResolution gps
             = resolve_metadata_concept(store, MetadataConceptKind::Gps);
 
         const MetadataConceptCandidate* composite = nullptr;
+        const MetadataConceptCandidate* direct    = nullptr;
         for (size_t i = 0U; i < gps.candidates.size(); ++i) {
             const MetadataConceptCandidate& candidate = gps.candidates[i];
             if (candidate.role == MetadataConceptRole::Timestamp
                 && contains_entry(candidate.source_entries, date_id)
                 && contains_entry(candidate.source_entries, time_id)) {
                 composite = &candidate;
-                break;
+                continue;
+            }
+            if (candidate.role == MetadataConceptRole::Timestamp
+                && contains_entry(candidate.source_entries, direct_id)) {
+                direct = &candidate;
             }
         }
 
         ASSERT_NE(composite, nullptr);
+        ASSERT_NE(direct, nullptr);
+        EXPECT_FALSE(gps.conflict);
+        EXPECT_EQ(gps.preferred_entry, direct_id);
         EXPECT_EQ(composite->text, "2024:04:19 12:34:56Z");
         EXPECT_TRUE(composite->has_date_time);
         EXPECT_TRUE(composite->date_time_has_time);
@@ -1043,6 +1054,14 @@ namespace {
         EXPECT_EQ(composite->date_time_hour, 12U);
         EXPECT_EQ(composite->date_time_minute, 34U);
         EXPECT_EQ(composite->date_time_second, 56U);
+        EXPECT_TRUE(direct->has_date_time);
+        EXPECT_TRUE(direct->date_time_has_time);
+        EXPECT_TRUE(direct->date_time_has_utc_offset);
+        EXPECT_EQ(direct->date_time_zone, MetadataConceptTimeZoneKind::Utc);
+        EXPECT_EQ(direct->date_time_year, 2024);
+        EXPECT_EQ(direct->date_time_hour, 12U);
+        EXPECT_EQ(direct->date_time_minute, 34U);
+        EXPECT_EQ(direct->date_time_second, 56U);
     }
 
     TEST(MetadataConcepts, ResolvesExposureConceptRoles)

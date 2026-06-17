@@ -21485,6 +21485,8 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                  "info");
     EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(*created_diag),
                  "metadata is safe to keep for this transfer mode");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_token(*created_diag),
+              "info:date_time.created:keep:safe");
 
     const openmeta::TransferConceptDiagnostic* altitude_diag
         = find_transfer_concept_diagnostic(
@@ -21517,6 +21519,10 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         openmeta::transfer_concept_diagnostic_message(*orientation_diag),
         "source value describes target-owned image properties; provide target "
         "image specs or write a target-correct value");
+    EXPECT_EQ(
+        openmeta::transfer_concept_diagnostic_token(*orientation_diag),
+        "warning:orientation.orientation:requires_target_image_spec:"
+        "target_image_spec_required");
 
     const openmeta::TransferConceptDiagnostic* active_area_diag
         = find_transfer_concept_diagnostic(
@@ -21565,6 +21571,10 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         openmeta::transfer_concept_diagnostic_message(*color_space_diag),
         "multiple source values conflict; host policy should choose, rewrite, "
         "or omit this concept");
+    EXPECT_EQ(
+        openmeta::transfer_concept_diagnostic_token(*color_space_diag),
+        "warning:color_profile.color_space:requires_target_image_spec:"
+        "target_image_spec_required:conflict");
 
     const openmeta::TransferConceptDiagnostic* matrix_diag
         = find_transfer_concept_diagnostic(

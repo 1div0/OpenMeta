@@ -13714,6 +13714,28 @@ transfer_concept_diagnostic_message(
     return "metadata has no safe automatic transfer action for this mode";
 }
 
+std::string transfer_concept_diagnostic_token(
+    const TransferConceptDiagnostic& diagnostic)
+{
+    const TransferConceptDiagnosticSeverity severity
+        = transfer_concept_diagnostic_severity(diagnostic);
+    std::string out;
+    out.reserve(128U);
+    out.append(transfer_concept_diagnostic_severity_name(severity));
+    out.push_back(':');
+    out.append(metadata_concept_kind_name(diagnostic.kind));
+    out.push_back('.');
+    out.append(metadata_concept_role_name(diagnostic.role));
+    out.push_back(':');
+    out.append(transfer_concept_diagnostic_action_name(diagnostic.action));
+    out.push_back(':');
+    out.append(transfer_concept_diagnostic_reason_name(diagnostic.reason));
+    if (diagnostic.conflict) {
+        out.append(":conflict");
+    }
+    return out;
+}
+
 namespace {
 
     static bool source_range_in_bounds(uint64_t offset, uint64_t size,

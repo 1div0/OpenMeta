@@ -1627,6 +1627,7 @@ namespace {
         std::string object_class_id;
         uint32_t object_item_count = 0U;
         uint32_t list_count        = 0U;
+        uint32_t raw_data_bytes    = 0U;
 
         switch (item_type) {
         case descriptor_fourcc('b', 'o', 'o', 'l'):
@@ -1683,6 +1684,17 @@ namespace {
                 return false;
             }
             *io_offset += 4U;
+            break;
+        case descriptor_fourcc('t', 'd', 't', 'a'):
+            if (!read_u32be(payload, *io_offset, &raw_data_bytes)) {
+                return false;
+            }
+            *io_offset += 4U;
+            if (*io_offset > payload.size()
+                || raw_data_bytes > payload.size() - *io_offset) {
+                return false;
+            }
+            *io_offset += raw_data_bytes;
             break;
         default: state->parse_truncated = true; return false;
         }
@@ -1766,6 +1778,11 @@ namespace {
             emit_derived_field(store, state->block, state->order,
                                state->resource_id, "DescriptorItemListCount",
                                make_u32(list_count), state->result);
+            break;
+        case descriptor_fourcc('t', 'd', 't', 'a'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemRawDataBytes",
+                               make_u32(raw_data_bytes), state->result);
             break;
         default: break;
         }

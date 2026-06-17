@@ -1996,6 +1996,9 @@ const char*
 transfer_concept_diagnostic_message(
     const TransferConceptDiagnostic& diagnostic) noexcept;
 
+std::string transfer_concept_diagnostic_token(
+    const TransferConceptDiagnostic& diagnostic);
+
 /**
  * \brief Report which opt-in raw source carriers are passthrough candidates.
  *

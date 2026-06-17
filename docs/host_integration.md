@@ -673,10 +673,13 @@ for (size_t i = 0U; i < diagnostics.diagnostics.size(); ++i) {
         openmeta::transfer_concept_diagnostic_severity_name(item.severity);
     const char* message =
         openmeta::transfer_concept_diagnostic_message(item);
+    const std::string token =
+        openmeta::transfer_concept_diagnostic_token(item);
     (void)action;
     (void)reason;
     (void)severity;
     (void)message;
+    (void)token;
 }
 ```
 
@@ -717,6 +720,7 @@ for item in diagnostics["diagnostics"]:
         item["role_name"],
         item["action_name"],
         item["severity_name"],
+        item["token"],
         item["message"],
     )
 ```

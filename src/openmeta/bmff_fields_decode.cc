@@ -1898,6 +1898,18 @@ namespace {
                            "primary.metadata_sidecar_count",
                            linked_semantic_counts.metadata);
         }
+        const uint32_t content_bound_metadata_count
+            = linked_semantic_counts.jumbf + linked_semantic_counts.c2pa;
+        if (content_bound_metadata_count != 0U) {
+            emit_u8_field(store, block, (*io_order)++,
+                          "primary.has_content_bound_metadata_sidecar", 1U);
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.content_bound_metadata_sidecar_count",
+                           content_bound_metadata_count);
+            emit_text_field(store, block, (*io_order)++,
+                            "primary.content_bound_metadata_policy",
+                            "requires_target_rewrite");
+        }
         if (image_sidecar_count != 0U) {
             emit_u8_field(store, block, (*io_order)++,
                           "primary.has_image_sidecar", 1U);

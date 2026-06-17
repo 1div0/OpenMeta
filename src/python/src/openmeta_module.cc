@@ -1434,6 +1434,9 @@ namespace {
             transfer_concept_diagnostic_severity_name(severity));
         out["message"] = nb::str(
             transfer_concept_diagnostic_message(diagnostic));
+        const std::string token
+            = transfer_concept_diagnostic_token(diagnostic);
+        out["token"] = nb::str(token.c_str(), token.size());
         out["entry_id"]       = nb::int_(diagnostic.entry_id);
         out["source_entries"] = metadata_query_entry_ids_to_python(
             diagnostic.source_entries);

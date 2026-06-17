@@ -664,10 +664,13 @@ are present.
            openmeta::transfer_concept_diagnostic_severity_name(item.severity);
        const char* message =
            openmeta::transfer_concept_diagnostic_message(item);
+       const std::string token =
+           openmeta::transfer_concept_diagnostic_token(item);
        (void)action;
        (void)reason;
-      (void)severity;
-      (void)message;
+       (void)severity;
+       (void)message;
+       (void)token;
    }
 
 If a decoder exposes a curve/LUT metadata entry that only affects compressed RAW
@@ -708,6 +711,7 @@ Python uses the same family enum:
            item["role_name"],
            item["action_name"],
            item["severity_name"],
+           item["token"],
            item["message"],
        )
 

@@ -1,5 +1,29 @@
 # OpenMeta Changes
 
+## 0.4.58 - 2026-06-17
+
+Changes compared with `0.4.57`.
+
+### Added
+
+- Added BMFF primary-linked content-bound metadata sidecar flags and counts for
+  linked C2PA/JUMBF sidecars, including a conservative
+  `requires_target_rewrite` policy token.
+- Added bounded Photoshop IRB descriptor `tdta` raw-data byte-count summaries
+  without exposing or interpreting the raw descriptor payload.
+- Added `transfer_concept_diagnostic_token(...)` and Python diagnostic `token`
+  fields for stable host-facing transfer preflight summaries.
+- Added explicit XMP `GPSDateTime` / `GPSDateTimeStamp` GPS timestamp
+  interpretation and reconciliation with split XMP GPS date/time fields.
+- Added regression coverage for stable Apple MakerNote image-capture labels
+  while keeping ambiguous Apple flag values unlabeled.
+
+### Changed
+
+- Updated public support, interpretation, API stability, and host-integration
+  docs for the expanded BMFF, Photoshop IRB, GPS timestamp, and transfer
+  diagnostic surfaces.
+
 ## 0.4.57 - 2026-06-17
 
 Changes compared with `0.4.56`.

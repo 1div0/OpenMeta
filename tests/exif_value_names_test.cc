@@ -815,6 +815,8 @@ namespace {
                      "ProRAW");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0014U, 10U),
                      "Photo");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0014U, 11U),
+                     "Manual Focus");
         EXPECT_STREQ(exif_tag_numeric_value_name("makernote:apple:main",
                                                  0x0014U, 12U),
                      "Scene");
@@ -823,6 +825,7 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x002EU, 6U),
                      "Front");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x000FU, 2U), "");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0025U, 1U), "");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_apple0", 0x0045U, 1U), "");
 
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_flir_fff_gpsinfo_0",

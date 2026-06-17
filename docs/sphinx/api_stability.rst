@@ -246,13 +246,15 @@ Host-facing API map
        compression, and plane-binding fields.
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
-       ``transfer_concept_diagnostic_message(...)``
+       ``transfer_concept_diagnostic_message(...)``,
+       ``transfer_concept_diagnostic_token(...)``
      - ``openmeta/metadata_transfer.h``
      - Experimental
      - Preflight view over concept candidates for ``TransferSafetyMode``.
        Each diagnostic reports concept kind/role, transfer hint,
        keep/drop/requires-target-image-spec action, reason token, severity
-       token, default message text, conflict flag, source entries,
+       token, stable host-facing summary token, default message text,
+       conflict flag, source entries,
        compatible/rendered safety booleans, RAW applicability state, and GPS
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
@@ -270,8 +272,8 @@ Host-facing API map
        source-processing metadata.
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
-       dictionaries with ``severity_name``, ``message``, and RAW applicability
-       fields, with overloads that accept the thin
+       dictionaries with ``severity_name``, ``token``, ``message``, and RAW
+       applicability fields, with overloads that accept the thin
        ``MetadataRawDataDescriptor`` object. Python transfer helpers also
        accept ``source_raw_data_descriptor`` for prepare-time filtering.
    * - Vendor RAW-processing summaries:

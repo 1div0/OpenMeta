@@ -2723,6 +2723,32 @@ namespace {
         return false;
     }
 
+    static bool xmp_leaf_entry_exists(const MetaStore& store,
+                                      std::string_view path_leaf,
+                                      EntryId skip_id) noexcept
+    {
+        const std::span<const Entry> entries = store.entries();
+        for (EntryId id = 0U; id < entries.size(); ++id) {
+            if (id == skip_id) {
+                continue;
+            }
+            const Entry& entry = entries[id];
+            if (any(entry.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            if (entry.key.kind != MetaKeyKind::XmpProperty) {
+                continue;
+            }
+            const std::string_view path
+                = arena_string(store.arena(),
+                               entry.key.data.xmp_property.property_path);
+            if (xmp_leaf_matches(path, path_leaf)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void append_xmp_gps_candidate(const MetaStore& store, EntryId id,
                                          const Entry& entry,
                                          MetadataConceptResolution* out)
@@ -2730,6 +2756,14 @@ namespace {
         const std::string_view path
             = arena_string(store.arena(),
                            entry.key.data.xmp_property.property_path);
+        const bool split_date_stamp = xmp_leaf_matches(path, "GPSDateStamp");
+        const bool split_time_stamp = xmp_leaf_matches(path, "GPSTimeStamp");
+        if ((split_date_stamp
+             && xmp_leaf_entry_exists(store, "GPSTimeStamp", id))
+            || (split_time_stamp
+                && xmp_leaf_entry_exists(store, "GPSDateStamp", id))) {
+            return;
+        }
         MetadataConceptRole role = MetadataConceptRole::Primary;
         uint8_t priority         = 0U;
         if (ascii_contains_ci(path, "GPSLatitude")) {
@@ -2743,6 +2777,10 @@ namespace {
         } else if (ascii_contains_ci(path, "GPSAltitude")) {
             role     = MetadataConceptRole::Altitude;
             priority = 75U;
+        } else if (xmp_leaf_matches(path, "GPSDateTime")
+                   || xmp_leaf_matches(path, "GPSDateTimeStamp")) {
+            role     = MetadataConceptRole::Timestamp;
+            priority = 84U;
         } else if (ascii_contains_ci(path, "GPSTime")
                    || ascii_contains_ci(path, "GPSDate")) {
             role     = MetadataConceptRole::Timestamp;
