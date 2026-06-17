@@ -1,5 +1,25 @@
 # OpenMeta Changes
 
+## 0.4.57 - 2026-06-17
+
+Changes compared with `0.4.56`.
+
+### Added
+
+- Added bounded Canon RF lens-type display labels for current public RF tail
+  IDs.
+- Added bounded Nikon Z `LensData0800` `LensID` display labels for current Z
+  lens IDs.
+- Added a conservative Pentax lens-family display label for an ambiguous
+  Sigma/Samsung/Tokina lens value instead of claiming one exact lens.
+- Added XMP namespace-rebinding regression coverage to keep decode and portable
+  dump behavior URI-based and isolated between packets.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development docs
+  for the expanded bounded lens-label coverage.
+
 ## 0.4.56 - 2026-06-17
 
 Changes compared with `0.4.55`.

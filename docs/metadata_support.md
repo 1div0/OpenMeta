@@ -69,7 +69,7 @@ Current tracked-gate status:
 | Metadata family | Decode | Name mapping | Dump / export | Notes |
 | --- | --- | --- | --- | --- |
 | EXIF (`MetaKeyKind::ExifTag`) | Yes | Yes | Yes | Standard EXIF plus pointer IFDs, including current EXIF 3.1 learning/development/correction/noise tag names and bounded correction/noise value labels |
-| MakerNote | Partial / Yes | Partial / Yes | Lossless yes; portable limited | Broad vendor coverage; unknown tags may remain raw; selected version/firmware payloads, live-vendor scalar fields, Fujifilm flash white-balance and native RAF firmware names, selected Sony correction-offset routes, Reconyx scalar/string-coded fields, Microsoft stitch fields, Nintendo category fields, and Sanyo public-context scalar fields have bounded display helpers |
+| MakerNote | Partial / Yes | Partial / Yes | Lossless yes; portable limited | Broad vendor coverage; unknown tags may remain raw; selected version/firmware payloads, live-vendor scalar fields, Fujifilm flash white-balance and native RAF firmware names, selected Sony correction-offset routes, Reconyx scalar/string-coded fields, Microsoft stitch fields, Nintendo category fields, Sanyo public-context scalar fields, current Canon RF/Nikon Z lens labels, and an ambiguous Pentax Sigma/Samsung/Tokina lens-family label have bounded display helpers |
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |

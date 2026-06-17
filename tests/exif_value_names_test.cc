@@ -256,6 +256,12 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_fileinfo_0", 0x0003U,
                                                  0U),
                      "Off");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_fileinfo_0", 0x003DU,
+                                                 329U),
+                     "Canon RF 20-50mm F4 L IS USM PZ");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_fileinfo_0", 0x003DU,
+                                                 332U),
+                     "Canon RF 14mm F1.4 L VCM");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_canon_processing_0",
                                                  0x0001U, 0U),
                      "Standard");
@@ -320,6 +326,15 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_vrinfo_0", 0x0004U,
                                                  1U),
                      "On");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_lensdata0800_0",
+                                                 0x0030U, 50U),
+                     "Nikkor Z 24-70mm f/2.8 S II");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_lensdata0800_0",
+                                                 0x0030U, 54U),
+                     "Nikkor Z 70-200mm f/2.8 VR S II");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikon_lensdata0800_0",
+                                                 0x0030U, 57U),
+                     "Nikkor Z 24-105mm f/4-7.1");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_nikonsettings_main_0",
                                                  0x0003U, 3U),
                      "Auto");
@@ -482,6 +497,9 @@ namespace {
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_lensrec_0", 0x0003U,
                                                  0U),
                      "Not attached");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax_lensinfo_0",
+                                                 0x0000U, 0x032EU),
+                     "Sigma/Samsung/Tokina Lens");
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_pentax0", 0x0034U, 1U),
                      "");
     }

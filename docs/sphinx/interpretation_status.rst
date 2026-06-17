@@ -184,8 +184,7 @@ Coverage matrix
        Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Casio/
        Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh/Apple/FLIR/JVC/General
        Imaging/Reconyx/Microsoft/Nintendo/Sanyo print conversions expose
-       bounded
-       human-readable labels, including expanded Canon sub-IFDs and
+       bounded human-readable labels, including expanded Canon sub-IFDs and
        CanonCustom fields, Canon ColorData source color-transform aliases,
        Nikon sub-IFDs and NikonSettings fields, NikonSettings
        source-processing aliases, NikonSettings On/Off residual labels, Nikon
@@ -196,7 +195,9 @@ Coverage matrix
        fields, FLIR GPS-valid state, JVC quality, General Imaging macro state,
        Reconyx moon phase/weekday/flash/illumination/battery/trigger labels,
        Microsoft stitch camera-motion/map-type labels, Nintendo category
-       labels, and Sanyo main/MOV public-context scalar labels.
+       labels, Sanyo main/MOV public-context scalar labels, current Canon RF
+       lens-type labels, current Nikon Z ``LensData0800`` ``LensID`` labels,
+       and an ambiguous Pentax Sigma/Samsung/Tokina lens-family label.
        Version/firmware payloads have a separate bounded formatter path for
        selected standard EXIF byte-version fields, Nikon version-like
        contexts, Olympus packed firmware fields, and native RAF firmware fields

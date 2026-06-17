@@ -3076,6 +3076,58 @@ TEST(XmpDump, PortableCanPreserveCustomExistingNamespaces)
               std::string_view::npos);
 }
 
+TEST(XmpDump, PortableCustomNamespaceDoesNotHijackStandardPrefix)
+{
+    MetaStore store;
+    const BlockId block = store.add_block(BlockInfo {});
+    ASSERT_NE(block, kInvalidBlockId);
+
+    Entry shadow_flag;
+    shadow_flag.key = make_xmp_property_key(store.arena(),
+                                            "urn:vendor:shadow-xmp:", "Flag");
+    shadow_flag.value = make_text(store.arena(), "shadow", TextEncoding::Utf8);
+    shadow_flag.origin.block          = block;
+    shadow_flag.origin.order_in_block = 0;
+    (void)store.add_entry(shadow_flag);
+
+    Entry creator_tool;
+    creator_tool.key = make_xmp_property_key(
+        store.arena(), "http://ns.adobe.com/xap/1.0/", "CreatorTool");
+    creator_tool.value = make_text(store.arena(), "OpenMeta",
+                                   TextEncoding::Utf8);
+    creator_tool.origin.block          = block;
+    creator_tool.origin.order_in_block = 1;
+    (void)store.add_entry(creator_tool);
+
+    store.finalize();
+
+    XmpPortableOptions opts;
+    opts.include_exif         = false;
+    opts.include_iptc         = false;
+    opts.include_existing_xmp = true;
+    opts.existing_namespace_policy
+        = XmpExistingNamespacePolicy::PreserveCustom;
+
+    std::vector<std::byte> out(4096);
+    const XmpDumpResult r
+        = dump_xmp_portable(store, std::span<std::byte>(out.data(), out.size()),
+                            opts);
+    ASSERT_EQ(r.status, XmpDumpStatus::Ok);
+
+    const std::string_view s(reinterpret_cast<const char*>(out.data()),
+                             static_cast<size_t>(r.written));
+    EXPECT_NE(s.find("xmlns:omns1=\"urn:vendor:shadow-xmp:\""),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<omns1:Flag>shadow</omns1:Flag>"),
+              std::string_view::npos);
+    EXPECT_NE(s.find("xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\""),
+              std::string_view::npos);
+    EXPECT_NE(s.find("<xmp:CreatorTool>OpenMeta</xmp:CreatorTool>"),
+              std::string_view::npos);
+    EXPECT_EQ(s.find("xmlns:xmp=\"urn:vendor:shadow-xmp:\""),
+              std::string_view::npos);
+}
+
 TEST(XmpDump, PortablePreservesXmpRightsStandardNamespace)
 {
     MetaStore store;

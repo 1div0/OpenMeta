@@ -783,6 +783,19 @@ canon_lens_type_name(uint64_t value) noexcept
 }
 
 static const char*
+canon_rf_lens_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "n/a";
+    case 329U: return "Canon RF 20-50mm F4 L IS USM PZ";
+    case 330U: return "Canon RF 45mm F1.2 STM";
+    case 331U: return "Canon RF 7-14mm F2.8-3.5 L FISHEYE STM";
+    case 332U: return "Canon RF 14mm F1.4 L VCM";
+    default: return "";
+    }
+}
+
+static const char*
 canon_focal_units_name(uint64_t value) noexcept
 {
     switch (value) {
@@ -1363,7 +1376,7 @@ canon_file_info_value_name(uint16_t tag, uint64_t value) noexcept
     case 0x0013U: return canon_live_view_shooting_name(value);
     case 0x0017U: return canon_shutter_mode_name(value);
     case 0x0019U: return off_on_name(value);
-    case 0x003DU: return value == 0U ? "n/a" : "";
+    case 0x003DU: return canon_rf_lens_type_name(value);
     default: return "";
     }
 }
@@ -1816,6 +1829,17 @@ nikon_lens_mount_type_name(uint64_t value) noexcept
 }
 
 static const char*
+nikon_z_lens_id_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 50U: return "Nikkor Z 24-70mm f/2.8 S II";
+    case 54U: return "Nikkor Z 70-200mm f/2.8 VR S II";
+    case 57U: return "Nikkor Z 24-105mm f/4-7.1";
+    default: return "";
+    }
+}
+
+static const char*
 nikon_settings_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
@@ -2110,6 +2134,7 @@ nikon_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     }
     if (is_nikon_lens_data0800_ifd(ifd)) {
         switch (tag) {
+        case 0x0030U: return nikon_z_lens_id_name(value);
         case 0x0035U: return nikon_lens_mount_type_name(value);
         default: return "";
         }
@@ -3772,6 +3797,15 @@ pentax_lens_corr_value_name(uint16_t tag, uint64_t value) noexcept
 }
 
 static const char*
+pentax_lens_type_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0x032EU: return "Sigma/Samsung/Tokina Lens";
+    default: return "";
+    }
+}
+
+static const char*
 pentax_awb_info_value_name(uint16_t tag, uint64_t value) noexcept
 {
     switch (tag) {
@@ -3803,6 +3837,16 @@ pentax_lens_rec_value_name(uint16_t tag, uint64_t value) noexcept
         return "Not attached";
     }
     return "";
+}
+
+static const char*
+pentax_lens_info_value_name(uint16_t tag, uint64_t value) noexcept
+{
+    switch (tag) {
+    case 0x0000U:
+    case 0x0001U: return pentax_lens_type_name(value);
+    default: return "";
+    }
 }
 
 static const char*
@@ -3841,6 +3885,10 @@ pentax_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
     }
     if (is_pentax_lens_rec_ifd(ifd)) {
         return pentax_lens_rec_value_name(tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_pentax_lensinfo")
+        || ifd_has_prefix(ifd, "makernote:pentax:lensinfo")) {
+        return pentax_lens_info_value_name(tag, value);
     }
     if (is_pentax_time_info_ifd(ifd)) {
         return pentax_time_info_value_name(tag, value);

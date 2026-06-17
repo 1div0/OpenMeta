@@ -13,6 +13,44 @@ namespace openmeta {
 
 #if defined(OPENMETA_HAS_EXPAT) && OPENMETA_HAS_EXPAT
 
+namespace {
+
+    static void expect_xmp_text_value(const MetaStore& store,
+                                      std::string_view schema_ns,
+                                      std::string_view path,
+                                      std::string_view expected)
+    {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = schema_ns;
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        ASSERT_EQ(ids.size(), 1U);
+        const Entry& e = store.entry(ids[0]);
+        ASSERT_EQ(e.value.kind, MetaValueKind::Text);
+        const std::span<const std::byte> vb = store.arena().span(
+            e.value.data.span);
+        const std::string_view val(reinterpret_cast<const char*>(vb.data()),
+                                   vb.size());
+        EXPECT_EQ(val, expected);
+    }
+
+    static void expect_xmp_missing(const MetaStore& store,
+                                   std::string_view schema_ns,
+                                   std::string_view path)
+    {
+        MetaKeyView key;
+        key.kind                            = MetaKeyKind::XmpProperty;
+        key.data.xmp_property.schema_ns     = schema_ns;
+        key.data.xmp_property.property_path = path;
+
+        const std::span<const EntryId> ids = store.find_all(key);
+        EXPECT_EQ(ids.size(), 0U);
+    }
+
+}  // namespace
+
 TEST(XmpDecodeTest, DecodesAttributesArraysAndRdfResource)
 {
     const std::string xmp
@@ -92,6 +130,55 @@ TEST(XmpDecodeTest, TrimsXmpMetaCloseWithAlternatePrefix)
     const XmpDecodeResult r = decode_xmp_packet(bytes, store);
     EXPECT_EQ(r.status, XmpDecodeStatus::Ok);
     EXPECT_EQ(r.entries_decoded, 1U);
+}
+
+TEST(XmpDecodeTest, NamespaceRebindingDoesNotLeakBetweenPackets)
+{
+    const std::string shadow_xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description xmlns:xmp='urn:vendor:shadow-xmp:'>"
+          "<xmp:Flag>shadow</xmp:Flag>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+    const std::span<const std::byte> shadow_bytes(
+        reinterpret_cast<const std::byte*>(shadow_xmp.data()),
+        shadow_xmp.size());
+
+    MetaStore shadow_store;
+    const XmpDecodeResult shadow = decode_xmp_packet(shadow_bytes,
+                                                     shadow_store);
+    EXPECT_EQ(shadow.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(shadow.entries_decoded, 1U);
+    shadow_store.finalize();
+
+    expect_xmp_text_value(shadow_store, "urn:vendor:shadow-xmp:", "Flag",
+                          "shadow");
+    expect_xmp_missing(shadow_store, "http://ns.adobe.com/xap/1.0/", "Flag");
+
+    const std::string standard_xmp
+        = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+          "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+          "<rdf:Description xmlns:xmp='http://ns.adobe.com/xap/1.0/'>"
+          "<xmp:CreatorTool>OpenMeta</xmp:CreatorTool>"
+          "</rdf:Description>"
+          "</rdf:RDF>"
+          "</x:xmpmeta>";
+    const std::span<const std::byte> standard_bytes(
+        reinterpret_cast<const std::byte*>(standard_xmp.data()),
+        standard_xmp.size());
+
+    MetaStore standard_store;
+    const XmpDecodeResult standard = decode_xmp_packet(standard_bytes,
+                                                       standard_store);
+    EXPECT_EQ(standard.status, XmpDecodeStatus::Ok);
+    EXPECT_EQ(standard.entries_decoded, 1U);
+    standard_store.finalize();
+
+    expect_xmp_text_value(standard_store, "http://ns.adobe.com/xap/1.0/",
+                          "CreatorTool", "OpenMeta");
+    expect_xmp_missing(standard_store, "urn:vendor:shadow-xmp:", "CreatorTool");
 }
 
 TEST(XmpDecodeTest, DecodesRdfAboutAndEmptyBag)

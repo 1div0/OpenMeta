@@ -45,7 +45,9 @@ model should stay compact:
        formatting for selected EXIF/Nikon/Olympus/native RAF contexts,
        selected Sony ILCE-7RM6 correction-offset routing, Fujifilm flash
        white-balance naming, Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/
-       Sanyo scalar MakerNote labels, EXIF/XMP GPS timestamp composites,
+       Sanyo scalar MakerNote labels, current Canon RF/Nikon Z lens labels,
+       an ambiguous Pentax Sigma/Samsung/Tokina lens-family label,
+       EXIF/XMP GPS timestamp composites,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
      - Medium-high, about 97%.

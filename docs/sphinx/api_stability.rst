@@ -94,9 +94,12 @@ Host-facing API map
        Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/
        Samsung/Ricoh/Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo
        MakerNote contexts including NikonSettings On/Off labels, Reconyx
-       scalar labels, Microsoft stitch labels, Nintendo category labels, and
-       Sanyo public-context scalar labels where stable. Version/firmware
-       helpers format selected standard EXIF byte-version fields, Nikon
+       scalar labels, Microsoft stitch labels, Nintendo category labels,
+       Sanyo public-context scalar labels, current Canon RF lens-type labels,
+       current Nikon Z ``LensData0800`` ``LensID`` labels, and an ambiguous
+       Pentax Sigma/Samsung/Tokina lens-family label where stable.
+       Version/firmware helpers format selected standard EXIF byte-version
+       fields, Nikon
        version-like payloads, Olympus packed firmware values, and native RAF
        firmware payloads without treating formatted versions as enum labels.
        Unknown or ambiguous values return an empty string or ``false`` and
