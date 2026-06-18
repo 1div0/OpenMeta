@@ -1813,6 +1813,17 @@ namespace {
         }
     }
 
+    static void count_scene_role_item(std::span<uint32_t> item_ids,
+                                      uint32_t* io_node_count,
+                                      uint32_t* io_edge_count,
+                                      uint32_t item_id) noexcept
+    {
+        if (io_edge_count) {
+            *io_edge_count += 1U;
+        }
+        push_primary_rel_unique(item_ids, io_node_count, item_id);
+    }
+
     static void emit_primary_linked_item_roles(MetaStore& store, BlockId block,
                                                uint32_t* io_order,
                                                const PrimaryProps& p) noexcept
@@ -1853,8 +1864,6 @@ namespace {
 
         emit_u32_field(store, block, (*io_order)++,
                        "primary.linked_item_role_count", role_count);
-        emit_u32_field(store, block, (*io_order)++, "primary.sidecar_count",
-                       role_count);
         std::array<uint32_t, 256> unique_linked_item_ids {};
         uint32_t unique_linked_item_count = 0U;
         for (uint32_t i = 0; i < role_count; ++i) {
@@ -1862,6 +1871,8 @@ namespace {
                                     &unique_linked_item_count,
                                     role_item_ids[i]);
         }
+        emit_u32_field(store, block, (*io_order)++, "primary.sidecar_count",
+                       unique_linked_item_count);
         emit_u32_field(store, block, (*io_order)++,
                        "primary.scene_primary_item_count", 1U);
         emit_u32_field(store, block, (*io_order)++,
@@ -1880,25 +1891,71 @@ namespace {
         uint32_t scene_derived_image_node_count       = 0U;
         uint32_t scene_thumbnail_node_count           = 0U;
         uint32_t scene_content_description_node_count = 0U;
+        uint32_t scene_auxiliary_edge_count           = 0U;
+        uint32_t scene_alpha_edge_count               = 0U;
+        uint32_t scene_depth_edge_count               = 0U;
+        uint32_t scene_disparity_edge_count           = 0U;
+        uint32_t scene_matte_edge_count               = 0U;
+        uint32_t scene_derived_image_edge_count       = 0U;
+        uint32_t scene_thumbnail_edge_count           = 0U;
+        uint32_t scene_content_description_edge_count = 0U;
+        std::array<uint32_t, 256> scene_auxiliary_node_ids {};
+        std::array<uint32_t, 256> scene_alpha_node_ids {};
+        std::array<uint32_t, 256> scene_depth_node_ids {};
+        std::array<uint32_t, 256> scene_disparity_node_ids {};
+        std::array<uint32_t, 256> scene_matte_node_ids {};
+        std::array<uint32_t, 256> scene_derived_image_node_ids {};
+        std::array<uint32_t, 256> scene_thumbnail_node_ids {};
+        std::array<uint32_t, 256> scene_content_description_node_ids {};
         for (uint32_t i = 0; i < role_count; ++i) {
             switch (roles[i]) {
             case PrimaryLinkedRole::Auxiliary:
-                scene_auxiliary_node_count += 1U;
+                count_scene_role_item(scene_auxiliary_node_ids,
+                                      &scene_auxiliary_node_count,
+                                      &scene_auxiliary_edge_count,
+                                      role_item_ids[i]);
                 break;
-            case PrimaryLinkedRole::Alpha: scene_alpha_node_count += 1U; break;
-            case PrimaryLinkedRole::Depth: scene_depth_node_count += 1U; break;
+            case PrimaryLinkedRole::Alpha:
+                count_scene_role_item(scene_alpha_node_ids,
+                                      &scene_alpha_node_count,
+                                      &scene_alpha_edge_count,
+                                      role_item_ids[i]);
+                break;
+            case PrimaryLinkedRole::Depth:
+                count_scene_role_item(scene_depth_node_ids,
+                                      &scene_depth_node_count,
+                                      &scene_depth_edge_count,
+                                      role_item_ids[i]);
+                break;
             case PrimaryLinkedRole::Disparity:
-                scene_disparity_node_count += 1U;
+                count_scene_role_item(scene_disparity_node_ids,
+                                      &scene_disparity_node_count,
+                                      &scene_disparity_edge_count,
+                                      role_item_ids[i]);
                 break;
-            case PrimaryLinkedRole::Matte: scene_matte_node_count += 1U; break;
+            case PrimaryLinkedRole::Matte:
+                count_scene_role_item(scene_matte_node_ids,
+                                      &scene_matte_node_count,
+                                      &scene_matte_edge_count,
+                                      role_item_ids[i]);
+                break;
             case PrimaryLinkedRole::DerivedImage:
-                scene_derived_image_node_count += 1U;
+                count_scene_role_item(scene_derived_image_node_ids,
+                                      &scene_derived_image_node_count,
+                                      &scene_derived_image_edge_count,
+                                      role_item_ids[i]);
                 break;
             case PrimaryLinkedRole::Thumbnail:
-                scene_thumbnail_node_count += 1U;
+                count_scene_role_item(scene_thumbnail_node_ids,
+                                      &scene_thumbnail_node_count,
+                                      &scene_thumbnail_edge_count,
+                                      role_item_ids[i]);
                 break;
             case PrimaryLinkedRole::ContentDescription:
-                scene_content_description_node_count += 1U;
+                count_scene_role_item(scene_content_description_node_ids,
+                                      &scene_content_description_node_count,
+                                      &scene_content_description_edge_count,
+                                      role_item_ids[i]);
                 break;
             }
         }
@@ -1927,13 +1984,39 @@ namespace {
             store, block, io_order,
             "primary.scene_content_description_node_count",
             scene_content_description_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_auxiliary_edge_count",
+                                    scene_auxiliary_edge_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_alpha_edge_count",
+                                    scene_alpha_edge_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_depth_edge_count",
+                                    scene_depth_edge_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_disparity_edge_count",
+                                    scene_disparity_edge_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_matte_edge_count",
+                                    scene_matte_edge_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_derived_image_edge_count",
+                                    scene_derived_image_edge_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_thumbnail_edge_count",
+                                    scene_thumbnail_edge_count);
+        emit_count_field_if_nonzero(
+            store, block, io_order,
+            "primary.scene_content_description_edge_count",
+            scene_content_description_edge_count);
 
         ItemSemanticCounts linked_semantic_counts {};
-        for (uint32_t i = 0; i < role_count; ++i) {
+        for (uint32_t i = 0; i < unique_linked_item_count; ++i) {
             const ItemInfo* info = nullptr;
             for (uint32_t item_info_index = 0;
                  item_info_index < p.item_info_count; ++item_info_index) {
-                if (p.item_infos[item_info_index].item_id == role_item_ids[i]) {
+                if (p.item_infos[item_info_index].item_id
+                    == unique_linked_item_ids[i]) {
                     info = &p.item_infos[item_info_index];
                     break;
                 }

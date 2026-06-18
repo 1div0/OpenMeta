@@ -220,9 +220,9 @@ Coverage matrix
        metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
        primary item itself is a metadata item, primary sidecar counts/flags for
        linked metadata and image sidecars, content-bound C2PA/JUMBF sidecar
-       policy hints, compact primary-scene node/edge summaries with
-       linked-item role buckets and image/metadata/content-bound metadata node
-       counts, bounded
+       policy hints, compact primary-scene node/edge summaries with unique
+       linked-item role buckets, per-role edge counters, and
+       image/metadata/content-bound metadata node counts, bounded
        ``ipco`` property-container summary counts, bounded
        ``ipma`` item-property association rows and per-property-type
        association/primary/essential rollups, bounded relations, ``grpl``
@@ -234,7 +234,7 @@ Coverage matrix
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - Medium, about 85-90%.
+     - Medium, about 86-90%.
      - Full multi-image BMFF scene modeling and full C2PA manifest/policy
        semantics.
    * - Photoshop IRB
@@ -245,8 +245,9 @@ Coverage matrix
        color sampler headers/records, descriptor-header summaries plus safe
        descriptor class-name/class-ID/item-count fields, bounded descriptor
        item bodies (``bool``, ``long``, ``doub``, ``UntF``, ``TEXT``,
-       ``enum``, ``tdta`` raw-data byte counts) with type-name and type-code
-       fields, empty and non-empty
+       ``enum``, ``tdta`` raw-data byte counts) with type-name/type-code
+       fields, parsed maximum depth, and parsed per-type counters, empty and
+       non-empty
        nested object/list summaries with item
        paths, depths, list indices, and parsed-value counts, for resources
        including layer comps, measurement scale, timeline info, sheet
@@ -258,7 +259,7 @@ Coverage matrix
        channel options, clipping-path names, legacy halftone/transfer/
        duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF resource byte
        counts, and embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 86-91%.
+     - Medium, about 87-91%.
      - Full Photoshop action semantics, raw descriptor-data payload content
        interpretation, and long-tail resource interpretation.
    * - Semantic query/search and records
@@ -300,7 +301,9 @@ Coverage matrix
        data, with concept-level diagnostics that report
        keep/drop/requires-target-image-spec actions, severity, stable summary
        and message tokens, localizable argument tokens, RAW applicability, and
-       role-specific default message text before prepare.
+       role-specific default message text before prepare. Source-processing
+       diagnostics distinguish computational, thermal, and stitch/panorama
+       message tokens.
        Descriptor-aware diagnostics can also mark curve/LUT-like RAW roles as
        compressed-storage-only or primary-plane-only.
        ``PrepareTransferRequest`` can carry a

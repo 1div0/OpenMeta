@@ -1,5 +1,26 @@
 # OpenMeta Changes
 
+## 0.4.60 - 2026-06-18
+
+Changes compared with `0.4.59`.
+
+### Added
+
+- Added BMFF primary-scene per-role edge counters so hosts can distinguish
+  linked-item edges from unique linked scene nodes.
+- Added Photoshop IRB descriptor parsed-type summary counters and parsed
+  maximum depth fields for bounded action-descriptor inspection.
+- Added rendered-transfer diagnostic coverage for computational, thermal, and
+  stitch source-processing message tokens.
+
+### Changed
+
+- BMFF primary sidecar, scene-node, and linked-item semantic counters now count
+  unique linked scene nodes; `primary.linked_item_role_count` and
+  `primary.scene_edge_count` remain edge counts.
+- Updated public interpretation and API stability docs for the expanded BMFF
+  scene and Photoshop IRB descriptor summaries.
+
 ## 0.4.59 - 2026-06-18
 
 Changes compared with `0.4.58`.

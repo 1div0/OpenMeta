@@ -21453,6 +21453,24 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
     lens_distort.origin.block = block;
     lens_distort.origin.order_in_block = 18U;
     ASSERT_NE(store.add_entry(lens_distort), openmeta::kInvalidEntryId);
+
+    openmeta::Entry thermal_processing;
+    thermal_processing.key          = openmeta::make_exif_tag_key(store.arena(),
+                                                                  "mk_dji_thermalparams",
+                                                                  0x0048U);
+    thermal_processing.value        = openmeta::make_u32(98U);
+    thermal_processing.origin.block = block;
+    thermal_processing.origin.order_in_block = 19U;
+    ASSERT_NE(store.add_entry(thermal_processing), openmeta::kInvalidEntryId);
+
+    openmeta::Entry stitch_processing;
+    stitch_processing.key          = openmeta::make_exif_tag_key(store.arena(),
+                                                                 "mk_microsoft_stitch",
+                                                                 0x0003U);
+    stitch_processing.value        = openmeta::make_u32(12U);
+    stitch_processing.origin.block = block;
+    stitch_processing.origin.order_in_block = 20U;
+    ASSERT_NE(store.add_entry(stitch_processing), openmeta::kInvalidEntryId);
     store.finalize();
 
     const openmeta::TransferConceptDiagnostics rendered
@@ -21645,6 +21663,30 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         openmeta::transfer_concept_diagnostic_message(*source_diag),
         "source computational processing metadata is bound to the source "
         "pipeline and will be dropped for this transfer mode");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(*source_diag),
+              "drop.computational_processing");
+
+    const openmeta::TransferConceptDiagnostic* thermal_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::ThermalProcessing,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(thermal_diag, nullptr);
+    EXPECT_EQ(thermal_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(*thermal_diag),
+              "drop.thermal_processing");
+
+    const openmeta::TransferConceptDiagnostic* stitch_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::RawProcessing,
+            openmeta::MetadataConceptRole::StitchProcessing,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(stitch_diag, nullptr);
+    EXPECT_EQ(stitch_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(*stitch_diag),
+              "drop.stitch_processing");
 
     const openmeta::TransferConceptDiagnostic* curve_diag
         = find_transfer_concept_diagnostic(

@@ -718,13 +718,15 @@ This policy surface is intentionally marked draft and may be refined.
     `primary.linked_item_type` + `primary.linked_item_type_name` +
     `primary.linked_item_name` + `primary.linked_item_semantic` +
     `primary.linked_item_role` when `iinf/infe` data exists), compact
-    primary sidecar summaries (`primary.sidecar_count`,
+    primary sidecar summaries with unique linked-node counts
+    (`primary.sidecar_count`,
     `primary.has_metadata_sidecar`, `primary.metadata_sidecar_count`,
     `primary.has_image_sidecar`, `primary.image_sidecar_count`, and
     per-role `primary.*_sidecar_count` fields), compact primary-scene
     summaries (`primary.scene_primary_item_count`,
     `primary.scene_linked_item_count`, `primary.scene_node_count`,
-    `primary.scene_edge_count`), and
+    `primary.scene_edge_count`, `primary.scene_*_node_count`, and
+    `primary.scene_*_edge_count`), and
     `auxC`-based aux semantics (`aux.item_count`, `aux.item_id`,
     `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`,
     `aux.subtype_text`, `aux.subtype_uuid`, `aux.subtype_u32`,

@@ -1041,6 +1041,24 @@ TEST(PhotoshopIrbDecodeTest, DecodesNestedDescriptorItems)
     const std::vector<uint32_t> parsed_value_count
         = collect_photoshop_irb_u32_fields(store, 0x0429U,
                                            "DescriptorParsedValueCount");
+    const std::vector<uint32_t> parsed_max_depth
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedMaxDepth");
+    const std::vector<uint32_t> parsed_bool_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedBooleanCount");
+    const std::vector<uint32_t> parsed_int_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedIntegerCount");
+    const std::vector<uint32_t> parsed_text_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedTextCount");
+    const std::vector<uint32_t> parsed_object_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedObjectCount");
+    const std::vector<uint32_t> parsed_list_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedListCount");
     const std::vector<std::string_view> keys
         = collect_photoshop_irb_text_fields(store, 0x0429U,
                                             "DescriptorItemKey");
@@ -1084,6 +1102,12 @@ TEST(PhotoshopIrbDecodeTest, DecodesNestedDescriptorItems)
     ASSERT_EQ(item_count.size(), 1U);
     ASSERT_EQ(parsed_item_count.size(), 1U);
     ASSERT_EQ(parsed_value_count.size(), 1U);
+    ASSERT_EQ(parsed_max_depth.size(), 1U);
+    ASSERT_EQ(parsed_bool_count.size(), 1U);
+    ASSERT_EQ(parsed_int_count.size(), 1U);
+    ASSERT_EQ(parsed_text_count.size(), 1U);
+    ASSERT_EQ(parsed_object_count.size(), 1U);
+    ASSERT_EQ(parsed_list_count.size(), 1U);
     ASSERT_EQ(keys.size(), 3U);
     ASSERT_EQ(paths.size(), 5U);
     ASSERT_EQ(depths.size(), 5U);
@@ -1101,6 +1125,12 @@ TEST(PhotoshopIrbDecodeTest, DecodesNestedDescriptorItems)
     EXPECT_EQ(item_count[0], 1U);
     EXPECT_EQ(parsed_item_count[0], 1U);
     EXPECT_EQ(parsed_value_count[0], 5U);
+    EXPECT_EQ(parsed_max_depth[0], 2U);
+    EXPECT_EQ(parsed_bool_count[0], 1U);
+    EXPECT_EQ(parsed_int_count[0], 1U);
+    EXPECT_EQ(parsed_text_count[0], 1U);
+    EXPECT_EQ(parsed_object_count[0], 1U);
+    EXPECT_EQ(parsed_list_count[0], 1U);
     EXPECT_EQ(keys[0], "nest");
     EXPECT_EQ(keys[1], "flag");
     EXPECT_EQ(keys[2], "nums");
@@ -1165,6 +1195,12 @@ TEST(PhotoshopIrbDecodeTest, SummarizesDescriptorRawDataItems)
     const std::vector<uint32_t> parsed_value_count
         = collect_photoshop_irb_u32_fields(store, 0x0429U,
                                            "DescriptorParsedValueCount");
+    const std::vector<uint32_t> parsed_max_depth
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedMaxDepth");
+    const std::vector<uint32_t> parsed_raw_data_count
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorParsedRawDataCount");
     const std::vector<std::string_view> item_type_names
         = collect_photoshop_irb_text_fields(store, 0x0429U,
                                             "DescriptorItemTypeName");
@@ -1181,6 +1217,8 @@ TEST(PhotoshopIrbDecodeTest, SummarizesDescriptorRawDataItems)
     ASSERT_EQ(item_count.size(), 1U);
     ASSERT_EQ(parsed_item_count.size(), 1U);
     ASSERT_EQ(parsed_value_count.size(), 1U);
+    ASSERT_EQ(parsed_max_depth.size(), 1U);
+    ASSERT_EQ(parsed_raw_data_count.size(), 1U);
     ASSERT_EQ(item_type_names.size(), 1U);
     ASSERT_EQ(item_type_codes.size(), 1U);
     ASSERT_EQ(raw_data_bytes.size(), 1U);
@@ -1188,6 +1226,8 @@ TEST(PhotoshopIrbDecodeTest, SummarizesDescriptorRawDataItems)
     EXPECT_EQ(item_count[0], 1U);
     EXPECT_EQ(parsed_item_count[0], 1U);
     EXPECT_EQ(parsed_value_count[0], 1U);
+    EXPECT_EQ(parsed_max_depth[0], 0U);
+    EXPECT_EQ(parsed_raw_data_count[0], 1U);
     EXPECT_EQ(item_type_names[0], "raw_data");
     EXPECT_EQ(item_type_codes[0], "tdta");
     EXPECT_EQ(raw_data_bytes[0], 3U);

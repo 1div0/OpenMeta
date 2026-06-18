@@ -1801,9 +1801,10 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
 
         std::vector<std::byte> cdsc_payload;
         append_u16be(&cdsc_payload, 1);
-        append_u16be(&cdsc_payload, 2);
+        append_u16be(&cdsc_payload, 3);
         append_u16be(&cdsc_payload, 6);
         append_u16be(&cdsc_payload, 8);
+        append_u16be(&cdsc_payload, 5);
         std::vector<std::byte> cdsc_box;
         append_bmff_box(&cdsc_box, fourcc('c', 'd', 's', 'c'), cdsc_payload);
 
@@ -1919,7 +1920,7 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     const std::vector<uint32_t> role_count
         = collect_u32_values(store, "primary.linked_item_role_count");
     ASSERT_EQ(role_count.size(), 1U);
-    EXPECT_EQ(role_count[0], 7U);
+    EXPECT_EQ(role_count[0], 8U);
 
     const std::vector<uint32_t> sidecar_count
         = collect_u32_values(store, "primary.sidecar_count");
@@ -1944,6 +1945,19 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     const std::vector<uint32_t> scene_content_description_node_count
         = collect_u32_values(store,
                              "primary.scene_content_description_node_count");
+    const std::vector<uint32_t> scene_auxiliary_edge_count
+        = collect_u32_values(store, "primary.scene_auxiliary_edge_count");
+    const std::vector<uint32_t> scene_alpha_edge_count
+        = collect_u32_values(store, "primary.scene_alpha_edge_count");
+    const std::vector<uint32_t> scene_depth_edge_count
+        = collect_u32_values(store, "primary.scene_depth_edge_count");
+    const std::vector<uint32_t> scene_derived_image_edge_count
+        = collect_u32_values(store, "primary.scene_derived_image_edge_count");
+    const std::vector<uint32_t> scene_thumbnail_edge_count
+        = collect_u32_values(store, "primary.scene_thumbnail_edge_count");
+    const std::vector<uint32_t> scene_content_description_edge_count
+        = collect_u32_values(store,
+                             "primary.scene_content_description_edge_count");
     const std::vector<uint32_t> scene_metadata_node_count
         = collect_u32_values(store, "primary.scene_metadata_node_count");
     const std::vector<uint32_t> scene_content_bound_metadata_node_count
@@ -1989,6 +2003,12 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     ASSERT_EQ(scene_derived_image_node_count.size(), 1U);
     ASSERT_EQ(scene_thumbnail_node_count.size(), 1U);
     ASSERT_EQ(scene_content_description_node_count.size(), 1U);
+    ASSERT_EQ(scene_auxiliary_edge_count.size(), 1U);
+    ASSERT_EQ(scene_alpha_edge_count.size(), 1U);
+    ASSERT_EQ(scene_depth_edge_count.size(), 1U);
+    ASSERT_EQ(scene_derived_image_edge_count.size(), 1U);
+    ASSERT_EQ(scene_thumbnail_edge_count.size(), 1U);
+    ASSERT_EQ(scene_content_description_edge_count.size(), 1U);
     ASSERT_EQ(scene_metadata_node_count.size(), 1U);
     ASSERT_EQ(scene_content_bound_metadata_node_count.size(), 1U);
     ASSERT_EQ(scene_image_node_count.size(), 1U);
@@ -2008,13 +2028,19 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(scene_primary_item_count[0], 1U);
     EXPECT_EQ(scene_linked_item_count[0], 7U);
     EXPECT_EQ(scene_node_count[0], 8U);
-    EXPECT_EQ(scene_edge_count[0], 7U);
+    EXPECT_EQ(scene_edge_count[0], 8U);
     EXPECT_EQ(scene_auxiliary_node_count[0], 1U);
     EXPECT_EQ(scene_alpha_node_count[0], 1U);
     EXPECT_EQ(scene_depth_node_count[0], 1U);
     EXPECT_EQ(scene_derived_image_node_count[0], 1U);
     EXPECT_EQ(scene_thumbnail_node_count[0], 1U);
-    EXPECT_EQ(scene_content_description_node_count[0], 2U);
+    EXPECT_EQ(scene_content_description_node_count[0], 3U);
+    EXPECT_EQ(scene_auxiliary_edge_count[0], 1U);
+    EXPECT_EQ(scene_alpha_edge_count[0], 1U);
+    EXPECT_EQ(scene_depth_edge_count[0], 1U);
+    EXPECT_EQ(scene_derived_image_edge_count[0], 1U);
+    EXPECT_EQ(scene_thumbnail_edge_count[0], 1U);
+    EXPECT_EQ(scene_content_description_edge_count[0], 3U);
     EXPECT_EQ(scene_metadata_node_count[0], 2U);
     EXPECT_EQ(scene_content_bound_metadata_node_count[0], 1U);
     EXPECT_EQ(scene_image_node_count[0], 5U);
@@ -2033,7 +2059,7 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
 
     const std::vector<uint32_t> role_item_ids
         = collect_u32_values(store, "primary.linked_item_id");
-    ASSERT_EQ(role_item_ids.size(), 7U);
+    ASSERT_EQ(role_item_ids.size(), 8U);
     EXPECT_EQ(role_item_ids[0], 2U);
     EXPECT_EQ(role_item_ids[1], 3U);
     EXPECT_EQ(role_item_ids[2], 7U);
@@ -2041,10 +2067,11 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(role_item_ids[4], 5U);
     EXPECT_EQ(role_item_ids[5], 6U);
     EXPECT_EQ(role_item_ids[6], 8U);
+    EXPECT_EQ(role_item_ids[7], 5U);
 
     const std::vector<uint32_t> role_item_types
         = collect_u32_values(store, "primary.linked_item_type");
-    ASSERT_EQ(role_item_types.size(), 7U);
+    ASSERT_EQ(role_item_types.size(), 8U);
     EXPECT_EQ(role_item_types[0], fourcc('a', 'u', 'x', 'l'));
     EXPECT_EQ(role_item_types[1], fourcc('a', 'u', 'x', 'l'));
     EXPECT_EQ(role_item_types[2], fourcc('a', 'u', 'x', 'l'));
@@ -2052,10 +2079,11 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(role_item_types[4], fourcc('t', 'h', 'm', 'b'));
     EXPECT_EQ(role_item_types[5], fourcc('c', 'd', 's', 'c'));
     EXPECT_EQ(role_item_types[6], fourcc('m', 'i', 'm', 'e'));
+    EXPECT_EQ(role_item_types[7], fourcc('t', 'h', 'm', 'b'));
 
     const std::vector<std::string> role_item_names
         = collect_text_values(store, "primary.linked_item_name");
-    ASSERT_EQ(role_item_names.size(), 7U);
+    ASSERT_EQ(role_item_names.size(), 8U);
     EXPECT_EQ(role_item_names[0], "depth_aux");
     EXPECT_EQ(role_item_names[1], "alpha_aux");
     EXPECT_EQ(role_item_names[2], "other_aux");
@@ -2063,10 +2091,11 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(role_item_names[4], "thumb");
     EXPECT_EQ(role_item_names[5], "caption");
     EXPECT_EQ(role_item_names[6], "manifest");
+    EXPECT_EQ(role_item_names[7], "thumb");
 
     const std::vector<std::string> roles
         = collect_text_values(store, "primary.linked_item_role");
-    ASSERT_EQ(roles.size(), 7U);
+    ASSERT_EQ(roles.size(), 8U);
     EXPECT_EQ(roles[0], "depth");
     EXPECT_EQ(roles[1], "alpha");
     EXPECT_EQ(roles[2], "auxiliary");
@@ -2074,6 +2103,7 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(roles[4], "thumbnail");
     EXPECT_EQ(roles[5], "content_description");
     EXPECT_EQ(roles[6], "content_description");
+    EXPECT_EQ(roles[7], "content_description");
 
     const std::vector<uint32_t> linked_known
         = collect_u32_values(store, "primary.linked_item_semantic_known_count");

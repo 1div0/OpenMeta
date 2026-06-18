@@ -116,8 +116,8 @@ Host-facing API map
        descriptor-header summaries plus safe descriptor class-name/class-ID/
        item-count fields, bounded descriptor item bodies for ``bool``,
        ``long``, ``doub``, ``UntF``, ``TEXT``, ``enum``, and ``tdta``
-       raw-data byte counts with descriptor item type-name and type-code
-       fields, nested
+       raw-data byte counts with descriptor item type-name/type-code fields,
+       parsed maximum depth, and parsed per-type counters, nested
        object/list traversal with item path/depth/list-index and parsed-value
        count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom
        workflow text, legacy halftone/transfer/duotone/EPS byte summaries,

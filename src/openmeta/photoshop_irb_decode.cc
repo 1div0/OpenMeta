@@ -1401,6 +1401,17 @@ namespace {
         uint16_t resource_id             = 0U;
         PhotoshopIrbDecodeResult* result = nullptr;
         uint32_t parsed_values           = 0U;
+        uint32_t bool_count              = 0U;
+        uint32_t integer_count           = 0U;
+        uint32_t double_count            = 0U;
+        uint32_t unit_float_count        = 0U;
+        uint32_t text_count              = 0U;
+        uint32_t enum_count              = 0U;
+        uint32_t object_count            = 0U;
+        uint32_t global_object_count     = 0U;
+        uint32_t list_count              = 0U;
+        uint32_t raw_data_count          = 0U;
+        uint32_t max_depth               = 0U;
         bool parse_truncated             = false;
     };
 
@@ -1441,6 +1452,66 @@ namespace {
             out->append(index_text, static_cast<size_t>(n));
         }
         out->push_back(']');
+    }
+
+
+    static void count_descriptor_parsed_type(DescriptorParseState* state,
+                                             uint32_t item_type,
+                                             uint32_t depth) noexcept
+    {
+        if (!state) {
+            return;
+        }
+        if (depth > state->max_depth) {
+            state->max_depth = depth;
+        }
+        switch (item_type) {
+        case descriptor_fourcc('b', 'o', 'o', 'l'):
+            state->bool_count += 1U;
+            break;
+        case descriptor_fourcc('l', 'o', 'n', 'g'):
+            state->integer_count += 1U;
+            break;
+        case descriptor_fourcc('d', 'o', 'u', 'b'):
+            state->double_count += 1U;
+            break;
+        case descriptor_fourcc('U', 'n', 't', 'F'):
+            state->unit_float_count += 1U;
+            break;
+        case descriptor_fourcc('T', 'E', 'X', 'T'):
+            state->text_count += 1U;
+            break;
+        case descriptor_fourcc('e', 'n', 'u', 'm'):
+            state->enum_count += 1U;
+            break;
+        case descriptor_fourcc('O', 'b', 'j', 'c'):
+            state->object_count += 1U;
+            break;
+        case descriptor_fourcc('G', 'l', 'b', 'O'):
+            state->global_object_count += 1U;
+            break;
+        case descriptor_fourcc('V', 'l', 'L', 's'):
+            state->list_count += 1U;
+            break;
+        case descriptor_fourcc('t', 'd', 't', 'a'):
+            state->raw_data_count += 1U;
+            break;
+        default: break;
+        }
+    }
+
+
+    static void
+    emit_descriptor_count_if_nonzero(MetaStore& store, BlockId block,
+                                     uint32_t order, uint16_t resource_id,
+                                     std::string_view field, uint32_t count,
+                                     PhotoshopIrbDecodeResult* result)
+    {
+        if (count == 0U) {
+            return;
+        }
+        emit_derived_field(store, block, order, resource_id, field,
+                           make_u32(count), result);
     }
 
 
@@ -1797,6 +1868,7 @@ namespace {
         }
 
         state->parsed_values += 1U;
+        count_descriptor_parsed_type(state, item_type, depth);
 
         if (item_type == descriptor_fourcc('O', 'b', 'j', 'c')
             || item_type == descriptor_fourcc('G', 'l', 'b', 'O')) {
@@ -1893,6 +1965,42 @@ namespace {
             emit_derived_field(store, block, order, resource_id,
                                "DescriptorParsedValueCount",
                                make_u32(parse_state.parsed_values), result);
+            emit_derived_field(store, block, order, resource_id,
+                               "DescriptorParsedMaxDepth",
+                               make_u32(parse_state.max_depth), result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedBooleanCount",
+                                             parse_state.bool_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedIntegerCount",
+                                             parse_state.integer_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedDoubleCount",
+                                             parse_state.double_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedUnitFloatCount",
+                                             parse_state.unit_float_count,
+                                             result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedTextCount",
+                                             parse_state.text_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedEnumCount",
+                                             parse_state.enum_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedObjectCount",
+                                             parse_state.object_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedGlobalObjectCount",
+                                             parse_state.global_object_count,
+                                             result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedListCount",
+                                             parse_state.list_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedRawDataCount",
+                                             parse_state.raw_data_count,
+                                             result);
             if (parse_state.parse_truncated || parsed_items != item_count) {
                 emit_derived_field(store, block, order, resource_id,
                                    "DescriptorItemParseTruncated", make_u8(1U),
