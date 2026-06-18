@@ -957,6 +957,34 @@ namespace {
         EXPECT_TRUE(date_created->conflict);
     }
 
+    TEST(MetadataConcepts, CombinesIptcDigitalCreationDateAndTime)
+    {
+        MetaStore store;
+        const EntryId date_id = add_iptc_text(&store, 2U, 62U, "20240419");
+        const EntryId time_id = add_iptc_text(&store, 2U, 63U, "123501+0000");
+        store.finalize();
+
+        const MetadataConceptResolution datetime
+            = resolve_metadata_concept(store, MetadataConceptKind::DateTime);
+
+        EXPECT_TRUE(datetime.found);
+        EXPECT_FALSE(datetime.conflict);
+        const MetadataConceptCandidate* digitized
+            = find_role_entries(datetime, MetadataConceptRole::Digitized,
+                                date_id, time_id);
+        ASSERT_NE(digitized, nullptr);
+        EXPECT_TRUE(digitized->has_date_time);
+        EXPECT_TRUE(digitized->date_time_has_time);
+        EXPECT_TRUE(digitized->date_time_has_utc_offset);
+        EXPECT_EQ(digitized->date_time_zone, MetadataConceptTimeZoneKind::Utc);
+        EXPECT_EQ(digitized->date_time_year, 2024);
+        EXPECT_EQ(digitized->date_time_month, 4U);
+        EXPECT_EQ(digitized->date_time_day, 19U);
+        EXPECT_EQ(digitized->date_time_hour, 12U);
+        EXPECT_EQ(digitized->date_time_minute, 35U);
+        EXPECT_EQ(digitized->date_time_second, 1U);
+    }
+
     TEST(MetadataConcepts, UsesToleranceForGpsCoordinateConflicts)
     {
         {
@@ -1017,9 +1045,9 @@ namespace {
         const EntryId time_id = add_xmp_text(&store,
                                              "http://ns.adobe.com/exif/1.0/",
                                              "exif:GPSTimeStamp", "12:34:56Z");
-        const EntryId direct_id = add_xmp_text(
-            &store, "http://ns.adobe.com/exif/1.0/", "exif:GPSDateTime",
-            "2024-04-19T12:34:56Z");
+        const EntryId direct_id
+            = add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
+                           "exif:GPSDateTime", "2024-04-19T12:34:56Z");
         store.finalize();
 
         const MetadataConceptResolution gps

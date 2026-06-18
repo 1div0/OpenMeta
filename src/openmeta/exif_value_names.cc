@@ -6862,6 +6862,35 @@ microsoft_value_name(std::string_view ifd, uint16_t tag,
 }
 
 static bool
+is_motorola_main_ifd(std::string_view ifd) noexcept
+{
+    return ifd == "mk_motorola0" || ifd_has_prefix(ifd, "mk_motorola_main")
+           || ifd == "makernote:motorola:main";
+}
+
+static const char*
+motorola_custom_rendered_name(uint64_t value) noexcept
+{
+    switch (value) {
+    case 0U: return "Normal";
+    case 1U: return "Custom";
+    default: return "";
+    }
+}
+
+static const char*
+motorola_value_name(std::string_view ifd, uint16_t tag, uint64_t value) noexcept
+{
+    if (!is_motorola_main_ifd(ifd)) {
+        return "";
+    }
+    switch (tag) {
+    case 0x6420U: return motorola_custom_rendered_name(value);
+    default: return "";
+    }
+}
+
+static bool
 is_reconyx_hyperfire_ifd(std::string_view ifd) noexcept
 {
     return ifd == "mk_reconyx_hyperfire_0"
@@ -7375,6 +7404,10 @@ makernote_tag_numeric_value_name(std::string_view ifd, uint16_t tag,
     if (ifd_has_prefix(ifd, "mk_microsoft")
         || ifd_has_prefix(ifd, "makernote:microsoft:")) {
         return microsoft_value_name(ifd, tag, value);
+    }
+    if (ifd_has_prefix(ifd, "mk_motorola")
+        || ifd_has_prefix(ifd, "makernote:motorola:")) {
+        return motorola_value_name(ifd, tag, value);
     }
     if (ifd_has_prefix(ifd, "mk_reconyx")
         || ifd_has_prefix(ifd, "makernote:reconyx:")) {

@@ -1434,11 +1434,22 @@ namespace {
             transfer_concept_diagnostic_severity_name(severity));
         out["message"] = nb::str(
             transfer_concept_diagnostic_message(diagnostic));
-        const std::string token
-            = transfer_concept_diagnostic_token(diagnostic);
-        out["token"] = nb::str(token.c_str(), token.size());
-        out["entry_id"]       = nb::int_(diagnostic.entry_id);
-        out["source_entries"] = metadata_query_entry_ids_to_python(
+        const std::string message_token
+            = transfer_concept_diagnostic_message_token(diagnostic);
+        out["message_token"] = nb::str(message_token.c_str(),
+                                       message_token.size());
+        const std::vector<std::string> message_arguments
+            = transfer_concept_diagnostic_message_arguments(diagnostic);
+        nb::list args;
+        for (size_t i = 0U; i < message_arguments.size(); ++i) {
+            args.append(nb::str(message_arguments[i].c_str(),
+                                message_arguments[i].size()));
+        }
+        out["message_arguments"] = std::move(args);
+        const std::string token = transfer_concept_diagnostic_token(diagnostic);
+        out["token"]            = nb::str(token.c_str(), token.size());
+        out["entry_id"]         = nb::int_(diagnostic.entry_id);
+        out["source_entries"]   = metadata_query_entry_ids_to_python(
             diagnostic.source_entries);
         out["preferred"]            = nb::bool_(diagnostic.preferred);
         out["conflict"]             = nb::bool_(diagnostic.conflict);

@@ -1931,6 +1931,26 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
         = collect_u32_values(store, "primary.scene_node_count");
     const std::vector<uint32_t> scene_edge_count
         = collect_u32_values(store, "primary.scene_edge_count");
+    const std::vector<uint32_t> scene_auxiliary_node_count
+        = collect_u32_values(store, "primary.scene_auxiliary_node_count");
+    const std::vector<uint32_t> scene_alpha_node_count
+        = collect_u32_values(store, "primary.scene_alpha_node_count");
+    const std::vector<uint32_t> scene_depth_node_count
+        = collect_u32_values(store, "primary.scene_depth_node_count");
+    const std::vector<uint32_t> scene_derived_image_node_count
+        = collect_u32_values(store, "primary.scene_derived_image_node_count");
+    const std::vector<uint32_t> scene_thumbnail_node_count
+        = collect_u32_values(store, "primary.scene_thumbnail_node_count");
+    const std::vector<uint32_t> scene_content_description_node_count
+        = collect_u32_values(store,
+                             "primary.scene_content_description_node_count");
+    const std::vector<uint32_t> scene_metadata_node_count
+        = collect_u32_values(store, "primary.scene_metadata_node_count");
+    const std::vector<uint32_t> scene_content_bound_metadata_node_count
+        = collect_u32_values(store,
+                             "primary.scene_content_bound_metadata_node_count");
+    const std::vector<uint32_t> scene_image_node_count
+        = collect_u32_values(store, "primary.scene_image_node_count");
     const std::vector<uint8_t> has_metadata_sidecar
         = collect_u8_values(store, "primary.has_metadata_sidecar");
     const std::vector<uint32_t> metadata_sidecar_count
@@ -1963,6 +1983,15 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     ASSERT_EQ(scene_linked_item_count.size(), 1U);
     ASSERT_EQ(scene_node_count.size(), 1U);
     ASSERT_EQ(scene_edge_count.size(), 1U);
+    ASSERT_EQ(scene_auxiliary_node_count.size(), 1U);
+    ASSERT_EQ(scene_alpha_node_count.size(), 1U);
+    ASSERT_EQ(scene_depth_node_count.size(), 1U);
+    ASSERT_EQ(scene_derived_image_node_count.size(), 1U);
+    ASSERT_EQ(scene_thumbnail_node_count.size(), 1U);
+    ASSERT_EQ(scene_content_description_node_count.size(), 1U);
+    ASSERT_EQ(scene_metadata_node_count.size(), 1U);
+    ASSERT_EQ(scene_content_bound_metadata_node_count.size(), 1U);
+    ASSERT_EQ(scene_image_node_count.size(), 1U);
     ASSERT_EQ(has_metadata_sidecar.size(), 1U);
     ASSERT_EQ(metadata_sidecar_count.size(), 1U);
     ASSERT_EQ(has_content_bound_metadata_sidecar.size(), 1U);
@@ -1980,6 +2009,15 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(scene_linked_item_count[0], 7U);
     EXPECT_EQ(scene_node_count[0], 8U);
     EXPECT_EQ(scene_edge_count[0], 7U);
+    EXPECT_EQ(scene_auxiliary_node_count[0], 1U);
+    EXPECT_EQ(scene_alpha_node_count[0], 1U);
+    EXPECT_EQ(scene_depth_node_count[0], 1U);
+    EXPECT_EQ(scene_derived_image_node_count[0], 1U);
+    EXPECT_EQ(scene_thumbnail_node_count[0], 1U);
+    EXPECT_EQ(scene_content_description_node_count[0], 2U);
+    EXPECT_EQ(scene_metadata_node_count[0], 2U);
+    EXPECT_EQ(scene_content_bound_metadata_node_count[0], 1U);
+    EXPECT_EQ(scene_image_node_count[0], 5U);
     EXPECT_EQ(has_metadata_sidecar[0], 1U);
     EXPECT_EQ(metadata_sidecar_count[0], 2U);
     EXPECT_EQ(has_content_bound_metadata_sidecar[0], 1U);

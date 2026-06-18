@@ -72,9 +72,12 @@ records remain visible as individual metadata, but they are not promoted into
 normalized grouped color, white-balance, or lens-correction candidates.
 Date/time candidates
 include parsed date/time fields when the source value is recognizable, plus
-precision and timezone-kind fields. GPS timestamps combine ``GPSDateStamp``
-with ``GPSTimeStamp`` when both are present, and GPS altitude candidates report
-whether ``GPSAltitudeRef`` marked the height as below sea level; use
+precision and timezone-kind fields. IPTC created date/time, IPTC
+digital-creation date/time, XMP digitized timestamps, and GPS timestamps are
+assembled where the source fields provide enough pieces. GPS timestamps
+combine ``GPSDateStamp`` with ``GPSTimeStamp`` when both are present, and GPS
+altitude candidates report whether ``GPSAltitudeRef`` marked the height as
+below sea level; use
 ``metadata_concept_gps_altitude_reference_name(...)`` for a stable display
 token. Treat this as an inspection and policy input rather than an automatic
 metadata rewrite decision; source-bound color, lens, and RAW-processing values
@@ -84,8 +87,9 @@ transfer hint: ``safe``, ``source_bound``, ``rendered_unsafe``, or
 ``rendered_image_safe`` booleans for host UI and preflight policy. For transfer
 previews, ``transfer_concept_diagnostics_from_store(...)`` converts those hints
 into keep/drop/requires-target-image-spec actions for a selected
-``TransferSafetyMode``, plus stable severity tokens and default message text
-for host UI. If the host knows the source storage context, pass
+``TransferSafetyMode``, plus stable severity tokens, summary tokens, message
+tokens, argument tokens, and default message text for host UI. If the host
+knows the source storage context, pass
 ``MetadataRawDataDescriptor`` to the descriptor-aware overload so
 RAW-processing diagnostics distinguish stored RAW samples from rendered pixels
 before choosing keep/drop actions. Rendered-transfer drop messages distinguish
@@ -666,11 +670,17 @@ are present.
            openmeta::transfer_concept_diagnostic_message(item);
        const std::string token =
            openmeta::transfer_concept_diagnostic_token(item);
+       const std::string message_token =
+           openmeta::transfer_concept_diagnostic_message_token(item);
+       const std::vector<std::string> message_arguments =
+           openmeta::transfer_concept_diagnostic_message_arguments(item);
        (void)action;
        (void)reason;
        (void)severity;
        (void)message;
        (void)token;
+       (void)message_token;
+       (void)message_arguments;
    }
 
 If a decoder exposes a curve/LUT metadata entry that only affects compressed RAW
@@ -712,6 +722,8 @@ Python uses the same family enum:
            item["action_name"],
            item["severity_name"],
            item["token"],
+           item["message_token"],
+           item["message_arguments"],
            item["message"],
        )
 

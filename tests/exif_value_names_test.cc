@@ -863,6 +863,14 @@ namespace {
                                                  0x0003U, 1U),
                      "");
 
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_motorola0", 0x6420U, 0U),
+                     "Normal");
+        EXPECT_STREQ(exif_tag_numeric_value_name("makernote:motorola:main",
+                                                 0x6420U, 1U),
+                     "Custom");
+        EXPECT_STREQ(exif_tag_numeric_value_name("mk_motorola0", 0x64D0U, 1U),
+                     "");
+
         EXPECT_STREQ(exif_tag_numeric_value_name("mk_reconyx_hyperfire_0",
                                                  0x0006U,
                                                  static_cast<uint64_t>('M')),

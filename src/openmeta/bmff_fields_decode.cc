@@ -1872,6 +1872,62 @@ namespace {
         emit_u32_field(store, block, (*io_order)++, "primary.scene_edge_count",
                        role_count);
 
+        uint32_t scene_auxiliary_node_count           = 0U;
+        uint32_t scene_alpha_node_count               = 0U;
+        uint32_t scene_depth_node_count               = 0U;
+        uint32_t scene_disparity_node_count           = 0U;
+        uint32_t scene_matte_node_count               = 0U;
+        uint32_t scene_derived_image_node_count       = 0U;
+        uint32_t scene_thumbnail_node_count           = 0U;
+        uint32_t scene_content_description_node_count = 0U;
+        for (uint32_t i = 0; i < role_count; ++i) {
+            switch (roles[i]) {
+            case PrimaryLinkedRole::Auxiliary:
+                scene_auxiliary_node_count += 1U;
+                break;
+            case PrimaryLinkedRole::Alpha: scene_alpha_node_count += 1U; break;
+            case PrimaryLinkedRole::Depth: scene_depth_node_count += 1U; break;
+            case PrimaryLinkedRole::Disparity:
+                scene_disparity_node_count += 1U;
+                break;
+            case PrimaryLinkedRole::Matte: scene_matte_node_count += 1U; break;
+            case PrimaryLinkedRole::DerivedImage:
+                scene_derived_image_node_count += 1U;
+                break;
+            case PrimaryLinkedRole::Thumbnail:
+                scene_thumbnail_node_count += 1U;
+                break;
+            case PrimaryLinkedRole::ContentDescription:
+                scene_content_description_node_count += 1U;
+                break;
+            }
+        }
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_auxiliary_node_count",
+                                    scene_auxiliary_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_alpha_node_count",
+                                    scene_alpha_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_depth_node_count",
+                                    scene_depth_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_disparity_node_count",
+                                    scene_disparity_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_matte_node_count",
+                                    scene_matte_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_derived_image_node_count",
+                                    scene_derived_image_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "primary.scene_thumbnail_node_count",
+                                    scene_thumbnail_node_count);
+        emit_count_field_if_nonzero(
+            store, block, io_order,
+            "primary.scene_content_description_node_count",
+            scene_content_description_node_count);
+
         ItemSemanticCounts linked_semantic_counts {};
         for (uint32_t i = 0; i < role_count; ++i) {
             const ItemInfo* info = nullptr;
@@ -1892,6 +1948,9 @@ namespace {
                                              + linked_semantic_counts.derived
                                              + linked_semantic_counts.thumbnail;
         if (linked_semantic_counts.metadata != 0U) {
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.scene_metadata_node_count",
+                           linked_semantic_counts.metadata);
             emit_u8_field(store, block, (*io_order)++,
                           "primary.has_metadata_sidecar", 1U);
             emit_u32_field(store, block, (*io_order)++,
@@ -1901,6 +1960,9 @@ namespace {
         const uint32_t content_bound_metadata_count
             = linked_semantic_counts.jumbf + linked_semantic_counts.c2pa;
         if (content_bound_metadata_count != 0U) {
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.scene_content_bound_metadata_node_count",
+                           content_bound_metadata_count);
             emit_u8_field(store, block, (*io_order)++,
                           "primary.has_content_bound_metadata_sidecar", 1U);
             emit_u32_field(store, block, (*io_order)++,
@@ -1911,6 +1973,9 @@ namespace {
                             "requires_target_rewrite");
         }
         if (image_sidecar_count != 0U) {
+            emit_u32_field(store, block, (*io_order)++,
+                           "primary.scene_image_node_count",
+                           image_sidecar_count);
             emit_u8_field(store, block, (*io_order)++,
                           "primary.has_image_sidecar", 1U);
             emit_u32_field(store, block, (*io_order)++,

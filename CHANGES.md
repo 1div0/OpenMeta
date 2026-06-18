@@ -1,5 +1,30 @@
 # OpenMeta Changes
 
+## 0.4.59 - 2026-06-18
+
+Changes compared with `0.4.58`.
+
+### Added
+
+- Added BMFF primary-scene node bucket fields for linked auxiliary, alpha,
+  depth, derived-image, thumbnail, content-description, image, metadata, and
+  content-bound metadata nodes.
+- Added Photoshop IRB descriptor item type-code fields alongside descriptor
+  item type names and existing bounded descriptor summaries.
+- Added transfer diagnostic localization helpers:
+  `transfer_concept_diagnostic_message_token(...)` and
+  `transfer_concept_diagnostic_message_arguments(...)`, plus Python
+  `message_token` and `message_arguments` fields.
+- Added IPTC digital-creation date/time composite interpretation for the
+  cross-family `Digitized` concept role.
+- Added bounded Motorola MakerNote `CustomRendered` value labels.
+
+### Changed
+
+- Updated public API, interpretation, quick-start, and host-integration docs
+  for the expanded scene, IRB, date/time, diagnostic, and MakerNote
+  interpretation surfaces.
+
 ## 0.4.58 - 2026-06-17
 
 Changes compared with `0.4.57`.

@@ -1996,7 +1996,15 @@ const char*
 transfer_concept_diagnostic_message(
     const TransferConceptDiagnostic& diagnostic) noexcept;
 
-std::string transfer_concept_diagnostic_token(
+std::string
+transfer_concept_diagnostic_token(const TransferConceptDiagnostic& diagnostic);
+
+std::string
+transfer_concept_diagnostic_message_token(
+    const TransferConceptDiagnostic& diagnostic);
+
+std::vector<std::string>
+transfer_concept_diagnostic_message_arguments(
     const TransferConceptDiagnostic& diagnostic);
 
 /**

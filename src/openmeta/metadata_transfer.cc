@@ -13714,8 +13714,8 @@ transfer_concept_diagnostic_message(
     return "metadata has no safe automatic transfer action for this mode";
 }
 
-std::string transfer_concept_diagnostic_token(
-    const TransferConceptDiagnostic& diagnostic)
+std::string
+transfer_concept_diagnostic_token(const TransferConceptDiagnostic& diagnostic)
 {
     const TransferConceptDiagnosticSeverity severity
         = transfer_concept_diagnostic_severity(diagnostic);
@@ -13732,6 +13732,117 @@ std::string transfer_concept_diagnostic_token(
     out.append(transfer_concept_diagnostic_reason_name(diagnostic.reason));
     if (diagnostic.conflict) {
         out.append(":conflict");
+    }
+    return out;
+}
+
+std::string
+transfer_concept_diagnostic_message_token(
+    const TransferConceptDiagnostic& diagnostic)
+{
+    if (diagnostic.conflict) {
+        return "conflict";
+    }
+    switch (diagnostic.action) {
+    case TransferConceptDiagnosticAction::Keep:
+        if (diagnostic.reason
+            == TransferConceptDiagnosticReason::RawApplicabilityConditional) {
+            return "keep.raw_applicability_conditional";
+        }
+        if (diagnostic.reason
+            == TransferConceptDiagnosticReason::RawApplicabilityNotApplicable) {
+            return "keep.raw_applicability_not_applicable";
+        }
+        return "keep.safe";
+    case TransferConceptDiagnosticAction::RequiresTargetImageSpec:
+        return "requires_target_image_spec";
+    case TransferConceptDiagnosticAction::Drop:
+        switch (diagnostic.reason) {
+        case TransferConceptDiagnosticReason::RawApplicabilityConditional:
+            return "drop.raw_applicability_conditional";
+        case TransferConceptDiagnosticReason::RawApplicabilityNotApplicable:
+            return "drop.raw_applicability_not_applicable";
+        case TransferConceptDiagnosticReason::RenderedUnsafe:
+            if (diagnostic.kind == MetadataConceptKind::ColorProfile
+                && (diagnostic.role == MetadataConceptRole::ColorMatrix
+                    || diagnostic.role
+                           == MetadataConceptRole::SourceColorTransform)) {
+                return "drop.source_color_transform";
+            }
+            if (diagnostic.kind == MetadataConceptKind::ColorProfile
+                && diagnostic.role == MetadataConceptRole::WhiteBalance) {
+                return "drop.white_balance";
+            }
+            if (diagnostic.kind == MetadataConceptKind::LensCorrection) {
+                return "drop.lens_correction";
+            }
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && (diagnostic.role == MetadataConceptRole::RawValueCurve
+                    || diagnostic.role
+                           == MetadataConceptRole::RawCalibrationCurve
+                    || diagnostic.role
+                           == MetadataConceptRole::RawCurveControlPoints
+                    || diagnostic.role
+                           == MetadataConceptRole::RawLinearityLimit)) {
+                return "drop.raw_curve";
+            }
+            return "drop.rendered_unsafe";
+        case TransferConceptDiagnosticReason::SourceBound:
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && diagnostic.role
+                       == MetadataConceptRole::ComputationalProcessing) {
+                return "drop.computational_processing";
+            }
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && diagnostic.role == MetadataConceptRole::ThermalProcessing) {
+                return "drop.thermal_processing";
+            }
+            if (diagnostic.kind == MetadataConceptKind::RawProcessing
+                && diagnostic.role == MetadataConceptRole::StitchProcessing) {
+                return "drop.stitch_processing";
+            }
+            return "drop.source_bound";
+        case TransferConceptDiagnosticReason::TargetImageSpecRequired:
+            return "drop.target_image_spec_required";
+        case TransferConceptDiagnosticReason::Safe:
+        case TransferConceptDiagnosticReason::Unknown: break;
+        }
+        break;
+    }
+    return "unknown";
+}
+
+std::vector<std::string>
+transfer_concept_diagnostic_message_arguments(
+    const TransferConceptDiagnostic& diagnostic)
+{
+    const TransferConceptDiagnosticSeverity severity
+        = transfer_concept_diagnostic_severity(diagnostic);
+    std::vector<std::string> out;
+    out.reserve(8U);
+    out.push_back(std::string("kind=")
+                  + metadata_concept_kind_name(diagnostic.kind));
+    out.push_back(std::string("role=")
+                  + metadata_concept_role_name(diagnostic.role));
+    out.push_back(std::string("action=")
+                  + transfer_concept_diagnostic_action_name(diagnostic.action));
+    out.push_back(std::string("reason=")
+                  + transfer_concept_diagnostic_reason_name(diagnostic.reason));
+    out.push_back(std::string("severity=")
+                  + transfer_concept_diagnostic_severity_name(severity));
+    if (diagnostic.raw_applicability
+        != MetadataRawApplicabilityState::Unknown) {
+        out.push_back(std::string("raw_applicability=")
+                      + metadata_raw_applicability_state_name(
+                          diagnostic.raw_applicability));
+    }
+    if (diagnostic.has_gps_altitude_reference) {
+        out.push_back(std::string("gps_altitude_reference=")
+                      + metadata_concept_gps_altitude_reference_name(
+                          diagnostic.gps_altitude_reference_code));
+    }
+    if (diagnostic.conflict) {
+        out.push_back("conflict=true");
     }
     return out;
 }

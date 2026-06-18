@@ -21487,6 +21487,17 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                  "metadata is safe to keep for this transfer mode");
     EXPECT_EQ(openmeta::transfer_concept_diagnostic_token(*created_diag),
               "info:date_time.created:keep:safe");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(*created_diag),
+              "keep.safe");
+    const std::vector<std::string> created_message_arguments
+        = openmeta::transfer_concept_diagnostic_message_arguments(
+            *created_diag);
+    ASSERT_GE(created_message_arguments.size(), 5U);
+    EXPECT_EQ(created_message_arguments[0], "kind=date_time");
+    EXPECT_EQ(created_message_arguments[1], "role=created");
+    EXPECT_EQ(created_message_arguments[2], "action=keep");
+    EXPECT_EQ(created_message_arguments[3], "reason=safe");
+    EXPECT_EQ(created_message_arguments[4], "severity=info");
 
     const openmeta::TransferConceptDiagnostic* altitude_diag
         = find_transfer_concept_diagnostic(
@@ -21519,10 +21530,9 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         openmeta::transfer_concept_diagnostic_message(*orientation_diag),
         "source value describes target-owned image properties; provide target "
         "image specs or write a target-correct value");
-    EXPECT_EQ(
-        openmeta::transfer_concept_diagnostic_token(*orientation_diag),
-        "warning:orientation.orientation:requires_target_image_spec:"
-        "target_image_spec_required");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_token(*orientation_diag),
+              "warning:orientation.orientation:requires_target_image_spec:"
+              "target_image_spec_required");
 
     const openmeta::TransferConceptDiagnostic* active_area_diag
         = find_transfer_concept_diagnostic(
@@ -21571,10 +21581,12 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
         openmeta::transfer_concept_diagnostic_message(*color_space_diag),
         "multiple source values conflict; host policy should choose, rewrite, "
         "or omit this concept");
-    EXPECT_EQ(
-        openmeta::transfer_concept_diagnostic_token(*color_space_diag),
-        "warning:color_profile.color_space:requires_target_image_spec:"
-        "target_image_spec_required:conflict");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_token(*color_space_diag),
+              "warning:color_profile.color_space:requires_target_image_spec:"
+              "target_image_spec_required:conflict");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(
+                  *color_space_diag),
+              "conflict");
 
     const openmeta::TransferConceptDiagnostic* matrix_diag
         = find_transfer_concept_diagnostic(
@@ -21655,6 +21667,15 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
                  "RAW curve or linearity metadata requires raw storage context "
                  "before it can be treated as active and will be dropped for "
                  "rendered-image transfer");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(*curve_diag),
+              "drop.raw_applicability_conditional");
+    const std::vector<std::string> curve_message_arguments
+        = openmeta::transfer_concept_diagnostic_message_arguments(*curve_diag);
+    ASSERT_GE(curve_message_arguments.size(), 6U);
+    EXPECT_EQ(curve_message_arguments[0], "kind=raw_processing");
+    EXPECT_EQ(curve_message_arguments[1], "role=raw_value_curve");
+    EXPECT_EQ(curve_message_arguments[5],
+              "raw_applicability=conditional_on_raw_encoding");
 
     const openmeta::TransferConceptDiagnostics compatible
         = openmeta::transfer_concept_diagnostics_from_store(

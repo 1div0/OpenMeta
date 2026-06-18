@@ -92,10 +92,11 @@ Host-facing API map
        calibration illuminants, and EXIF 3.1 lens-correction /
        noise-reduction status values, plus selected bounded Canon/Nikon/
        Sony/Fujifilm/Pentax/Olympus/Panasonic/Phase One/Kodak/Minolta/Sigma/
-       Samsung/Ricoh/Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo
+       Samsung/Ricoh/Apple/FLIR/JVC/GE/Reconyx/Microsoft/Motorola/Nintendo/Sanyo
        MakerNote contexts including NikonSettings On/Off labels, Reconyx
-       scalar labels, Microsoft stitch labels, Nintendo category labels,
-       Sanyo public-context scalar labels, current Canon RF lens-type labels,
+       scalar labels, Microsoft stitch labels, Motorola ``CustomRendered``
+       labels, Nintendo category labels, Sanyo public-context scalar labels,
+       current Canon RF lens-type labels,
        current Nikon Z ``LensData0800`` ``LensID`` labels, and an ambiguous
        Pentax Sigma/Samsung/Tokina lens-family label where stable.
        Version/firmware helpers format selected standard EXIF byte-version
@@ -114,7 +115,9 @@ Host-facing API map
        display/grid/thumbnail/color-sampler headers, path-record summaries,
        descriptor-header summaries plus safe descriptor class-name/class-ID/
        item-count fields, bounded descriptor item bodies for ``bool``,
-       ``long``, ``doub``, ``UntF``, ``TEXT``, and ``enum``, nested
+       ``long``, ``doub``, ``UntF``, ``TEXT``, ``enum``, and ``tdta``
+       raw-data byte counts with descriptor item type-name and type-code
+       fields, nested
        object/list traversal with item path/depth/list-index and parsed-value
        count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom
        workflow text, legacy halftone/transfer/duotone/EPS byte summaries,
@@ -234,8 +237,9 @@ Host-facing API map
        uncompressed or packed, and primary-plane-only descriptors to
        not-applicable when the supplied plane index is non-primary.
        EXIF and XMP GPS date/time are combined from ``GPSDateStamp`` plus
-       ``GPSTimeStamp`` when both entries exist, XMP ``DateTimeDigitized`` maps
-       to the ``Digitized`` date/time role, and GPS altitude candidates expose
+       ``GPSTimeStamp`` when both entries exist, IPTC digital-creation
+       date/time and XMP ``DateTimeDigitized`` map to the ``Digitized``
+       date/time role, and GPS altitude candidates expose
        altitude-reference code plus below-sea-level state when reference
        metadata is present; ``metadata_concept_gps_altitude_reference_name(...)``
        provides a stable display token for the reference code. It is intended
@@ -247,14 +251,17 @@ Host-facing API map
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
        ``transfer_concept_diagnostic_message(...)``,
-       ``transfer_concept_diagnostic_token(...)``
+       ``transfer_concept_diagnostic_token(...)``,
+       ``transfer_concept_diagnostic_message_token(...)``,
+       ``transfer_concept_diagnostic_message_arguments(...)``
      - ``openmeta/metadata_transfer.h``
      - Experimental
      - Preflight view over concept candidates for ``TransferSafetyMode``.
        Each diagnostic reports concept kind/role, transfer hint,
        keep/drop/requires-target-image-spec action, reason token, severity
-       token, stable host-facing summary token, default message text,
-       conflict flag, source entries,
+       token, stable host-facing summary token, stable localization message
+       token, localizable argument tokens, default message text, conflict
+       flag, source entries,
        compatible/rendered safety booleans, RAW applicability state, and GPS
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
@@ -272,8 +279,9 @@ Host-facing API map
        source-processing metadata.
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
-       dictionaries with ``severity_name``, ``token``, ``message``, and RAW
-       applicability fields, with overloads that accept the thin
+       dictionaries with ``severity_name``, ``token``, ``message_token``,
+       ``message_arguments``, ``message``, and RAW applicability fields, with
+       overloads that accept the thin
        ``MetadataRawDataDescriptor`` object. Python transfer helpers also
        accept ``source_raw_data_descriptor`` for prepare-time filtering.
    * - Vendor RAW-processing summaries:

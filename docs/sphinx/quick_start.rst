@@ -132,7 +132,8 @@ use dedicated RAW-processing semantic roles. Hosts can inspect these values
 without treating them as portable rendered-image color or profile metadata.
 ``query_descriptive_metadata(...)`` also exposes a
 bounded EXIF/IPTC/XMP reconciliation view for common descriptive fields:
-title/headline, description/caption, creator/author, and keywords/subject.
+title/headline, description/caption, creator/author, keywords/subject, and
+IPTC created/digital-creation date-time evidence.
 These helpers use deterministic built-in name/tag
 matching by default. If OpenMeta is configured with
 ``-DOPENMETA_ENABLE_RAPIDFUZZ=ON``, the same query helpers also use RapidFuzz to
@@ -181,7 +182,8 @@ can show ambiguity instead of guessing silently. Transfer hints use ``safe``,
 facts from source RAW/correction data and target-owned image facts.
 ``transfer_concept_diagnostics_from_store(...)`` applies those hints to a
 selected transfer safety mode and returns keep/drop/requires-target-image-spec
-actions, severity tokens, and default message text for transfer-preview UI.
+actions, severity tokens, stable summary/message tokens, localizable argument
+tokens, and default message text for transfer-preview UI.
 When a host knows the RAW storage context, pass
 ``MetadataRawDataDescriptor`` to the descriptor-aware overload so RAW
 curve/linearity and black/white-level diagnostics can distinguish stored RAW

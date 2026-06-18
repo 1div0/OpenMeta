@@ -1480,6 +1480,15 @@ namespace {
         emit_derived_field(store, state->block, state->order,
                            state->resource_id, "DescriptorItemType",
                            make_u32(item_type), state->result);
+        char item_type_text[4] = {};
+        if (descriptor_fourcc_ascii(item_type, item_type_text)) {
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemTypeCode",
+                               make_text(store.arena(),
+                                         std::string_view(item_type_text, 4U),
+                                         TextEncoding::Ascii),
+                               state->result);
+        }
         emit_derived_field(store, state->block, state->order,
                            state->resource_id, "DescriptorItemTypeName",
                            make_text(store.arena(),

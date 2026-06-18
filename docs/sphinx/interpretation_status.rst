@@ -183,7 +183,7 @@ Coverage matrix
        query/interpretation candidates where safe to expose structurally.
        Selected Canon/Nikon/Sony/Fujifilm/Pentax/Olympus/Panasonic/Casio/
        Phase One/Kodak/Minolta/Sigma/Samsung/Ricoh/Apple/FLIR/JVC/General
-       Imaging/Reconyx/Microsoft/Nintendo/Sanyo print conversions expose
+       Imaging/Reconyx/Microsoft/Motorola/Nintendo/Sanyo print conversions expose
        bounded human-readable labels, including expanded Canon sub-IFDs and
        CanonCustom fields, Canon ColorData source color-transform aliases,
        Nikon sub-IFDs and NikonSettings fields, NikonSettings
@@ -194,8 +194,9 @@ Coverage matrix
        long-tail main-table fields, Apple AE/AF/HDR/capture/camera-type
        fields, FLIR GPS-valid state, JVC quality, General Imaging macro state,
        Reconyx moon phase/weekday/flash/illumination/battery/trigger labels,
-       Microsoft stitch camera-motion/map-type labels, Nintendo category
-       labels, Sanyo main/MOV public-context scalar labels, current Canon RF
+       Microsoft stitch camera-motion/map-type labels, Motorola
+       ``CustomRendered`` labels, Nintendo category labels, Sanyo
+       main/MOV public-context scalar labels, current Canon RF
        lens-type labels, current Nikon Z ``LensData0800`` ``LensID`` labels,
        and an ambiguous Pentax Sigma/Samsung/Tokina lens-family label.
        Version/firmware payloads have a separate bounded formatter path for
@@ -219,7 +220,9 @@ Coverage matrix
        metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
        primary item itself is a metadata item, primary sidecar counts/flags for
        linked metadata and image sidecars, content-bound C2PA/JUMBF sidecar
-       policy hints, compact primary-scene node/edge summaries, bounded
+       policy hints, compact primary-scene node/edge summaries with
+       linked-item role buckets and image/metadata/content-bound metadata node
+       counts, bounded
        ``ipco`` property-container summary counts, bounded
        ``ipma`` item-property association rows and per-property-type
        association/primary/essential rollups, bounded relations, ``grpl``
@@ -242,7 +245,8 @@ Coverage matrix
        color sampler headers/records, descriptor-header summaries plus safe
        descriptor class-name/class-ID/item-count fields, bounded descriptor
        item bodies (``bool``, ``long``, ``doub``, ``UntF``, ``TEXT``,
-       ``enum``) plus raw-data byte-count summaries, empty and non-empty
+       ``enum``, ``tdta`` raw-data byte counts) with type-name and type-code
+       fields, empty and non-empty
        nested object/list summaries with item
        paths, depths, list indices, and parsed-value counts, for resources
        including layer comps, measurement scale, timeline info, sheet
@@ -277,8 +281,9 @@ Coverage matrix
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,
        color/profile, GPS, geometry, lens-correction, and RAW-processing with
-       parsed date/time fields, IPTC date+time and XMP ``DateTimeDigitized``
-       promoted into cross-family date candidates, timezone/precision
+       parsed date/time fields, IPTC created and digital-creation date/time
+       plus XMP ``DateTimeDigitized`` promoted into cross-family date
+       candidates, timezone/precision
        classification, combined EXIF and XMP GPS timestamps, GPS
        altitude-reference state and display token, canonical geometry
        origin/size/rect/margins, normalized exposure values, shape-checked
@@ -293,15 +298,16 @@ Coverage matrix
        source-specific image geometry, color/profile, RAW curves/linearity
        metadata, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private
        data, with concept-level diagnostics that report
-       keep/drop/requires-target-image-spec actions, severity, RAW
-       applicability, and role-specific default message text before prepare.
+       keep/drop/requires-target-image-spec actions, severity, stable summary
+       and message tokens, localizable argument tokens, RAW applicability, and
+       role-specific default message text before prepare.
        Descriptor-aware diagnostics can also mark curve/LUT-like RAW roles as
        compressed-storage-only or primary-plane-only.
        ``PrepareTransferRequest`` can carry a
        ``MetadataRawDataDescriptor``; when it marks source pixels as rendered,
        RAW-processing metadata is filtered even under compatible-file safety.
      - High, about 94-96%.
-     - More per-family policy tests and optional host localization hooks.
+     - More per-family policy tests and broader per-family policy coverage.
 
 Competitor position
 -------------------
@@ -325,8 +331,8 @@ Next interpretation priorities
    use the result safely.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
    layouts, bounded descriptor traversal, and embedded metadata carriers.
-3. Deepen transfer diagnostics with optional host localization/formatting hooks
-   for GUI workflows.
+3. Broaden transfer diagnostic policy coverage now that stable message tokens
+   and localizable argument tokens are available for GUI workflows.
 4. Expand GPS/date policy beyond current coordinate tolerance,
    altitude-reference display, EXIF/XMP timestamp assembly, and bounded
    digitized-date aliases into broader cross-family reconciliation.

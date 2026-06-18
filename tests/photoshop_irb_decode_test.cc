@@ -1056,6 +1056,9 @@ TEST(PhotoshopIrbDecodeTest, DecodesNestedDescriptorItems)
     const std::vector<std::string_view> type_names
         = collect_photoshop_irb_text_fields(store, 0x0429U,
                                             "DescriptorItemTypeName");
+    const std::vector<std::string_view> type_codes
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemTypeCode");
     const std::vector<uint8_t> bool_values
         = collect_photoshop_irb_u8_fields(store, 0x0429U,
                                           "DescriptorItemBoolean");
@@ -1086,6 +1089,7 @@ TEST(PhotoshopIrbDecodeTest, DecodesNestedDescriptorItems)
     ASSERT_EQ(depths.size(), 5U);
     ASSERT_EQ(list_indices.size(), 2U);
     ASSERT_EQ(type_names.size(), 5U);
+    ASSERT_EQ(type_codes.size(), 5U);
     ASSERT_EQ(bool_values.size(), 1U);
     ASSERT_EQ(int_values.size(), 1U);
     ASSERT_EQ(text_values.size(), 1U);
@@ -1117,6 +1121,11 @@ TEST(PhotoshopIrbDecodeTest, DecodesNestedDescriptorItems)
     EXPECT_EQ(type_names[2], "list");
     EXPECT_EQ(type_names[3], "integer");
     EXPECT_EQ(type_names[4], "text");
+    EXPECT_EQ(type_codes[0], "Objc");
+    EXPECT_EQ(type_codes[1], "bool");
+    EXPECT_EQ(type_codes[2], "VlLs");
+    EXPECT_EQ(type_codes[3], "long");
+    EXPECT_EQ(type_codes[4], "TEXT");
     EXPECT_EQ(bool_values[0], 1U);
     EXPECT_EQ(int_values[0], 7);
     EXPECT_EQ(text_values[0], "hello");
@@ -1159,6 +1168,9 @@ TEST(PhotoshopIrbDecodeTest, SummarizesDescriptorRawDataItems)
     const std::vector<std::string_view> item_type_names
         = collect_photoshop_irb_text_fields(store, 0x0429U,
                                             "DescriptorItemTypeName");
+    const std::vector<std::string_view> item_type_codes
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemTypeCode");
     const std::vector<uint32_t> raw_data_bytes
         = collect_photoshop_irb_u32_fields(store, 0x0429U,
                                            "DescriptorItemRawDataBytes");
@@ -1170,12 +1182,14 @@ TEST(PhotoshopIrbDecodeTest, SummarizesDescriptorRawDataItems)
     ASSERT_EQ(parsed_item_count.size(), 1U);
     ASSERT_EQ(parsed_value_count.size(), 1U);
     ASSERT_EQ(item_type_names.size(), 1U);
+    ASSERT_EQ(item_type_codes.size(), 1U);
     ASSERT_EQ(raw_data_bytes.size(), 1U);
     EXPECT_TRUE(truncated.empty());
     EXPECT_EQ(item_count[0], 1U);
     EXPECT_EQ(parsed_item_count[0], 1U);
     EXPECT_EQ(parsed_value_count[0], 1U);
     EXPECT_EQ(item_type_names[0], "raw_data");
+    EXPECT_EQ(item_type_codes[0], "tdta");
     EXPECT_EQ(raw_data_bytes[0], 3U);
 }
 

@@ -54,6 +54,8 @@ namespace {
     static constexpr uint16_t kGpsDateStampTag                = 0x001DU;
     static constexpr uint16_t kIptcDateCreatedDataset         = 55U;
     static constexpr uint16_t kIptcTimeCreatedDataset         = 60U;
+    static constexpr uint16_t kIptcDigitalCreationDateDataset = 62U;
+    static constexpr uint16_t kIptcDigitalCreationTimeDataset = 63U;
     static constexpr uint32_t kIccHeaderRgbColorSpaceOffset   = 16U;
 
     static std::string_view arena_string(const ByteArena& arena,
@@ -1678,6 +1680,16 @@ namespace {
             append_date_text_candidate(store, id,
                                        MetadataConceptRole::Timestamp, 65U,
                                        out);
+        } else if (entry.key.data.iptc_dataset.dataset
+                   == kIptcDigitalCreationDateDataset) {
+            append_date_text_candidate(store, id,
+                                       MetadataConceptRole::Digitized, 68U,
+                                       out);
+        } else if (entry.key.data.iptc_dataset.dataset
+                   == kIptcDigitalCreationTimeDataset) {
+            append_date_text_candidate(store, id,
+                                       MetadataConceptRole::Timestamp, 63U,
+                                       out);
         }
     }
 
@@ -1716,26 +1728,29 @@ namespace {
     }
 
     static void append_iptc_datetime_composite(const MetaStore& store,
+                                               uint16_t date_dataset,
+                                               uint16_t time_dataset,
+                                               MetadataConceptRole role,
+                                               uint8_t priority,
                                                MetadataConceptResolution* out)
     {
         EntryId date_id = kInvalidEntryId;
         EntryId time_id = kInvalidEntryId;
         std::string date_text;
         std::string time_text;
-        if (!find_iptc_text_entry(store, 2U, kIptcDateCreatedDataset, &date_id,
+        if (!find_iptc_text_entry(store, 2U, date_dataset, &date_id,
                                   &date_text)) {
             return;
         }
-        if (!find_iptc_text_entry(store, 2U, kIptcTimeCreatedDataset, &time_id,
+        if (!find_iptc_text_entry(store, 2U, time_dataset, &time_id,
                                   &time_text)) {
             return;
         }
         MetadataConceptCandidate candidate
             = make_entry_candidate(store, date_id,
-                                   MetadataConceptKind::DateTime,
-                                   MetadataConceptRole::DateCreated,
+                                   MetadataConceptKind::DateTime, role,
                                    MetadataQuerySemanticKind::Unknown,
-                                   MetadataQueryValueShape::Text, 76U);
+                                   MetadataQueryValueShape::Text, priority);
         candidate.text = date_text;
         candidate.text.push_back(' ');
         candidate.text.append(time_text);
@@ -1757,10 +1772,12 @@ namespace {
         add_unique_entry(&candidate.source_entries, time_id);
         append_candidate(out, candidate);
 
-        MetadataConceptCandidate created_candidate = candidate;
-        created_candidate.role     = MetadataConceptRole::Created;
-        created_candidate.priority = 85U;
-        append_candidate(out, created_candidate);
+        if (role == MetadataConceptRole::DateCreated) {
+            MetadataConceptCandidate created_candidate = candidate;
+            created_candidate.role     = MetadataConceptRole::Created;
+            created_candidate.priority = 85U;
+            append_candidate(out, created_candidate);
+        }
     }
 
     static void append_datetime_candidates(const MetaStore& store,
@@ -1780,7 +1797,14 @@ namespace {
                 append_iptc_datetime_candidate(store, id, entry, out);
             }
         }
-        append_iptc_datetime_composite(store, out);
+        append_iptc_datetime_composite(store, kIptcDateCreatedDataset,
+                                       kIptcTimeCreatedDataset,
+                                       MetadataConceptRole::DateCreated, 76U,
+                                       out);
+        append_iptc_datetime_composite(store, kIptcDigitalCreationDateDataset,
+                                       kIptcDigitalCreationTimeDataset,
+                                       MetadataConceptRole::Digitized, 74U,
+                                       out);
     }
 
     static void
