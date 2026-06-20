@@ -1755,11 +1755,26 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     };
     append_irb_resource(0x0430U, layer_groups_enabled_id, &irb);
 
+    const std::array<std::byte, 3> macintosh_ns_print_info = {
+        std::byte { 0x11 },
+        std::byte { 0x22 },
+        std::byte { 0x33 },
+    };
+    append_irb_resource(0x043CU, macintosh_ns_print_info, &irb);
+
+    const std::array<std::byte, 4> windows_devmode = {
+        std::byte { 0x01 },
+        std::byte { 0x02 },
+        std::byte { 0x03 },
+        std::byte { 0x04 },
+    };
+    append_irb_resource(0x043DU, windows_devmode, &irb);
+
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 30U);
-    EXPECT_EQ(r.entries_decoded, 87U);
+    EXPECT_EQ(r.resources_decoded, 32U);
+    EXPECT_EQ(r.entries_decoded, 91U);
 
     const Entry* x_resolution = find_photoshop_irb_field(store, 0x03EDU,
                                                          "XResolution");
@@ -2104,6 +2119,21 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_EQ(layer_groups_enabled_id_field->value.elem_type,
               MetaElementType::U8);
     EXPECT_EQ(layer_groups_enabled_id_field->value.data.u64, 1U);
+
+    const Entry* macintosh_ns_print_info_bytes
+        = find_photoshop_irb_field(store, 0x043CU, "MacintoshNSPrintInfoBytes");
+    ASSERT_NE(macintosh_ns_print_info_bytes, nullptr);
+    EXPECT_EQ(macintosh_ns_print_info_bytes->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(macintosh_ns_print_info_bytes->value.elem_type,
+              MetaElementType::U32);
+    EXPECT_EQ(macintosh_ns_print_info_bytes->value.data.u64, 3U);
+
+    const Entry* windows_devmode_bytes
+        = find_photoshop_irb_field(store, 0x043DU, "WindowsDEVMODEBytes");
+    ASSERT_NE(windows_devmode_bytes, nullptr);
+    EXPECT_EQ(windows_devmode_bytes->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(windows_devmode_bytes->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(windows_devmode_bytes->value.data.u64, 4U);
 }
 
 TEST(PhotoshopIrbDecodeTest, KeepsShortKnownResourcesRawOnly)
@@ -2573,6 +2603,7 @@ TEST(PhotoshopIrbDecodeTest, NamesAdditionalKnownResources)
     EXPECT_EQ(photoshop_irb_resource_name(0x0438U), "CountInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x043AU), "PrintInfo2");
     EXPECT_EQ(photoshop_irb_resource_name(0x043CU), "MacintoshNSPrintInfo");
+    EXPECT_EQ(photoshop_irb_resource_name(0x043DU), "WindowsDEVMODE");
     EXPECT_EQ(photoshop_irb_resource_name(0x043EU), "AutoSaveFilePath");
     EXPECT_EQ(photoshop_irb_resource_name(0x043FU), "AutoSaveFormat");
     EXPECT_EQ(photoshop_irb_resource_name(0x0440U), "PathSelectionState");

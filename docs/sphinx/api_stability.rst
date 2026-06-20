@@ -120,9 +120,10 @@ Host-facing API map
        parsed maximum depth, and parsed per-type counters, nested
        object/list traversal with item path/depth/list-index and parsed-value
        count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom
-       workflow text, legacy halftone/transfer/duotone/EPS byte summaries,
-       embedded IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional
-       embedded IPTC-IIM, XMP, and ICC payload decode.
+       workflow text, Macintosh NSPrintInfo / Windows DEVMODE byte counts,
+       legacy halftone/transfer/duotone/EPS byte summaries, embedded
+       IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
+       IPTC-IIM, XMP, and ICC payload decode.
    * - Semantic metadata query: ``query_metadata(...)``,
        ``query_crop_metadata(...)``, focused query helpers, and
        ``metadata_query_fuzzy_search_available()``

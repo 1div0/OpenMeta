@@ -2380,6 +2380,16 @@ namespace {
             decode_descriptor_header_resource(payload, resource_id, store,
                                               block, order, result);
             break;
+        case 0x043CU:
+            decode_payload_size_resource(payload, resource_id,
+                                         "MacintoshNSPrintInfoBytes", store,
+                                         block, order, result);
+            break;
+        case 0x043DU:
+            decode_payload_size_resource(payload, resource_id,
+                                         "WindowsDEVMODEBytes", store, block,
+                                         order, result);
+            break;
         case 0x043EU:
             decode_unicode_text_resource(payload, resource_id,
                                          "AutoSaveFilePath", store, block,

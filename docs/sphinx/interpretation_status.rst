@@ -217,8 +217,10 @@ Coverage matrix
      - BMFF derived fields, brand-name fields including ``avif`` / ``avis`` /
        ``avio`` AVIF-compatible brands, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
-       metadata carriers, primary metadata-carrier/C2PA/JUMBF flags when the
-       primary item itself is a metadata item, primary sidecar counts/flags for
+       metadata carriers, whole-scene item graph counts and conservative
+       content-bound metadata / multi-image policy hints, primary
+       metadata-carrier/C2PA/JUMBF flags when the primary item itself is a
+       metadata item, primary sidecar counts/flags for
        linked metadata and image sidecars, content-bound C2PA/JUMBF sidecar
        policy hints, compact primary-scene node/edge summaries with unique
        linked-item role buckets, per-role edge counters, and
@@ -234,7 +236,7 @@ Coverage matrix
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - Medium, about 86-90%.
+     - Medium, about 87-91%.
      - Full multi-image BMFF scene modeling and full C2PA manifest/policy
        semantics.
    * - Photoshop IRB
@@ -256,10 +258,11 @@ Coverage matrix
        summaries, alpha names/identifiers, captions,
        QuickMask info, URL/list data, autosave strings, ``XMLData``,
        ImageReady XML text, Lightroom workflow text, thumbnail headers,
-       channel options, clipping-path names, legacy halftone/transfer/
-       duotone/EPS byte summaries, embedded IPTC/ICC/XMP/EXIF resource byte
-       counts, and embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 87-91%.
+       channel options, clipping-path names, Macintosh NSPrintInfo / Windows
+       DEVMODE byte counts, legacy halftone/transfer/duotone/EPS byte
+       summaries, embedded IPTC/ICC/XMP/EXIF resource byte counts, and
+       embedded IPTC/XMP/ICC payload decode where enabled.
+     - Medium, about 88-92%.
      - Full Photoshop action semantics, raw descriptor-data payload content
        interpretation, and long-tail resource interpretation.
    * - Semantic query/search and records

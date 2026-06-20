@@ -1,5 +1,23 @@
 # OpenMeta Changes
 
+## 0.4.61 - 2026-06-20
+
+Changes compared with `0.4.60`.
+
+### Added
+
+- Added BMFF whole-scene item graph summary fields for item counts, known item
+  counts, image/metadata/content-bound metadata node counts, selected role node
+  counts, relation edge count, item-group count, and conservative
+  content-bound metadata / multi-image policy hints.
+- Added Photoshop IRB byte-count interpretation for Macintosh NSPrintInfo and
+  Windows DEVMODE resources while preserving raw resource payloads.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development docs
+  for the new BMFF scene-policy and Photoshop IRB byte-count surfaces.
+
 ## 0.4.60 - 2026-06-18
 
 Changes compared with `0.4.59`.

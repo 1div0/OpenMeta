@@ -1719,6 +1719,69 @@ namespace {
         return ItemSemantic::Unknown;
     }
 
+    static void emit_scene_policy_summary_fields(MetaStore& store,
+                                                 BlockId block,
+                                                 uint32_t* io_order,
+                                                 const PrimaryProps& p) noexcept
+    {
+        if (!io_order || p.item_info_count == 0U) {
+            return;
+        }
+
+        ItemSemanticCounts counts {};
+        for (uint32_t i = 0U; i < p.item_info_count; ++i) {
+            count_item_semantic(classify_item_semantic(p.item_infos[i]),
+                                &counts);
+        }
+
+        const uint32_t image_node_count = counts.image + counts.auxiliary
+                                          + counts.derived + counts.thumbnail;
+        const uint32_t content_bound_metadata_count = counts.jumbf
+                                                      + counts.c2pa;
+
+        emit_u32_field(store, block, (*io_order)++, "scene.item_count",
+                       p.item_info_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.known_item_count", counts.known);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.image_node_count", image_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.metadata_node_count",
+                                    counts.metadata);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.content_bound_metadata_node_count",
+                                    content_bound_metadata_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.auxiliary_node_count",
+                                    counts.auxiliary);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.derived_image_node_count",
+                                    counts.derived);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.thumbnail_node_count",
+                                    counts.thumbnail);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.content_description_node_count",
+                                    counts.content_description);
+        emit_count_field_if_nonzero(store, block, io_order, "scene.edge_count",
+                                    p.iref_edge_total);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.item_group_count",
+                                    p.item_group_total);
+
+        if (content_bound_metadata_count != 0U) {
+            emit_u8_field(store, block, (*io_order)++,
+                          "scene.has_content_bound_metadata", 1U);
+            emit_text_field(store, block, (*io_order)++,
+                            "scene.content_bound_metadata_policy",
+                            "requires_target_rewrite");
+        }
+        if (image_node_count > 1U) {
+            emit_u8_field(store, block, (*io_order)++,
+                          "scene.multi_image_candidate", 1U);
+        }
+    }
+
     static AuxSemantic classify_auxc_type(std::string_view aux_type) noexcept
     {
         if (aux_type.empty()) {
@@ -4375,6 +4438,8 @@ namespace {
                         emit_item_semantic_counts(*ctx->store, ctx->block,
                                                   ctx->order, semantic_counts);
                     }
+                    emit_scene_policy_summary_fields(*ctx->store, ctx->block,
+                                                     ctx->order, p);
                     emit_ipco_summary_fields(*ctx->store, ctx->block,
                                              ctx->order, p);
                     if (p.ipma_association_total > 0U) {

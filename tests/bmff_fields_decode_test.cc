@@ -1992,6 +1992,32 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
                              "primary.content_description_sidecar_count");
     const std::vector<uint32_t> c2pa_sidecar_count
         = collect_u32_values(store, "primary.c2pa_sidecar_count");
+    const std::vector<uint32_t> container_scene_item_count
+        = collect_u32_values(store, "scene.item_count");
+    const std::vector<uint32_t> container_scene_known_item_count
+        = collect_u32_values(store, "scene.known_item_count");
+    const std::vector<uint32_t> container_scene_image_node_count
+        = collect_u32_values(store, "scene.image_node_count");
+    const std::vector<uint32_t> container_scene_metadata_node_count
+        = collect_u32_values(store, "scene.metadata_node_count");
+    const std::vector<uint32_t> container_scene_content_bound_metadata_node_count
+        = collect_u32_values(store, "scene.content_bound_metadata_node_count");
+    const std::vector<uint32_t> container_scene_auxiliary_node_count
+        = collect_u32_values(store, "scene.auxiliary_node_count");
+    const std::vector<uint32_t> container_scene_derived_image_node_count
+        = collect_u32_values(store, "scene.derived_image_node_count");
+    const std::vector<uint32_t> container_scene_thumbnail_node_count
+        = collect_u32_values(store, "scene.thumbnail_node_count");
+    const std::vector<uint32_t> container_scene_content_description_node_count
+        = collect_u32_values(store, "scene.content_description_node_count");
+    const std::vector<uint32_t> container_scene_edge_count
+        = collect_u32_values(store, "scene.edge_count");
+    const std::vector<uint8_t> container_scene_has_content_bound_metadata
+        = collect_u8_values(store, "scene.has_content_bound_metadata");
+    const std::vector<std::string> container_scene_content_bound_metadata_policy
+        = collect_text_values(store, "scene.content_bound_metadata_policy");
+    const std::vector<uint8_t> container_scene_multi_image_candidate
+        = collect_u8_values(store, "scene.multi_image_candidate");
     ASSERT_EQ(sidecar_count.size(), 1U);
     ASSERT_EQ(scene_primary_item_count.size(), 1U);
     ASSERT_EQ(scene_linked_item_count.size(), 1U);
@@ -2024,6 +2050,19 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     ASSERT_EQ(thumbnail_sidecar_count.size(), 1U);
     ASSERT_EQ(content_description_sidecar_count.size(), 1U);
     ASSERT_EQ(c2pa_sidecar_count.size(), 1U);
+    ASSERT_EQ(container_scene_item_count.size(), 1U);
+    ASSERT_EQ(container_scene_known_item_count.size(), 1U);
+    ASSERT_EQ(container_scene_image_node_count.size(), 1U);
+    ASSERT_EQ(container_scene_metadata_node_count.size(), 1U);
+    ASSERT_EQ(container_scene_content_bound_metadata_node_count.size(), 1U);
+    ASSERT_EQ(container_scene_auxiliary_node_count.size(), 1U);
+    ASSERT_EQ(container_scene_derived_image_node_count.size(), 1U);
+    ASSERT_EQ(container_scene_thumbnail_node_count.size(), 1U);
+    ASSERT_EQ(container_scene_content_description_node_count.size(), 1U);
+    ASSERT_EQ(container_scene_edge_count.size(), 1U);
+    ASSERT_EQ(container_scene_has_content_bound_metadata.size(), 1U);
+    ASSERT_EQ(container_scene_content_bound_metadata_policy.size(), 1U);
+    ASSERT_EQ(container_scene_multi_image_candidate.size(), 1U);
     EXPECT_EQ(sidecar_count[0], 7U);
     EXPECT_EQ(scene_primary_item_count[0], 1U);
     EXPECT_EQ(scene_linked_item_count[0], 7U);
@@ -2056,6 +2095,20 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(thumbnail_sidecar_count[0], 1U);
     EXPECT_EQ(content_description_sidecar_count[0], 1U);
     EXPECT_EQ(c2pa_sidecar_count[0], 1U);
+    EXPECT_EQ(container_scene_item_count[0], 7U);
+    EXPECT_EQ(container_scene_known_item_count[0], 7U);
+    EXPECT_EQ(container_scene_image_node_count[0], 5U);
+    EXPECT_EQ(container_scene_metadata_node_count[0], 2U);
+    EXPECT_EQ(container_scene_content_bound_metadata_node_count[0], 1U);
+    EXPECT_EQ(container_scene_auxiliary_node_count[0], 3U);
+    EXPECT_EQ(container_scene_derived_image_node_count[0], 1U);
+    EXPECT_EQ(container_scene_thumbnail_node_count[0], 1U);
+    EXPECT_EQ(container_scene_content_description_node_count[0], 1U);
+    EXPECT_EQ(container_scene_edge_count[0], 8U);
+    EXPECT_EQ(container_scene_has_content_bound_metadata[0], 1U);
+    EXPECT_EQ(container_scene_content_bound_metadata_policy[0],
+              "requires_target_rewrite");
+    EXPECT_EQ(container_scene_multi_image_candidate[0], 1U);
 
     const std::vector<uint32_t> role_item_ids
         = collect_u32_values(store, "primary.linked_item_id");
