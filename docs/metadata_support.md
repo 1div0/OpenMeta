@@ -164,7 +164,8 @@ summaries such as:
 - `ChannelOptions`
 - `PrintFlagsInfo`
 - `ClippingPathName`
-- `MacintoshNSPrintInfo` and `WindowsDEVMODE` byte counts
+- `MacintoshPrintInfo`, `MacintoshNSPrintInfo`, `WindowsDEVMODE`,
+  `AlternateDuotoneColors`, and `AlternateSpotColors` byte counts
 - embedded IPTC-NAA, ICC, EXIF, EXIF2, and XMP resource byte counts
 
 When enabled, embedded IPTC-IIM, XMP, and ICC payloads in IRB resources are
@@ -207,6 +208,10 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
 - whole-scene item graph counters for known items, image/metadata/content-bound
   metadata nodes, selected image-role nodes, relation edges, item groups, and
   conservative content-bound metadata / multi-image policy hints
+- bounded scene graph component counters for observed relation graph nodes,
+  connected components, image and multi-image components, isolated image
+  nodes, primary graph-component nodes/edges, and primary component
+  content-bound metadata policy
 - typed `iref.<type>.*` rows
 - bounded `grpl` item-group rows and per-group-type summaries
 - bounded `iloc`/`idat` item-data layout summaries, including construction

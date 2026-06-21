@@ -25,6 +25,7 @@ enum class MetadataConceptKind : uint8_t {
     LensCorrection,
     RawProcessing,
     Exposure,
+    ContainerGraph,
 };
 
 enum class MetadataConceptSourceFamily : uint8_t {
@@ -79,6 +80,8 @@ enum class MetadataConceptRole : uint8_t {
     RawLinearityLimit,
     RawCalibrationCurve,
     RawCurveControlPoints,
+    ContentBoundMetadata,
+    MultiImageScene,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {

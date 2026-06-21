@@ -838,6 +838,8 @@ namespace {
         case MetadataConceptRole::ExposureProgram:
         case MetadataConceptRole::Gain:
         case MetadataConceptRole::RawExposureAdjustment:
+        case MetadataConceptRole::ContentBoundMetadata:
+        case MetadataConceptRole::MultiImageScene:
         case MetadataConceptRole::Primary:
         case MetadataConceptRole::Orientation:
         case MetadataConceptRole::Created:
@@ -883,6 +885,11 @@ namespace {
             set_transfer_hint(candidate, MetadataConceptTransferHint::Safe,
                               true, true);
             return;
+        case MetadataConceptKind::ContainerGraph:
+            set_transfer_hint(candidate,
+                              MetadataConceptTransferHint::SourceBound, true,
+                              false);
+            return;
         case MetadataConceptKind::Orientation:
             set_transfer_hint(
                 candidate, MetadataConceptTransferHint::RequiresTargetImageSpec,
@@ -925,6 +932,8 @@ namespace {
             case MetadataConceptRole::ExposureProgram:
             case MetadataConceptRole::Gain:
             case MetadataConceptRole::RawExposureAdjustment:
+            case MetadataConceptRole::ContentBoundMetadata:
+            case MetadataConceptRole::MultiImageScene:
             case MetadataConceptRole::Primary:
                 set_transfer_hint(candidate,
                                   MetadataConceptTransferHint::SourceBound,
@@ -1003,6 +1012,8 @@ namespace {
             case MetadataConceptRole::ExposureProgram:
             case MetadataConceptRole::Gain:
             case MetadataConceptRole::RawExposureAdjustment: break;
+            case MetadataConceptRole::ContentBoundMetadata:
+            case MetadataConceptRole::MultiImageScene: break;
             }
             break;
         }
@@ -1182,6 +1193,18 @@ namespace {
     {
         return entry.key.kind == MetaKeyKind::ExifTag
                && entry.key.data.exif_tag.tag == tag;
+    }
+
+    static bool bmff_entry_field_matches(const MetaStore& store,
+                                         const Entry& entry,
+                                         std::string_view field) noexcept
+    {
+        if (entry.key.kind != MetaKeyKind::BmffField) {
+            return false;
+        }
+        const std::string_view entry_field
+            = arena_string(store.arena(), entry.key.data.bmff_field.field);
+        return ascii_equal_ci(entry_field, field);
     }
 
     static bool find_exif_text(const MetaStore& store, std::string_view ifd,
@@ -3003,6 +3026,64 @@ namespace {
         append_xmp_gps_timestamp_composite(store, out);
     }
 
+    static void append_container_graph_candidates(const MetaStore& store,
+                                                  MetadataConceptResolution* out)
+    {
+        const std::span<const Entry> entries = store.entries();
+        for (EntryId id = 0U; id < entries.size(); ++id) {
+            const Entry& entry = entries[id];
+            if (any(entry.flags, EntryFlags::Deleted)
+                || entry.key.kind != MetaKeyKind::BmffField) {
+                continue;
+            }
+
+            MetadataConceptRole role = MetadataConceptRole::Primary;
+            uint8_t priority         = 0U;
+            if (bmff_entry_field_matches(store, entry,
+                                         "scene.content_bound_metadata_policy")
+                || bmff_entry_field_matches(
+                    store, entry,
+                    "scene.primary_graph_component_metadata_policy")) {
+                role     = MetadataConceptRole::ContentBoundMetadata;
+                priority = 90U;
+            } else if (bmff_entry_field_matches(store, entry,
+                                                "scene.multi_image_candidate")) {
+                role     = MetadataConceptRole::MultiImageScene;
+                priority = 88U;
+            } else {
+                continue;
+            }
+
+            MetadataQueryValueShape shape = MetadataQueryValueShape::Unknown;
+            MetadataConceptCandidate candidate;
+            if (entry.value.kind == MetaValueKind::Text) {
+                shape     = MetadataQueryValueShape::Text;
+                candidate = make_entry_candidate(
+                    store, id, MetadataConceptKind::ContainerGraph, role,
+                    MetadataQuerySemanticKind::SourceProcessing, shape,
+                    priority);
+                candidate.text = std::string(
+                    arena_string(store.arena(), entry.value.data.span));
+                candidate.value_key = candidate.text;
+            } else {
+                double value = 0.0;
+                if (!scalar_to_double(entry.value, &value) || value <= 0.0) {
+                    continue;
+                }
+                shape     = MetadataQueryValueShape::Scalar;
+                candidate = make_entry_candidate(
+                    store, id, MetadataConceptKind::ContainerGraph, role,
+                    MetadataQuerySemanticKind::SourceProcessing, shape,
+                    priority);
+                candidate.has_numeric   = true;
+                candidate.numeric_count = 1U;
+                candidate.numeric[0]    = value;
+                candidate.value_key     = numeric_key(value);
+            }
+            append_candidate(out, candidate);
+        }
+    }
+
     static MetadataConceptRole
     conflict_group_role(MetadataConceptRole role) noexcept
     {
@@ -3099,7 +3180,9 @@ namespace {
         case MetadataConceptRole::ExposureBias:
         case MetadataConceptRole::ExposureProgram:
         case MetadataConceptRole::Gain:
-        case MetadataConceptRole::RawExposureAdjustment: break;
+        case MetadataConceptRole::RawExposureAdjustment:
+        case MetadataConceptRole::ContentBoundMetadata:
+        case MetadataConceptRole::MultiImageScene: break;
         }
         return 0.0;
     }
@@ -3283,6 +3366,8 @@ namespace {
             MetadataConceptRole::Gain,
             MetadataConceptRole::RawExposureAdjustment,
             MetadataConceptRole::SourceColorTransform,
+            MetadataConceptRole::ContentBoundMetadata,
+            MetadataConceptRole::MultiImageScene,
         };
         for (size_t i = 0U; i < std::size(roles); ++i) {
             mark_role_preferred(resolution, roles[i]);
@@ -3334,6 +3419,9 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind)
     case MetadataConceptKind::Exposure:
         append_exposure_candidates(store, &out);
         break;
+    case MetadataConceptKind::ContainerGraph:
+        append_container_graph_candidates(store, &out);
+        break;
     }
     finalize_resolution(&out, nullptr);
     return out;
@@ -3343,7 +3431,7 @@ MetadataConceptResult
 resolve_metadata_concepts(const MetaStore& store)
 {
     MetadataConceptResult out;
-    out.concepts.reserve(8U);
+    out.concepts.reserve(9U);
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Orientation));
     out.concepts.push_back(
@@ -3360,6 +3448,8 @@ resolve_metadata_concepts(const MetaStore& store)
         resolve_metadata_concept(store, MetadataConceptKind::LensCorrection));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::RawProcessing));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::ContainerGraph));
     return out;
 }
 
@@ -3392,6 +3482,9 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind,
     case MetadataConceptKind::Exposure:
         append_exposure_candidates(store, &out);
         break;
+    case MetadataConceptKind::ContainerGraph:
+        append_container_graph_candidates(store, &out);
+        break;
     }
     finalize_resolution(&out, &raw_descriptor);
     return out;
@@ -3402,7 +3495,7 @@ resolve_metadata_concepts(const MetaStore& store,
                           const MetadataRawDataDescriptor& raw_descriptor)
 {
     MetadataConceptResult out;
-    out.concepts.reserve(8U);
+    out.concepts.reserve(9U);
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Orientation,
                                  raw_descriptor));
@@ -3426,6 +3519,9 @@ resolve_metadata_concepts(const MetaStore& store,
                                  raw_descriptor));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::RawProcessing,
+                                 raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::ContainerGraph,
                                  raw_descriptor));
     return out;
 }
@@ -3504,7 +3600,9 @@ metadata_raw_applicability_for_descriptor(
     case MetadataConceptRole::ExposureProgram:
     case MetadataConceptRole::Gain:
     case MetadataConceptRole::RawExposureAdjustment:
-    case MetadataConceptRole::SourceColorTransform: break;
+    case MetadataConceptRole::SourceColorTransform:
+    case MetadataConceptRole::ContentBoundMetadata:
+    case MetadataConceptRole::MultiImageScene: break;
     }
     return MetadataRawApplicabilityState::Unknown;
 }
@@ -3521,6 +3619,7 @@ metadata_concept_kind_name(MetadataConceptKind kind) noexcept
     case MetadataConceptKind::LensCorrection: return "lens_correction";
     case MetadataConceptKind::RawProcessing: return "raw_processing";
     case MetadataConceptKind::Exposure: return "exposure";
+    case MetadataConceptKind::ContainerGraph: return "container_graph";
     }
     return "unknown";
 }
@@ -3591,6 +3690,9 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
         return "raw_exposure_adjustment";
     case MetadataConceptRole::SourceColorTransform:
         return "source_color_transform";
+    case MetadataConceptRole::ContentBoundMetadata:
+        return "content_bound_metadata";
+    case MetadataConceptRole::MultiImageScene: return "multi_image_scene";
     }
     return "unknown";
 }

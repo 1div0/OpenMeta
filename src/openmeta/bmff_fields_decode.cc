@@ -1719,6 +1719,101 @@ namespace {
         return ItemSemantic::Unknown;
     }
 
+    struct SceneGraphComponentStats final {
+        uint32_t node_count                        = 0;
+        uint32_t image_node_count                  = 0;
+        uint32_t metadata_node_count               = 0;
+        uint32_t content_bound_metadata_node_count = 0;
+        uint32_t edge_count                        = 0;
+        bool contains_primary                      = false;
+    };
+
+    static uint32_t find_scene_node_index(std::span<const uint32_t> item_ids,
+                                          uint32_t item_id) noexcept
+    {
+        for (uint32_t i = 0U; i < item_ids.size(); ++i) {
+            if (item_ids[i] == item_id) {
+                return i;
+            }
+        }
+        return UINT32_MAX;
+    }
+
+    static uint32_t scene_find_root(std::span<uint32_t> parent,
+                                    uint32_t idx) noexcept
+    {
+        uint32_t root = idx;
+        while (root < parent.size() && parent[root] != root) {
+            root = parent[root];
+        }
+        while (idx < parent.size() && parent[idx] != idx) {
+            const uint32_t next = parent[idx];
+            parent[idx]         = root;
+            idx                 = next;
+        }
+        return root;
+    }
+
+    static void scene_union(std::span<uint32_t> parent, uint32_t a,
+                            uint32_t b) noexcept
+    {
+        const uint32_t root_a = scene_find_root(parent, a);
+        const uint32_t root_b = scene_find_root(parent, b);
+        if (root_a == root_b || root_a >= parent.size()
+            || root_b >= parent.size()) {
+            return;
+        }
+        if (root_a < root_b) {
+            parent[root_b] = root_a;
+        } else {
+            parent[root_a] = root_b;
+        }
+    }
+
+    static void push_scene_node(std::span<uint32_t> item_ids,
+                                std::span<ItemSemantic> semantics,
+                                std::span<uint32_t> parent, uint32_t* io_count,
+                                uint32_t item_id,
+                                ItemSemantic semantic) noexcept
+    {
+        if (!io_count || item_id == 0U) {
+            return;
+        }
+        const uint32_t cap = static_cast<uint32_t>(
+            std::min(item_ids.size(),
+                     std::min(semantics.size(), parent.size())));
+        for (uint32_t i = 0U; i < *io_count && i < cap; ++i) {
+            if (item_ids[i] == item_id) {
+                if (!item_semantic_is_known(semantics[i])
+                    && item_semantic_is_known(semantic)) {
+                    semantics[i] = semantic;
+                }
+                return;
+            }
+        }
+        if (*io_count < cap) {
+            item_ids[*io_count]  = item_id;
+            semantics[*io_count] = semantic;
+            parent[*io_count]    = *io_count;
+            *io_count += 1U;
+        }
+    }
+
+    static bool semantic_is_scene_image_node(ItemSemantic semantic) noexcept
+    {
+        return semantic == ItemSemantic::Image
+               || semantic == ItemSemantic::Auxiliary
+               || semantic == ItemSemantic::DerivedImage
+               || semantic == ItemSemantic::Thumbnail;
+    }
+
+    static bool
+    semantic_is_content_bound_metadata(ItemSemantic semantic) noexcept
+    {
+        return semantic == ItemSemantic::Jumbf
+               || semantic == ItemSemantic::C2pa;
+    }
+
     static void emit_scene_policy_summary_fields(MetaStore& store,
                                                  BlockId block,
                                                  uint32_t* io_order,
@@ -1779,6 +1874,169 @@ namespace {
         if (image_node_count > 1U) {
             emit_u8_field(store, block, (*io_order)++,
                           "scene.multi_image_candidate", 1U);
+        }
+
+        std::array<uint32_t, 512> graph_item_ids {};
+        std::array<ItemSemantic, 512> graph_semantics {};
+        std::array<uint32_t, 512> graph_parent {};
+        uint32_t graph_node_count = 0U;
+
+        if (p.have_item_id) {
+            push_scene_node(graph_item_ids, graph_semantics, graph_parent,
+                            &graph_node_count, p.item_id,
+                            ItemSemantic::Unknown);
+        }
+        for (uint32_t i = 0U; i < p.item_info_count; ++i) {
+            push_scene_node(graph_item_ids, graph_semantics, graph_parent,
+                            &graph_node_count, p.item_infos[i].item_id,
+                            classify_item_semantic(p.item_infos[i]));
+        }
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            push_scene_node(graph_item_ids, graph_semantics, graph_parent,
+                            &graph_node_count, p.iref_edges[i].from_item_id,
+                            ItemSemantic::Unknown);
+            push_scene_node(graph_item_ids, graph_semantics, graph_parent,
+                            &graph_node_count, p.iref_edges[i].to_item_id,
+                            ItemSemantic::Unknown);
+        }
+
+        if (graph_node_count == 0U) {
+            return;
+        }
+
+        std::span<uint32_t> graph_ids(graph_item_ids.data(), graph_node_count);
+        std::span<ItemSemantic> semantics(graph_semantics.data(),
+                                          graph_node_count);
+        std::span<uint32_t> parent(graph_parent.data(), graph_node_count);
+
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            const uint32_t from_idx
+                = find_scene_node_index(graph_ids,
+                                        p.iref_edges[i].from_item_id);
+            const uint32_t to_idx
+                = find_scene_node_index(graph_ids, p.iref_edges[i].to_item_id);
+            if (from_idx != UINT32_MAX && to_idx != UINT32_MAX) {
+                scene_union(parent, from_idx, to_idx);
+            }
+        }
+
+        std::array<uint32_t, 512> component_roots {};
+        std::array<SceneGraphComponentStats, 512> components {};
+        uint32_t component_count = 0U;
+        for (uint32_t i = 0U; i < graph_node_count; ++i) {
+            const uint32_t root      = scene_find_root(parent, i);
+            uint32_t component_index = UINT32_MAX;
+            for (uint32_t c = 0U; c < component_count; ++c) {
+                if (component_roots[c] == root) {
+                    component_index = c;
+                    break;
+                }
+            }
+            if (component_index == UINT32_MAX) {
+                component_index                  = component_count;
+                component_roots[component_count] = root;
+                component_count += 1U;
+            }
+            SceneGraphComponentStats& component = components[component_index];
+            component.node_count += 1U;
+            if (semantic_is_scene_image_node(semantics[i])) {
+                component.image_node_count += 1U;
+            }
+            if (item_semantic_is_metadata(semantics[i])) {
+                component.metadata_node_count += 1U;
+            }
+            if (semantic_is_content_bound_metadata(semantics[i])) {
+                component.content_bound_metadata_node_count += 1U;
+            }
+            if (p.have_item_id && graph_item_ids[i] == p.item_id) {
+                component.contains_primary = true;
+            }
+        }
+
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            const uint32_t from_idx
+                = find_scene_node_index(graph_ids,
+                                        p.iref_edges[i].from_item_id);
+            if (from_idx == UINT32_MAX) {
+                continue;
+            }
+            const uint32_t root = scene_find_root(parent, from_idx);
+            for (uint32_t c = 0U; c < component_count; ++c) {
+                if (component_roots[c] == root) {
+                    components[c].edge_count += 1U;
+                    break;
+                }
+            }
+        }
+
+        uint32_t image_component_count                    = 0U;
+        uint32_t multi_image_component_count              = 0U;
+        uint32_t isolated_image_node_count                = 0U;
+        const SceneGraphComponentStats* primary_component = nullptr;
+        for (uint32_t c = 0U; c < component_count; ++c) {
+            const SceneGraphComponentStats& component = components[c];
+            if (component.image_node_count != 0U) {
+                image_component_count += 1U;
+            }
+            if (component.image_node_count > 1U) {
+                multi_image_component_count += 1U;
+            }
+            if (component.node_count == 1U && component.image_node_count == 1U
+                && component.edge_count == 0U) {
+                isolated_image_node_count += 1U;
+            }
+            if (component.contains_primary) {
+                primary_component = &component;
+            }
+        }
+
+        emit_u32_field(store, block, (*io_order)++, "scene.graph_node_count",
+                       graph_node_count);
+        emit_u32_field(store, block, (*io_order)++,
+                       "scene.graph_component_count", component_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.graph_image_component_count",
+                                    image_component_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.graph_multi_image_component_count",
+                                    multi_image_component_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.graph_isolated_image_node_count",
+                                    isolated_image_node_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "scene.graph_observed_edge_count",
+                                    p.iref_edge_count);
+        if (p.iref_truncated) {
+            emit_u8_field(store, block, (*io_order)++,
+                          "scene.graph_component_truncated", 1U);
+        }
+
+        if (primary_component) {
+            emit_u32_field(store, block, (*io_order)++,
+                           "scene.primary_graph_component_node_count",
+                           primary_component->node_count);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.primary_graph_component_image_node_count",
+                primary_component->image_node_count);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.primary_graph_component_metadata_node_count",
+                primary_component->metadata_node_count);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.primary_graph_component_content_bound_metadata_"
+                "node_count",
+                primary_component->content_bound_metadata_node_count);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.primary_graph_component_edge_count",
+                primary_component->edge_count);
+            if (primary_component->content_bound_metadata_node_count != 0U) {
+                emit_text_field(store, block, (*io_order)++,
+                                "scene.primary_graph_component_metadata_policy",
+                                "requires_target_rewrite");
+            }
         }
     }
 

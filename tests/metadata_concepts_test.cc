@@ -118,6 +118,28 @@ namespace {
         return id;
     }
 
+    static EntryId add_bmff_text(MetaStore* store, std::string_view field,
+                                 std::string_view value)
+    {
+        Entry entry;
+        entry.key        = make_bmff_field_key(store->arena(), field);
+        entry.value      = make_text(store->arena(), value, TextEncoding::Utf8);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
+    static EntryId add_bmff_u8(MetaStore* store, std::string_view field,
+                               uint8_t value)
+    {
+        Entry entry;
+        entry.key        = make_bmff_field_key(store->arena(), field);
+        entry.value      = make_u8(value);
+        const EntryId id = store->add_entry(entry);
+        EXPECT_NE(id, kInvalidEntryId);
+        return id;
+    }
+
     static EntryId add_icc_header_u32(MetaStore* store, uint32_t offset,
                                       uint32_t value)
     {
@@ -1819,6 +1841,57 @@ namespace {
                   MetadataConceptTransferHint::SourceBound);
         EXPECT_TRUE(stitch_candidate->source_bound);
         EXPECT_TRUE(contains_entry(stitch_candidate->source_entries, stitch));
+    }
+
+    TEST(MetadataConcepts, ResolvesBmffContainerGraphPolicyAsSourceBound)
+    {
+        MetaStore store;
+        const EntryId content_bound
+            = add_bmff_text(&store, "scene.content_bound_metadata_policy",
+                            "requires_target_rewrite");
+        const EntryId primary_component
+            = add_bmff_text(&store,
+                            "scene.primary_graph_component_metadata_policy",
+                            "requires_target_rewrite");
+        const EntryId multi_image
+            = add_bmff_u8(&store, "scene.multi_image_candidate", 1U);
+        store.finalize();
+
+        const MetadataConceptResolution graph
+            = resolve_metadata_concept(store,
+                                       MetadataConceptKind::ContainerGraph);
+
+        EXPECT_TRUE(graph.found);
+        EXPECT_FALSE(graph.conflict);
+        const MetadataConceptCandidate* content_candidate
+            = find_role(graph, MetadataConceptRole::ContentBoundMetadata);
+        ASSERT_NE(content_candidate, nullptr);
+        EXPECT_EQ(content_candidate->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(content_candidate->compatible_file_safe);
+        EXPECT_FALSE(content_candidate->rendered_image_safe);
+        EXPECT_TRUE(content_candidate->source_bound);
+        EXPECT_EQ(content_candidate->text, "requires_target_rewrite");
+        EXPECT_TRUE(
+            contains_entry(content_candidate->source_entries, content_bound));
+        EXPECT_TRUE(contains_entry(graph.source_entries, primary_component));
+
+        const MetadataConceptCandidate* multi_candidate
+            = find_role(graph, MetadataConceptRole::MultiImageScene);
+        ASSERT_NE(multi_candidate, nullptr);
+        EXPECT_EQ(multi_candidate->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(multi_candidate->has_numeric);
+        EXPECT_EQ(multi_candidate->numeric_count, 1U);
+        EXPECT_EQ(multi_candidate->numeric[0], 1.0);
+        EXPECT_TRUE(
+            contains_entry(multi_candidate->source_entries, multi_image));
+
+        const MetadataConceptResult all = resolve_metadata_concepts(store);
+        const MetadataConceptResolution* graph_in_all
+            = find_concept(all, MetadataConceptKind::ContainerGraph);
+        ASSERT_NE(graph_in_all, nullptr);
+        EXPECT_TRUE(graph_in_all->found);
     }
 
 }  // namespace

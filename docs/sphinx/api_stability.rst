@@ -120,7 +120,9 @@ Host-facing API map
        parsed maximum depth, and parsed per-type counters, nested
        object/list traversal with item path/depth/list-index and parsed-value
        count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom
-       workflow text, Macintosh NSPrintInfo / Windows DEVMODE byte counts,
+       workflow text, Macintosh PrintInfo, Macintosh NSPrintInfo,
+       Windows DEVMODE, alternate duotone-color, and alternate spot-color
+       byte counts,
        legacy halftone/transfer/duotone/EPS byte summaries, embedded
        IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
        IPTC-IIM, XMP, and ICC payload decode.
@@ -132,8 +134,10 @@ Host-facing API map
      - Query contract for inspection matches plus normalized candidates.
        Current coverage includes crop/active-area/border margins,
        exposure/gain, white balance, color/profile/source-color-transform,
-       lens correction, orientation, descriptive EXIF/IPTC/XMP fields, and
-       RAW/source-processing metadata across standard tags, selected DNG tags,
+       lens correction, orientation, descriptive EXIF/IPTC/XMP fields,
+       container-graph evidence for BMFF content-bound metadata and
+       multi-image scene policy, and RAW/source-processing metadata across
+       standard tags, selected DNG tags,
        RAW value curves, RAW linearity limits, RAW calibration curves, RAW
        curve control points, EXIF color-space evidence, ICC header/tag
        entries, XMP
@@ -275,9 +279,9 @@ Host-facing API map
        specific compression mode or decoder stage.
        Rendered-transfer drop messages distinguish source color transforms,
        white balance, lens-correction records, source RAW curves/linearity
-       metadata that still require storage-context confirmation, and
-       computational/thermal/stitch source-processing drops from generic
-       source-processing metadata.
+       metadata that still require storage-context confirmation, and BMFF
+       content-bound/multi-image scene policy, plus computational/thermal/
+       stitch source-processing drops from generic source-processing metadata.
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``token``, ``message_token``,

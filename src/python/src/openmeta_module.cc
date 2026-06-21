@@ -6248,7 +6248,8 @@ NB_MODULE(_openmeta, m)
         .value("Geometry", MetadataConceptKind::Geometry)
         .value("LensCorrection", MetadataConceptKind::LensCorrection)
         .value("RawProcessing", MetadataConceptKind::RawProcessing)
-        .value("Exposure", MetadataConceptKind::Exposure);
+        .value("Exposure", MetadataConceptKind::Exposure)
+        .value("ContainerGraph", MetadataConceptKind::ContainerGraph);
 
     nb::enum_<MetadataConceptSourceFamily>(m, "MetadataConceptSourceFamily")
         .value("Unknown", MetadataConceptSourceFamily::Unknown)
@@ -6305,7 +6306,10 @@ NB_MODULE(_openmeta, m)
         .value("RawLinearityLimit", MetadataConceptRole::RawLinearityLimit)
         .value("RawCalibrationCurve", MetadataConceptRole::RawCalibrationCurve)
         .value("RawCurveControlPoints",
-               MetadataConceptRole::RawCurveControlPoints);
+               MetadataConceptRole::RawCurveControlPoints)
+        .value("ContentBoundMetadata",
+               MetadataConceptRole::ContentBoundMetadata)
+        .value("MultiImageScene", MetadataConceptRole::MultiImageScene);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

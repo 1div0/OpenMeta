@@ -32,7 +32,7 @@ OpenMeta currently covers these major families:
 - IPTC-IIM datasets.
 - JPEG comments, GIF comments, and PNG text chunks.
 - ISO-BMFF derived fields for brand, primary-item, item-semantic, relation,
-  whole-scene policy, and auxiliary semantics.
+  whole-scene graph policy, and auxiliary semantics.
 - JUMBF / C2PA draft structural and semantic projection.
 - EXR header attributes.
 

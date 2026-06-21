@@ -2,6 +2,8 @@
 
 #include "openmeta/compatibility_dump.h"
 #include "openmeta/container_scan.h"
+#include "openmeta/meta_key.h"
+#include "openmeta/meta_value.h"
 #include "openmeta/metadata_transfer.h"
 #include "openmeta/simple_meta.h"
 
@@ -812,6 +814,30 @@ contains_entry_id(const std::vector<openmeta::EntryId>& entries,
         }
     }
     return false;
+}
+
+static openmeta::EntryId
+add_bmff_text(openmeta::MetaStore* store, std::string_view field,
+              std::string_view value)
+{
+    openmeta::Entry entry;
+    entry.key   = openmeta::make_bmff_field_key(store->arena(), field);
+    entry.value = openmeta::make_text(store->arena(), value,
+                                      openmeta::TextEncoding::Utf8);
+    const openmeta::EntryId id = store->add_entry(entry);
+    EXPECT_NE(id, openmeta::kInvalidEntryId);
+    return id;
+}
+
+static openmeta::EntryId
+add_bmff_u8(openmeta::MetaStore* store, std::string_view field, uint8_t value)
+{
+    openmeta::Entry entry;
+    entry.key   = openmeta::make_bmff_field_key(store->arena(), field);
+    entry.value = openmeta::make_u8(value);
+    const openmeta::EntryId id = store->add_entry(entry);
+    EXPECT_NE(id, openmeta::kInvalidEntryId);
+    return id;
 }
 
 static std::vector<std::byte>
@@ -21901,6 +21927,74 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
     ASSERT_NE(uncompressed_black_diag, nullptr);
     EXPECT_EQ(uncompressed_black_diag->raw_applicability,
               openmeta::MetadataRawApplicabilityState::AppliesToStoredRaw);
+}
+
+TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
+{
+    openmeta::MetaStore store;
+    const openmeta::EntryId content_bound
+        = add_bmff_text(&store, "scene.content_bound_metadata_policy",
+                        "requires_target_rewrite");
+    const openmeta::EntryId multi_image
+        = add_bmff_u8(&store, "scene.multi_image_candidate", 1U);
+    store.finalize();
+
+    const openmeta::TransferConceptDiagnostics rendered
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::RenderedImage);
+
+    const openmeta::TransferConceptDiagnostic* content_bound_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::ContentBoundMetadata,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(content_bound_diag, nullptr);
+    EXPECT_EQ(content_bound_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_TRUE(content_bound_diag->source_bound);
+    EXPECT_TRUE(
+        contains_entry_id(content_bound_diag->source_entries, content_bound));
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_token(*content_bound_diag),
+              "warning:container_graph.content_bound_metadata:drop:"
+              "source_bound");
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(
+                  *content_bound_diag),
+              "drop.content_bound_metadata");
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(
+                     *content_bound_diag),
+                 "content-bound container metadata is bound to the source "
+                 "container graph and will be dropped for this transfer mode");
+
+    const openmeta::TransferConceptDiagnostic* multi_image_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::MultiImageScene,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(multi_image_diag, nullptr);
+    EXPECT_EQ(multi_image_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_TRUE(multi_image_diag->source_bound);
+    EXPECT_TRUE(
+        contains_entry_id(multi_image_diag->source_entries, multi_image));
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(
+                  *multi_image_diag),
+              "drop.multi_image_scene");
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(
+                     *multi_image_diag),
+                 "multi-image container scene metadata is bound to the source "
+                 "container graph and will be dropped for this transfer mode");
+
+    const openmeta::TransferConceptDiagnostics compatible
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::CompatibleFile);
+    const openmeta::TransferConceptDiagnostic* compatible_content_bound
+        = find_transfer_concept_diagnostic(
+            compatible, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::ContentBoundMetadata,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(compatible_content_bound, nullptr);
+    EXPECT_EQ(compatible_content_bound->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
 }
 
 TEST(MetadataTransferApi,

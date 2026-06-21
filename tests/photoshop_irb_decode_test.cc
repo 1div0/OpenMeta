@@ -1637,6 +1637,12 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     append_u32be(30U, &global_angle);
     append_irb_resource(0x040DU, global_angle, &irb);
 
+    const std::array<std::byte, 5> macintosh_print_info = {
+        std::byte { 0x01 }, std::byte { 0x02 }, std::byte { 0x03 },
+        std::byte { 0x04 }, std::byte { 0x05 },
+    };
+    append_irb_resource(0x03E9U, macintosh_print_info, &irb);
+
     const std::array<std::byte, 25> url = {
         std::byte { 'h' },  std::byte { 't' }, std::byte { 't' },
         std::byte { 'p' },  std::byte { 's' }, std::byte { ':' },
@@ -1714,6 +1720,19 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     append_u32be(33U, &layer_selection_ids);
     append_irb_resource(0x042DU, layer_selection_ids, &irb);
 
+    const std::array<std::byte, 6> alternate_duotone_colors = {
+        std::byte { 0x10 }, std::byte { 0x11 }, std::byte { 0x12 },
+        std::byte { 0x13 }, std::byte { 0x14 }, std::byte { 0x15 },
+    };
+    append_irb_resource(0x042AU, alternate_duotone_colors, &irb);
+
+    const std::array<std::byte, 7> alternate_spot_colors = {
+        std::byte { 0x20 }, std::byte { 0x21 }, std::byte { 0x22 },
+        std::byte { 0x23 }, std::byte { 0x24 }, std::byte { 0x25 },
+        std::byte { 0x26 },
+    };
+    append_irb_resource(0x042BU, alternate_spot_colors, &irb);
+
     std::vector<std::byte> slice_info(20U, std::byte { 0x00 });
     append_utf16be_string32("Group", &slice_info);
     append_u32be(4U, &slice_info);
@@ -1773,8 +1792,8 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 32U);
-    EXPECT_EQ(r.entries_decoded, 91U);
+    EXPECT_EQ(r.resources_decoded, 35U);
+    EXPECT_EQ(r.entries_decoded, 97U);
 
     const Entry* x_resolution = find_photoshop_irb_field(store, 0x03EDU,
                                                          "XResolution");
@@ -1887,6 +1906,14 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_EQ(angle->value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(angle->value.elem_type, MetaElementType::U32);
     EXPECT_EQ(angle->value.data.u64, 30U);
+
+    const Entry* macintosh_print_info_bytes
+        = find_photoshop_irb_field(store, 0x03E9U, "MacintoshPrintInfoBytes");
+    ASSERT_NE(macintosh_print_info_bytes, nullptr);
+    EXPECT_EQ(macintosh_print_info_bytes->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(macintosh_print_info_bytes->value.elem_type,
+              MetaElementType::U32);
+    EXPECT_EQ(macintosh_print_info_bytes->value.data.u64, 5U);
 
     const Entry* url_field = find_photoshop_irb_field(store, 0x040BU, "URL");
     ASSERT_NE(url_field, nullptr);
@@ -2040,6 +2067,24 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_EQ(layer_selection_values[0], 11U);
     EXPECT_EQ(layer_selection_values[1], 22U);
     EXPECT_EQ(layer_selection_values[2], 33U);
+
+    const Entry* alternate_duotone_colors_bytes
+        = find_photoshop_irb_field(store, 0x042AU,
+                                   "AlternateDuotoneColorsBytes");
+    ASSERT_NE(alternate_duotone_colors_bytes, nullptr);
+    EXPECT_EQ(alternate_duotone_colors_bytes->value.kind,
+              MetaValueKind::Scalar);
+    EXPECT_EQ(alternate_duotone_colors_bytes->value.elem_type,
+              MetaElementType::U32);
+    EXPECT_EQ(alternate_duotone_colors_bytes->value.data.u64, 6U);
+
+    const Entry* alternate_spot_colors_bytes
+        = find_photoshop_irb_field(store, 0x042BU, "AlternateSpotColorsBytes");
+    ASSERT_NE(alternate_spot_colors_bytes, nullptr);
+    EXPECT_EQ(alternate_spot_colors_bytes->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(alternate_spot_colors_bytes->value.elem_type,
+              MetaElementType::U32);
+    EXPECT_EQ(alternate_spot_colors_bytes->value.data.u64, 7U);
 
     const Entry* slices_group_name
         = find_photoshop_irb_field(store, 0x041AU, "SlicesGroupName");
@@ -2593,6 +2638,8 @@ TEST(PhotoshopIrbDecodeTest, NamesAdditionalKnownResources)
     EXPECT_EQ(photoshop_irb_resource_name(0x0424U), "XMP");
     EXPECT_EQ(photoshop_irb_resource_name(0x0426U), "PrintScaleInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x0429U), "LayerComps");
+    EXPECT_EQ(photoshop_irb_resource_name(0x042AU), "AlternateDuotoneColors");
+    EXPECT_EQ(photoshop_irb_resource_name(0x042BU), "AlternateSpotColors");
     EXPECT_EQ(photoshop_irb_resource_name(0x042DU), "LayerSelectionIDs");
     EXPECT_EQ(photoshop_irb_resource_name(0x042FU), "PrintInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x0430U), "LayerGroupsEnabledID");

@@ -2144,6 +2144,11 @@ namespace {
         case 0x03E8U:
             decode_photoshop2_info(payload, store, block, order, result);
             break;
+        case 0x03E9U:
+            decode_payload_size_resource(payload, resource_id,
+                                         "MacintoshPrintInfoBytes", store,
+                                         block, order, result);
+            break;
         case 0x03EAU:
             decode_ascii_text_resource(payload, resource_id, "XMLData", store,
                                        block, order, result);
@@ -2288,6 +2293,16 @@ namespace {
         case 0x0429U:
             decode_descriptor_header_resource(payload, resource_id, store,
                                               block, order, result);
+            break;
+        case 0x042AU:
+            decode_payload_size_resource(payload, resource_id,
+                                         "AlternateDuotoneColorsBytes", store,
+                                         block, order, result);
+            break;
+        case 0x042BU:
+            decode_payload_size_resource(payload, resource_id,
+                                         "AlternateSpotColorsBytes", store,
+                                         block, order, result);
             break;
         case 0x042EU:
         case 0x042FU:

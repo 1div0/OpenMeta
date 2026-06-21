@@ -217,8 +217,9 @@ Coverage matrix
      - BMFF derived fields, brand-name fields including ``avif`` / ``avis`` /
        ``avio`` AVIF-compatible brands, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
-       metadata carriers, whole-scene item graph counts and conservative
-       content-bound metadata / multi-image policy hints, primary
+       metadata carriers, whole-scene item graph counts, bounded graph
+       component summaries, and conservative content-bound metadata /
+       multi-image policy hints, primary
        metadata-carrier/C2PA/JUMBF flags when the primary item itself is a
        metadata item, primary sidecar counts/flags for
        linked metadata and image sidecars, content-bound C2PA/JUMBF sidecar
@@ -236,7 +237,7 @@ Coverage matrix
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - Medium, about 87-91%.
+     - Medium-high, about 88-92%.
      - Full multi-image BMFF scene modeling and full C2PA manifest/policy
        semantics.
    * - Photoshop IRB
@@ -258,8 +259,10 @@ Coverage matrix
        summaries, alpha names/identifiers, captions,
        QuickMask info, URL/list data, autosave strings, ``XMLData``,
        ImageReady XML text, Lightroom workflow text, thumbnail headers,
-       channel options, clipping-path names, Macintosh NSPrintInfo / Windows
-       DEVMODE byte counts, legacy halftone/transfer/duotone/EPS byte
+       channel options, clipping-path names, Macintosh PrintInfo,
+       Macintosh NSPrintInfo, Windows DEVMODE, alternate duotone-color, and
+       alternate spot-color byte counts, legacy
+       halftone/transfer/duotone/EPS byte
        summaries, embedded IPTC/ICC/XMP/EXIF resource byte counts, and
        embedded IPTC/XMP/ICC payload decode where enabled.
      - Medium, about 88-92%.
@@ -280,11 +283,14 @@ Coverage matrix
        explicit computational/thermal/stitch/source-processing records
        including NikonSettings groups, expanded source color/style/lens/
        source-processing aliases including Canon AF micro-adjustment and
-       ambience-selection fields, source-processing buckets, optional
+       ambience-selection fields, source-processing buckets, explicit
+       ``container_graph`` concepts for BMFF content-bound metadata and
+       multi-image scene policy, optional
        RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,
-       color/profile, GPS, geometry, lens-correction, and RAW-processing with
+       color/profile, GPS, geometry, lens-correction, RAW-processing, and
+       container graph policy with
        parsed date/time fields, IPTC created and digital-creation date/time
        plus XMP ``DateTimeDigitized`` promoted into cross-family date
        candidates, timezone/precision
@@ -294,7 +300,7 @@ Coverage matrix
        grouped value vectors, transfer hints, RAW applicability states,
        rendered/compatible safety booleans, and tolerance-aware
        GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 88-93%.
+     - Medium-high, about 89-94%.
      - More long-tail per-model concept aliases and richer localized policy
        wording.
    * - Transfer-safety classification
@@ -304,7 +310,10 @@ Coverage matrix
        data, with concept-level diagnostics that report
        keep/drop/requires-target-image-spec actions, severity, stable summary
        and message tokens, localizable argument tokens, RAW applicability, and
-       role-specific default message text before prepare. Source-processing
+       role-specific default message text before prepare. BMFF
+       content-bound/multi-image scene policy fields now resolve to
+       source-bound container-graph diagnostics for rendered-image transfers.
+       Source-processing
        diagnostics distinguish computational, thermal, and stitch/panorama
        message tokens.
        Descriptor-aware diagnostics can also mark curve/LUT-like RAW roles as

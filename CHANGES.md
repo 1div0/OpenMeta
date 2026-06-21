@@ -1,5 +1,28 @@
 # OpenMeta Changes
 
+## 0.4.62 - 2026-06-21
+
+Changes compared with `0.4.61`.
+
+### Added
+
+- Added bounded BMFF scene graph component summaries, including graph node
+  count, component count, image/multi-image component counts, observed relation
+  edge count, primary graph-component node/edge counts, and primary component
+  content-bound metadata policy hints.
+- Added `ContainerGraph` concept resolution for BMFF content-bound metadata and
+  multi-image scene policy fields, plus rendered-transfer diagnostics and
+  message tokens for dropping those source-bound fields.
+- Added Photoshop IRB byte-count interpretation for MacintoshPrintInfo,
+  AlternateDuotoneColors, and AlternateSpotColors resources while preserving
+  raw resource payloads.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development docs
+  for the new BMFF scene graph, container-graph diagnostics, and Photoshop IRB
+  byte-count surfaces.
+
 ## 0.4.61 - 2026-06-20
 
 Changes compared with `0.4.60`.
