@@ -21932,11 +21932,13 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
 TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
 {
     openmeta::MetaStore store;
-    const openmeta::EntryId content_bound
-        = add_bmff_text(&store, "scene.content_bound_metadata_policy",
+    const openmeta::EntryId primary_content_bound
+        = add_bmff_text(&store, "scene.primary_graph_component_metadata_policy",
                         "requires_target_rewrite");
-    const openmeta::EntryId multi_image
-        = add_bmff_u8(&store, "scene.multi_image_candidate", 1U);
+    const openmeta::EntryId primary_multi_image
+        = add_bmff_text(&store,
+                        "scene.primary_graph_component_multi_image_policy",
+                        "requires_target_rewrite");
     store.finalize();
 
     const openmeta::TransferConceptDiagnostics rendered
@@ -21952,8 +21954,8 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
     EXPECT_EQ(content_bound_diag->reason,
               openmeta::TransferConceptDiagnosticReason::SourceBound);
     EXPECT_TRUE(content_bound_diag->source_bound);
-    EXPECT_TRUE(
-        contains_entry_id(content_bound_diag->source_entries, content_bound));
+    EXPECT_TRUE(contains_entry_id(content_bound_diag->source_entries,
+                                  primary_content_bound));
     EXPECT_EQ(openmeta::transfer_concept_diagnostic_token(*content_bound_diag),
               "warning:container_graph.content_bound_metadata:drop:"
               "source_bound");
@@ -21974,8 +21976,8 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
     EXPECT_EQ(multi_image_diag->reason,
               openmeta::TransferConceptDiagnosticReason::SourceBound);
     EXPECT_TRUE(multi_image_diag->source_bound);
-    EXPECT_TRUE(
-        contains_entry_id(multi_image_diag->source_entries, multi_image));
+    EXPECT_TRUE(contains_entry_id(multi_image_diag->source_entries,
+                                  primary_multi_image));
     EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(
                   *multi_image_diag),
               "drop.multi_image_scene");

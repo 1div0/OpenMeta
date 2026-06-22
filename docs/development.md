@@ -732,14 +732,19 @@ This policy surface is intentionally marked draft and may be refined.
     `scene.edge_count`, `scene.item_group_count`,
     `scene.has_content_bound_metadata`,
     `scene.content_bound_metadata_policy`, and
-    `scene.multi_image_candidate`), graph-component summaries
+    `scene.multi_image_candidate`, `scene.multi_image_policy`),
+    graph-component summaries
     (`scene.graph_node_count`, `scene.graph_component_count`,
     `scene.graph_image_component_count`,
     `scene.graph_multi_image_component_count`,
+    `scene.graph_content_bound_metadata_component_count`,
     `scene.graph_observed_edge_count`,
     `scene.primary_graph_component_node_count`,
     `scene.primary_graph_component_*_node_count`,
-    `scene.primary_graph_component_edge_count`, and
+    `scene.primary_graph_component_edge_count`,
+    `scene.primary_graph_component_has_content_bound_metadata`,
+    `scene.primary_graph_component_multi_image_candidate`,
+    `scene.primary_graph_component_multi_image_policy`, and
     `scene.primary_graph_component_metadata_policy`), and
     `auxC`-based aux semantics (`aux.item_count`, `aux.item_id`,
     `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`,
@@ -957,7 +962,7 @@ Internal helper conventions (used by vendor decoders):
   `SliceInfo`, `WorkflowURL`, `AlphaIdentifiers`, `URL_List`,
   `IPTCDataBytes`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`,
   `AutoSaveFilePath`, `AutoSaveFormat`, `XMLData`, `ImageReadyVariables`,
-  `ImageReadyDataSets`, path-resource record
+  `ImageReadyDataSets`, path-resource byte-count and record
   summaries, descriptor-header, simple descriptor-item, enum, and bounded
   nested list/object summaries for
   `LayerComps`, `MeasurementScale`, `HDRToningInfo`, `PrintInfo`,
@@ -967,7 +972,8 @@ Internal helper conventions (used by vendor decoders):
   `PhotoshopThumbnail`, `LayerSelectionIDs`, `LayerGroupsEnabledID`,
   `ChannelOptions`, `PrintFlagsInfo`, `ClippingPathName`,
   `MacintoshPrintInfo`, `MacintoshNSPrintInfo`, `WindowsDEVMODE`,
-  `AlternateDuotoneColors`, and `AlternateSpotColors`.
+  `AlternateDuotoneColors`, `AlternateSpotColors`, ObsoletePhotoshopTag1,
+  ObsoletePhotoshopTag2, and ObsoletePhotoshopTag3.
 - Legacy 8-bit Photoshop text stays opt-in and explicit. The IRB decoder
   exposes a bounded `PhotoshopIrbStringCharset` policy and currently uses it
   only for `AlphaChannelsNames`, `PStringCaption`, and `ClippingPathName`,

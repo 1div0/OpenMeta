@@ -152,7 +152,8 @@ summaries such as:
 - `LightroomWorkflow`
 - `IPTCDataBytes`
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
-- `WorkingPath` and numbered path resources as record counts/selectors
+- `WorkingPath` and numbered path resources as byte counts plus record
+  counts/selectors
 - descriptor-header summaries, bounded simple descriptor item bodies, enum
   value summaries, raw-data descriptor byte counts, and bounded nested
   list/object traversal with item paths, depths, list indices, and
@@ -165,7 +166,8 @@ summaries such as:
 - `PrintFlagsInfo`
 - `ClippingPathName`
 - `MacintoshPrintInfo`, `MacintoshNSPrintInfo`, `WindowsDEVMODE`,
-  `AlternateDuotoneColors`, and `AlternateSpotColors` byte counts
+  `AlternateDuotoneColors`, `AlternateSpotColors`, ObsoletePhotoshopTag1,
+  ObsoletePhotoshopTag2, and ObsoletePhotoshopTag3 byte counts
 - embedded IPTC-NAA, ICC, EXIF, EXIF2, and XMP resource byte counts
 
 When enabled, embedded IPTC-IIM, XMP, and ICC payloads in IRB resources are
@@ -178,10 +180,10 @@ Current Photoshop IRB interpretation status:
 | Raw IRB resources | Preserved | Every accepted resource keeps a lossless `PhotoshopIrb` raw entry. |
 | Embedded IPTC/XMP/ICC/EXIF carriers | Interpreted where enabled | Payload bytes remain preserved; enabled decoders also emit regular family entries. |
 | Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, `XMLData`, ImageReady text, Lightroom workflow text, and similar bounded fields. |
-| Geometry/display/color-sampler/path headers | Interpreted / record-summary | Display/grid/thumbnail/color-sampler headers are decoded; path resources expose record counts and selectors without interpreting Bezier payloads. |
+| Geometry/display/color-sampler/path headers | Interpreted / record-summary | Display/grid/thumbnail/color-sampler headers are decoded; path resources expose byte counts, record counts, and selectors without interpreting Bezier payloads. |
 | Descriptor-backed Photoshop resources | Descriptor header plus bounded item summaries | Descriptor version, remaining byte count, class ID/name, item count, complete simple item bodies for `bool`, `long`, `doub`, `UntF`, `TEXT`, and `enum`, raw-data descriptor byte counts, nested object/list paths, depths, list indices, list/object counts, and parsed-value count fields are emitted. Raw descriptor-data payload contents and full Photoshop action semantics remain out of scope for this subset. |
 | Legacy halftone/transfer/duotone/EPS resources | Header / byte-count only | OpenMeta emits byte counts and first header words where safe, without claiming full Photoshop semantics. |
-| Proprietary, obsolete, or OS-specific resources | Raw-only | Kept losslessly until a bounded public layout is implemented. |
+| Proprietary, obsolete, or OS-specific resources | Raw-preserved, selected byte counts | Kept losslessly; selected stable resource IDs expose byte counts without claiming payload semantics. |
 
 This is useful, but it is still not full Photoshop-resource parity.
 
@@ -207,11 +209,14 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   content-description, URI, and JSON roles
 - whole-scene item graph counters for known items, image/metadata/content-bound
   metadata nodes, selected image-role nodes, relation edges, item groups, and
-  conservative content-bound metadata / multi-image policy hints
+  conservative content-bound metadata / multi-image policy hints including
+  explicit multi-image policy text
 - bounded scene graph component counters for observed relation graph nodes,
   connected components, image and multi-image components, isolated image
-  nodes, primary graph-component nodes/edges, and primary component
-  content-bound metadata policy
+  nodes, components with content-bound metadata, primary graph-component
+  nodes/edges, primary component content-bound flags, primary component
+  multi-image candidates and policy text, and primary component content-bound
+  metadata policy
 - typed `iref.<type>.*` rows
 - bounded `grpl` item-group rows and per-group-type summaries
 - bounded `iloc`/`idat` item-data layout summaries, including construction

@@ -36,8 +36,9 @@ model should stay compact:
        metadata with descriptor-backed compressed-storage applicability,
        lens-correction, sensor, BMFF brand/item-property
        associations and rollups including ``avio`` AVIF brands, item groups,
-       item semantic counts, whole-scene policy hints, graph-component
-       summaries, ``container_graph`` concepts, primary item properties,
+       item semantic counts, whole-scene policy hints including multi-image
+       policy text, graph-component policy summaries, ``container_graph``
+       concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,
        and display-transform summaries, JUMBF labels, Photoshop
        IRB embedded carriers plus

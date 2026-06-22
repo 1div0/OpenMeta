@@ -218,8 +218,10 @@ Coverage matrix
        ``avio`` AVIF-compatible brands, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, whole-scene item graph counts, bounded graph
-       component summaries, and conservative content-bound metadata /
-       multi-image policy hints, primary
+       component summaries, component content-bound counts, primary component
+       content-bound flags, primary component multi-image candidates and
+       policy text, and conservative content-bound metadata / multi-image
+       policy hints, primary
        metadata-carrier/C2PA/JUMBF flags when the primary item itself is a
        metadata item, primary sidecar counts/flags for
        linked metadata and image sidecars, content-bound C2PA/JUMBF sidecar
@@ -255,13 +257,13 @@ Coverage matrix
        paths, depths, list indices, and parsed-value counts, for resources
        including layer comps, measurement scale, timeline info, sheet
        disclosure, HDR toning, print info, onion skins, count info, print
-       info/style, path selection state, and origin path info, path record
-       summaries, alpha names/identifiers, captions,
+       info/style, path selection state, and origin path info, path byte-count
+       and record summaries, alpha names/identifiers, captions,
        QuickMask info, URL/list data, autosave strings, ``XMLData``,
        ImageReady XML text, Lightroom workflow text, thumbnail headers,
        channel options, clipping-path names, Macintosh PrintInfo,
-       Macintosh NSPrintInfo, Windows DEVMODE, alternate duotone-color, and
-       alternate spot-color byte counts, legacy
+       Macintosh NSPrintInfo, Windows DEVMODE, alternate duotone-color,
+       alternate spot-color, and obsolete Photoshop tag byte counts, legacy
        halftone/transfer/duotone/EPS byte
        summaries, embedded IPTC/ICC/XMP/EXIF resource byte counts, and
        embedded IPTC/XMP/ICC payload decode where enabled.
@@ -285,7 +287,7 @@ Coverage matrix
        source-processing aliases including Canon AF micro-adjustment and
        ambience-selection fields, source-processing buckets, explicit
        ``container_graph`` concepts for BMFF content-bound metadata and
-       multi-image scene policy, optional
+       whole-scene/primary-component multi-image policy, optional
        RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,

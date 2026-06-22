@@ -553,6 +553,9 @@ namespace {
                    != static_cast<uint64_t>(payload.size())) {
             return;
         }
+        emit_derived_field(store, block, order, resource_id, "PathDataBytes",
+                           make_u32(static_cast<uint32_t>(payload.size())),
+                           result);
         emit_derived_field(store, block, order, resource_id, "PathRecordCount",
                            make_u32(count), result);
         for (uint32_t i = 0U; i < count; ++i) {
@@ -2203,6 +2206,11 @@ namespace {
                                          "DuotoneImageInfoBytes", store, block,
                                          order, result);
             break;
+        case 0x03FCU:
+            decode_payload_size_resource(payload, resource_id,
+                                         "ObsoletePhotoshopTag1Bytes", store,
+                                         block, order, result);
+            break;
         case 0x03FDU:
             decode_payload_size_resource(payload, resource_id,
                                          "EPSOptionsBytes", store, block, order,
@@ -2226,6 +2234,16 @@ namespace {
             break;
         case 0x03FEU:
             decode_quick_mask_info(payload, store, block, order, result);
+            break;
+        case 0x03FFU:
+            decode_payload_size_resource(payload, resource_id,
+                                         "ObsoletePhotoshopTag2Bytes", store,
+                                         block, order, result);
+            break;
+        case 0x0403U:
+            decode_payload_size_resource(payload, resource_id,
+                                         "ObsoletePhotoshopTag3Bytes", store,
+                                         block, order, result);
             break;
         case 0x0405U:
             decode_u16_scalar_resource(payload, resource_id, "RawImageMode",

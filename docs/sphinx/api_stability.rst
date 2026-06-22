@@ -120,9 +120,10 @@ Host-facing API map
        parsed maximum depth, and parsed per-type counters, nested
        object/list traversal with item path/depth/list-index and parsed-value
        count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom
-       workflow text, Macintosh PrintInfo, Macintosh NSPrintInfo,
-       Windows DEVMODE, alternate duotone-color, and alternate spot-color
-       byte counts,
+       workflow text, path-resource byte counts and record summaries,
+       Macintosh PrintInfo, Macintosh NSPrintInfo, Windows DEVMODE,
+       alternate duotone-color, alternate spot-color, and obsolete Photoshop
+       tag byte counts,
        legacy halftone/transfer/duotone/EPS byte summaries, embedded
        IPTC/ICC/EXIF/EXIF2/XMP byte-count fields, and optional embedded
        IPTC-IIM, XMP, and ICC payload decode.

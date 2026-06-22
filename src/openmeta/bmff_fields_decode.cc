@@ -1874,6 +1874,9 @@ namespace {
         if (image_node_count > 1U) {
             emit_u8_field(store, block, (*io_order)++,
                           "scene.multi_image_candidate", 1U);
+            emit_text_field(store, block, (*io_order)++,
+                            "scene.multi_image_policy",
+                            "requires_target_rewrite");
         }
 
         std::array<uint32_t, 512> graph_item_ids {};
@@ -1971,6 +1974,7 @@ namespace {
 
         uint32_t image_component_count                    = 0U;
         uint32_t multi_image_component_count              = 0U;
+        uint32_t content_bound_metadata_component_count   = 0U;
         uint32_t isolated_image_node_count                = 0U;
         const SceneGraphComponentStats* primary_component = nullptr;
         for (uint32_t c = 0U; c < component_count; ++c) {
@@ -1980,6 +1984,9 @@ namespace {
             }
             if (component.image_node_count > 1U) {
                 multi_image_component_count += 1U;
+            }
+            if (component.content_bound_metadata_node_count != 0U) {
+                content_bound_metadata_component_count += 1U;
             }
             if (component.node_count == 1U && component.image_node_count == 1U
                 && component.edge_count == 0U) {
@@ -2000,6 +2007,10 @@ namespace {
         emit_count_field_if_nonzero(store, block, io_order,
                                     "scene.graph_multi_image_component_count",
                                     multi_image_component_count);
+        emit_count_field_if_nonzero(
+            store, block, io_order,
+            "scene.graph_content_bound_metadata_component_count",
+            content_bound_metadata_component_count);
         emit_count_field_if_nonzero(store, block, io_order,
                                     "scene.graph_isolated_image_node_count",
                                     isolated_image_node_count);
@@ -2033,9 +2044,22 @@ namespace {
                 "scene.primary_graph_component_edge_count",
                 primary_component->edge_count);
             if (primary_component->content_bound_metadata_node_count != 0U) {
+                emit_u8_field(
+                    store, block, (*io_order)++,
+                    "scene.primary_graph_component_has_content_bound_metadata",
+                    1U);
                 emit_text_field(store, block, (*io_order)++,
                                 "scene.primary_graph_component_metadata_policy",
                                 "requires_target_rewrite");
+            }
+            if (primary_component->image_node_count > 1U) {
+                emit_u8_field(
+                    store, block, (*io_order)++,
+                    "scene.primary_graph_component_multi_image_candidate", 1U);
+                emit_text_field(
+                    store, block, (*io_order)++,
+                    "scene.primary_graph_component_multi_image_policy",
+                    "requires_target_rewrite");
             }
         }
     }

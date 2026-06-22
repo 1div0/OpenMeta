@@ -1339,7 +1339,7 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
     EXPECT_EQ(r.resources_decoded, 17U);
-    EXPECT_EQ(r.entries_decoded, 47U);
+    EXPECT_EQ(r.entries_decoded, 48U);
 
     const Entry* channels = find_photoshop_irb_field(store, 0x03E8U,
                                                      "Photoshop2ChannelCount");
@@ -1416,6 +1416,10 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
                                                        "PathRecordCount");
     ASSERT_NE(path_count, nullptr);
     EXPECT_EQ(path_count->value.data.u64, 1U);
+    const Entry* path_bytes = find_photoshop_irb_field(store, 0x0401U,
+                                                       "PathDataBytes");
+    ASSERT_NE(path_bytes, nullptr);
+    EXPECT_EQ(path_bytes->value.data.u64, 26U);
     const std::vector<uint16_t> selectors
         = collect_photoshop_irb_u16_fields(store, 0x0401U,
                                            "PathRecordSelector");
@@ -1501,6 +1505,8 @@ TEST(PhotoshopIrbDecodeTest, AvoidsStructuredFieldsForShortAdditionalResources)
     EXPECT_EQ(find_photoshop_irb_field(store, 0x1B59U, "ImageReadyDataSets"),
               nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x03EAU, "XMLData"), nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0401U, "PathDataBytes"),
+              nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x0401U, "PathRecordCount"),
               nullptr);
     EXPECT_EQ(find_photoshop_irb_field(store, 0x03F4U, "HalftoneInfoFirstWord"),
@@ -1671,6 +1677,27 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     };
     append_irb_resource(0x03FBU, effective_bw, &irb);
 
+    const std::array<std::byte, 2> obsolete_photoshop_tag1 = {
+        std::byte { 0xAA },
+        std::byte { 0xBB },
+    };
+    append_irb_resource(0x03FCU, obsolete_photoshop_tag1, &irb);
+
+    const std::array<std::byte, 3> obsolete_photoshop_tag2 = {
+        std::byte { 0xCC },
+        std::byte { 0xDD },
+        std::byte { 0xEE },
+    };
+    append_irb_resource(0x03FFU, obsolete_photoshop_tag2, &irb);
+
+    const std::array<std::byte, 4> obsolete_photoshop_tag3 = {
+        std::byte { 0x10 },
+        std::byte { 0x20 },
+        std::byte { 0x30 },
+        std::byte { 0x40 },
+    };
+    append_irb_resource(0x0403U, obsolete_photoshop_tag3, &irb);
+
     std::vector<std::byte> target_layer_id;
     append_u16be(42U, &target_layer_id);
     append_irb_resource(0x0400U, target_layer_id, &irb);
@@ -1792,8 +1819,8 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 35U);
-    EXPECT_EQ(r.entries_decoded, 97U);
+    EXPECT_EQ(r.resources_decoded, 38U);
+    EXPECT_EQ(r.entries_decoded, 103U);
 
     const Entry* x_resolution = find_photoshop_irb_field(store, 0x03EDU,
                                                          "XResolution");
@@ -1949,6 +1976,30 @@ TEST(PhotoshopIrbDecodeTest, DecodesBoundedDerivedResourceFields)
     EXPECT_EQ(effective_bw_field->value.kind, MetaValueKind::Scalar);
     EXPECT_EQ(effective_bw_field->value.elem_type, MetaElementType::U8);
     EXPECT_EQ(effective_bw_field->value.data.u64, 1U);
+
+    const Entry* obsolete_tag1_bytes
+        = find_photoshop_irb_field(store, 0x03FCU,
+                                   "ObsoletePhotoshopTag1Bytes");
+    ASSERT_NE(obsolete_tag1_bytes, nullptr);
+    EXPECT_EQ(obsolete_tag1_bytes->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(obsolete_tag1_bytes->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(obsolete_tag1_bytes->value.data.u64, 2U);
+
+    const Entry* obsolete_tag2_bytes
+        = find_photoshop_irb_field(store, 0x03FFU,
+                                   "ObsoletePhotoshopTag2Bytes");
+    ASSERT_NE(obsolete_tag2_bytes, nullptr);
+    EXPECT_EQ(obsolete_tag2_bytes->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(obsolete_tag2_bytes->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(obsolete_tag2_bytes->value.data.u64, 3U);
+
+    const Entry* obsolete_tag3_bytes
+        = find_photoshop_irb_field(store, 0x0403U,
+                                   "ObsoletePhotoshopTag3Bytes");
+    ASSERT_NE(obsolete_tag3_bytes, nullptr);
+    EXPECT_EQ(obsolete_tag3_bytes->value.kind, MetaValueKind::Scalar);
+    EXPECT_EQ(obsolete_tag3_bytes->value.elem_type, MetaElementType::U32);
+    EXPECT_EQ(obsolete_tag3_bytes->value.data.u64, 4U);
 
     const Entry* target_layer = find_photoshop_irb_field(store, 0x0400U,
                                                          "TargetLayerID");
@@ -2622,6 +2673,9 @@ TEST(PhotoshopIrbDecodeTest, NamesAdditionalKnownResources)
     EXPECT_EQ(photoshop_irb_resource_name(0x0413U), "SpotHalftone");
     EXPECT_EQ(photoshop_irb_resource_name(0x03F3U), "PrintFlags");
     EXPECT_EQ(photoshop_irb_resource_name(0x03FBU), "EffectiveBW");
+    EXPECT_EQ(photoshop_irb_resource_name(0x03FCU), "ObsoletePhotoshopTag1");
+    EXPECT_EQ(photoshop_irb_resource_name(0x03FFU), "ObsoletePhotoshopTag2");
+    EXPECT_EQ(photoshop_irb_resource_name(0x0403U), "ObsoletePhotoshopTag3");
     EXPECT_EQ(photoshop_irb_resource_name(0x0400U), "TargetLayerID");
     EXPECT_EQ(photoshop_irb_resource_name(0x0402U), "LayersGroupInfo");
     EXPECT_EQ(photoshop_irb_resource_name(0x0406U), "JPEG_Quality");

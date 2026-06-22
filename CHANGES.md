@@ -1,5 +1,44 @@
 # OpenMeta Changes
 
+## 0.4.64 - 2026-06-22
+
+Changes compared with `0.4.63`.
+
+### Added
+
+- Added BMFF multi-image policy text fields for whole-scene and primary
+  graph-component multi-image candidates.
+- Added `ContainerGraph` concept resolution and transfer diagnostic coverage
+  for BMFF multi-image policy text fields.
+- Added Photoshop IRB `PathDataBytes` interpretation for bounded working-path
+  and clipping-path resources while continuing to preserve raw path payloads.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development docs
+  for BMFF multi-image policy text and Photoshop IRB path byte-count surfaces.
+
+## 0.4.63 - 2026-06-22
+
+Changes compared with `0.4.62`.
+
+### Added
+
+- Added BMFF scene graph component policy fields for content-bound component
+  counts, primary component content-bound flags, and primary component
+  multi-image candidates.
+- Added `ContainerGraph` concept resolution and transfer diagnostic source
+  coverage for BMFF primary graph-component multi-image candidates.
+- Added Photoshop IRB byte-count interpretation for
+  ObsoletePhotoshopTag1, ObsoletePhotoshopTag2, and ObsoletePhotoshopTag3
+  resources while preserving raw resource payloads.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development docs
+  for the expanded BMFF graph-component policy and Photoshop IRB byte-count
+  surfaces.
+
 ## 0.4.62 - 2026-06-21
 
 Changes compared with `0.4.61`.

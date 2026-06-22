@@ -3047,7 +3047,17 @@ namespace {
                 role     = MetadataConceptRole::ContentBoundMetadata;
                 priority = 90U;
             } else if (bmff_entry_field_matches(store, entry,
-                                                "scene.multi_image_candidate")) {
+                                                "scene.multi_image_candidate")
+                       || bmff_entry_field_matches(store, entry,
+                                                   "scene.multi_image_policy")
+                       || bmff_entry_field_matches(
+                           store, entry,
+                           "scene.primary_graph_component_multi_image_"
+                           "policy")
+                       || bmff_entry_field_matches(
+                           store, entry,
+                           "scene.primary_graph_component_multi_image_"
+                           "candidate")) {
                 role     = MetadataConceptRole::MultiImageScene;
                 priority = 88U;
             } else {
@@ -3064,7 +3074,14 @@ namespace {
                     priority);
                 candidate.text = std::string(
                     arena_string(store.arena(), entry.value.data.span));
-                candidate.value_key = candidate.text;
+                if (role == MetadataConceptRole::MultiImageScene) {
+                    candidate.has_numeric   = true;
+                    candidate.numeric_count = 1U;
+                    candidate.numeric[0]    = 1.0;
+                    candidate.value_key     = numeric_key(1.0);
+                } else {
+                    candidate.value_key = candidate.text;
+                }
             } else {
                 double value = 0.0;
                 if (!scalar_to_double(entry.value, &value) || value <= 0.0) {

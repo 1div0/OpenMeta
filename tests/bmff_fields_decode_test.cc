@@ -2018,6 +2018,8 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
         = collect_text_values(store, "scene.content_bound_metadata_policy");
     const std::vector<uint8_t> container_scene_multi_image_candidate
         = collect_u8_values(store, "scene.multi_image_candidate");
+    const std::vector<std::string> container_scene_multi_image_policy
+        = collect_text_values(store, "scene.multi_image_policy");
     const std::vector<uint32_t> graph_node_count
         = collect_u32_values(store, "scene.graph_node_count");
     const std::vector<uint32_t> graph_component_count
@@ -2026,6 +2028,9 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
         = collect_u32_values(store, "scene.graph_image_component_count");
     const std::vector<uint32_t> graph_multi_image_component_count
         = collect_u32_values(store, "scene.graph_multi_image_component_count");
+    const std::vector<uint32_t> graph_content_bound_metadata_component_count
+        = collect_u32_values(
+            store, "scene.graph_content_bound_metadata_component_count");
     const std::vector<uint32_t> graph_observed_edge_count
         = collect_u32_values(store, "scene.graph_observed_edge_count");
     const std::vector<uint32_t> primary_graph_component_node_count
@@ -2046,6 +2051,15 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     const std::vector<std::string> primary_graph_component_metadata_policy
         = collect_text_values(store,
                               "scene.primary_graph_component_metadata_policy");
+    const std::vector<uint8_t> primary_graph_component_has_content_bound_metadata
+        = collect_u8_values(
+            store, "scene.primary_graph_component_has_content_bound_metadata");
+    const std::vector<uint8_t> primary_graph_component_multi_image_candidate
+        = collect_u8_values(
+            store, "scene.primary_graph_component_multi_image_candidate");
+    const std::vector<std::string> primary_graph_component_multi_image_policy
+        = collect_text_values(
+            store, "scene.primary_graph_component_multi_image_policy");
     ASSERT_EQ(sidecar_count.size(), 1U);
     ASSERT_EQ(scene_primary_item_count.size(), 1U);
     ASSERT_EQ(scene_linked_item_count.size(), 1U);
@@ -2091,10 +2105,12 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     ASSERT_EQ(container_scene_has_content_bound_metadata.size(), 1U);
     ASSERT_EQ(container_scene_content_bound_metadata_policy.size(), 1U);
     ASSERT_EQ(container_scene_multi_image_candidate.size(), 1U);
+    ASSERT_EQ(container_scene_multi_image_policy.size(), 1U);
     ASSERT_EQ(graph_node_count.size(), 1U);
     ASSERT_EQ(graph_component_count.size(), 1U);
     ASSERT_EQ(graph_image_component_count.size(), 1U);
     ASSERT_EQ(graph_multi_image_component_count.size(), 1U);
+    ASSERT_EQ(graph_content_bound_metadata_component_count.size(), 1U);
     ASSERT_EQ(graph_observed_edge_count.size(), 1U);
     ASSERT_EQ(primary_graph_component_node_count.size(), 1U);
     ASSERT_EQ(primary_graph_component_image_node_count.size(), 1U);
@@ -2103,6 +2119,9 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
               1U);
     ASSERT_EQ(primary_graph_component_edge_count.size(), 1U);
     ASSERT_EQ(primary_graph_component_metadata_policy.size(), 1U);
+    ASSERT_EQ(primary_graph_component_has_content_bound_metadata.size(), 1U);
+    ASSERT_EQ(primary_graph_component_multi_image_candidate.size(), 1U);
+    ASSERT_EQ(primary_graph_component_multi_image_policy.size(), 1U);
     EXPECT_EQ(sidecar_count[0], 7U);
     EXPECT_EQ(scene_primary_item_count[0], 1U);
     EXPECT_EQ(scene_linked_item_count[0], 7U);
@@ -2149,10 +2168,12 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(container_scene_content_bound_metadata_policy[0],
               "requires_target_rewrite");
     EXPECT_EQ(container_scene_multi_image_candidate[0], 1U);
+    EXPECT_EQ(container_scene_multi_image_policy[0], "requires_target_rewrite");
     EXPECT_EQ(graph_node_count[0], 8U);
     EXPECT_EQ(graph_component_count[0], 1U);
     EXPECT_EQ(graph_image_component_count[0], 1U);
     EXPECT_EQ(graph_multi_image_component_count[0], 1U);
+    EXPECT_EQ(graph_content_bound_metadata_component_count[0], 1U);
     EXPECT_EQ(graph_observed_edge_count[0], 8U);
     EXPECT_EQ(primary_graph_component_node_count[0], 8U);
     EXPECT_EQ(primary_graph_component_image_node_count[0], 5U);
@@ -2160,6 +2181,10 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(primary_graph_component_content_bound_metadata_node_count[0], 1U);
     EXPECT_EQ(primary_graph_component_edge_count[0], 8U);
     EXPECT_EQ(primary_graph_component_metadata_policy[0],
+              "requires_target_rewrite");
+    EXPECT_EQ(primary_graph_component_has_content_bound_metadata[0], 1U);
+    EXPECT_EQ(primary_graph_component_multi_image_candidate[0], 1U);
+    EXPECT_EQ(primary_graph_component_multi_image_policy[0],
               "requires_target_rewrite");
 
     const std::vector<uint32_t> role_item_ids
