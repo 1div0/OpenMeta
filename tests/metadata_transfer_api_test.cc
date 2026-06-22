@@ -1160,6 +1160,15 @@ exif_key_view(std::string_view ifd, uint16_t tag) noexcept
 }
 
 static openmeta::MetaKeyView
+bmff_key_view(std::string_view field) noexcept
+{
+    openmeta::MetaKeyView key;
+    key.kind                  = openmeta::MetaKeyKind::BmffField;
+    key.data.bmff_field.field = field;
+    return key;
+}
+
+static openmeta::MetaKeyView
 xmp_key_view(std::string_view schema_ns,
              std::string_view property_path) noexcept
 {
@@ -1534,6 +1543,100 @@ append_test_bmff_infe_v2(std::vector<std::byte>* iinf_payload, uint16_t item_id,
                     std::span<const std::byte>(infe_payload.data(),
                                                infe_payload.size()));
     iinf_payload->insert(iinf_payload->end(), infe_box.begin(), infe_box.end());
+}
+
+static void
+append_test_bmff_infe_v2_mime(std::vector<std::byte>* iinf_payload,
+                              uint16_t item_id, const char* item_name,
+                              const char* content_type)
+{
+    std::vector<std::byte> infe_payload;
+    append_bmff_fullbox_header(&infe_payload, 2U);
+    append_u16be(&infe_payload, item_id);
+    append_u16be(&infe_payload, 0U);
+    append_fourcc(&infe_payload, openmeta::fourcc('m', 'i', 'm', 'e'));
+    append_bytes(&infe_payload, item_name);
+    infe_payload.push_back(std::byte { 0x00 });
+    append_bytes(&infe_payload, content_type);
+    infe_payload.push_back(std::byte { 0x00 });
+    infe_payload.push_back(std::byte { 0x00 });
+
+    std::vector<std::byte> infe_box;
+    append_bmff_box(&infe_box, openmeta::fourcc('i', 'n', 'f', 'e'),
+                    std::span<const std::byte>(infe_payload.data(),
+                                               infe_payload.size()));
+    iinf_payload->insert(iinf_payload->end(), infe_box.begin(), infe_box.end());
+}
+
+static void
+append_test_bmff_iref_one_to_one(std::vector<std::byte>* iref_payload,
+                                 uint32_t ref_type, uint16_t from_item_id,
+                                 uint16_t to_item_id)
+{
+    std::vector<std::byte> ref_payload;
+    append_u16be(&ref_payload, from_item_id);
+    append_u16be(&ref_payload, 1U);
+    append_u16be(&ref_payload, to_item_id);
+
+    std::vector<std::byte> ref_box;
+    append_bmff_box(&ref_box, ref_type,
+                    std::span<const std::byte>(ref_payload.data(),
+                                               ref_payload.size()));
+    iref_payload->insert(iref_payload->end(), ref_box.begin(), ref_box.end());
+}
+
+static std::vector<std::byte>
+make_bmff_scene_policy_decode_target()
+{
+    std::vector<std::byte> out = make_minimal_bmff_file();
+
+    std::vector<std::byte> pitm_payload;
+    append_bmff_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, openmeta::fourcc('p', 'i', 't', 'm'),
+                    std::span<const std::byte>(pitm_payload.data(),
+                                               pitm_payload.size()));
+
+    std::vector<std::byte> iinf_payload;
+    append_bmff_fullbox_header(&iinf_payload, 0U);
+    append_u16be(&iinf_payload, 3U);
+    append_test_bmff_infe_v2(&iinf_payload, 1U,
+                             openmeta::fourcc('h', 'v', 'c', '1'), "Primary");
+    append_test_bmff_infe_v2(&iinf_payload, 2U,
+                             openmeta::fourcc('t', 'h', 'm', 'b'), "Thumb");
+    append_test_bmff_infe_v2_mime(&iinf_payload, 3U, "Manifest",
+                                  "application/c2pa+jumbf");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, openmeta::fourcc('i', 'i', 'n', 'f'),
+                    std::span<const std::byte>(iinf_payload.data(),
+                                               iinf_payload.size()));
+
+    std::vector<std::byte> iref_payload;
+    append_bmff_fullbox_header(&iref_payload, 0U);
+    append_test_bmff_iref_one_to_one(&iref_payload,
+                                     openmeta::fourcc('t', 'h', 'm', 'b'), 1U,
+                                     2U);
+    append_test_bmff_iref_one_to_one(&iref_payload,
+                                     openmeta::fourcc('c', 'd', 's', 'c'), 1U,
+                                     3U);
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, openmeta::fourcc('i', 'r', 'e', 'f'),
+                    std::span<const std::byte>(iref_payload.data(),
+                                               iref_payload.size()));
+
+    std::vector<std::byte> meta_payload;
+    append_bmff_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+
+    std::vector<std::byte> meta_box;
+    append_bmff_box(&meta_box, openmeta::fourcc('m', 'e', 't', 'a'),
+                    std::span<const std::byte>(meta_payload.data(),
+                                               meta_payload.size()));
+    out.insert(out.end(), meta_box.begin(), meta_box.end());
+    return out;
 }
 
 static std::vector<std::byte>
@@ -21997,6 +22100,61 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
     ASSERT_NE(compatible_content_bound, nullptr);
     EXPECT_EQ(compatible_content_bound->reason,
               openmeta::TransferConceptDiagnosticReason::SourceBound);
+}
+
+TEST(MetadataTransferApi,
+     TransferConceptDiagnosticsReportDecodedBmffContainerGraphPolicy)
+{
+    const std::vector<std::byte> bytes = make_bmff_scene_policy_decode_target();
+
+    openmeta::MetaStore store;
+    ASSERT_TRUE(decode_transfer_roundtrip_store(
+        std::span<const std::byte>(bytes.data(), bytes.size()), &store));
+
+    EXPECT_TRUE(
+        store_has_text_entry(store,
+                             bmff_key_view("scene.component.metadata_policy"),
+                             "requires_target_rewrite"));
+    EXPECT_TRUE(store_has_text_entry(
+        store, bmff_key_view("scene.component.multi_image_policy"),
+        "requires_target_rewrite"));
+    EXPECT_TRUE(store_has_text_entry(
+        store, bmff_key_view("scene.primary_graph_component_metadata_policy"),
+        "requires_target_rewrite"));
+    EXPECT_TRUE(store_has_text_entry(
+        store,
+        bmff_key_view("scene.primary_graph_component_multi_image_policy"),
+        "requires_target_rewrite"));
+
+    const openmeta::TransferConceptDiagnostics rendered
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::RenderedImage);
+
+    const openmeta::TransferConceptDiagnostic* content_bound_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::ContentBoundMetadata,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(content_bound_diag, nullptr);
+    EXPECT_EQ(content_bound_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_FALSE(content_bound_diag->source_entries.empty());
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(
+                  *content_bound_diag),
+              "drop.content_bound_metadata");
+
+    const openmeta::TransferConceptDiagnostic* multi_image_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::MultiImageScene,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(multi_image_diag, nullptr);
+    EXPECT_EQ(multi_image_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_FALSE(multi_image_diag->source_entries.empty());
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(
+                  *multi_image_diag),
+              "drop.multi_image_scene");
 }
 
 TEST(MetadataTransferApi,

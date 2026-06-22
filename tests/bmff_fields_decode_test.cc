@@ -2033,6 +2033,30 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
             store, "scene.graph_content_bound_metadata_component_count");
     const std::vector<uint32_t> graph_observed_edge_count
         = collect_u32_values(store, "scene.graph_observed_edge_count");
+    const std::vector<uint32_t> component_index
+        = collect_u32_values(store, "scene.component.index");
+    const std::vector<uint32_t> component_node_count
+        = collect_u32_values(store, "scene.component.node_count");
+    const std::vector<uint32_t> component_image_node_count
+        = collect_u32_values(store, "scene.component.image_node_count");
+    const std::vector<uint32_t> component_metadata_node_count
+        = collect_u32_values(store, "scene.component.metadata_node_count");
+    const std::vector<uint32_t> component_content_bound_metadata_node_count
+        = collect_u32_values(
+            store, "scene.component.content_bound_metadata_node_count");
+    const std::vector<uint32_t> component_edge_count
+        = collect_u32_values(store, "scene.component.edge_count");
+    const std::vector<uint8_t> component_contains_primary
+        = collect_u8_values(store, "scene.component.contains_primary");
+    const std::vector<uint8_t> component_has_content_bound_metadata
+        = collect_u8_values(store,
+                            "scene.component.has_content_bound_metadata");
+    const std::vector<uint8_t> component_multi_image_candidate
+        = collect_u8_values(store, "scene.component.multi_image_candidate");
+    const std::vector<std::string> component_metadata_policy
+        = collect_text_values(store, "scene.component.metadata_policy");
+    const std::vector<std::string> component_multi_image_policy
+        = collect_text_values(store, "scene.component.multi_image_policy");
     const std::vector<uint32_t> primary_graph_component_node_count
         = collect_u32_values(store, "scene.primary_graph_component_node_count");
     const std::vector<uint32_t> primary_graph_component_image_node_count
@@ -2112,6 +2136,17 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     ASSERT_EQ(graph_multi_image_component_count.size(), 1U);
     ASSERT_EQ(graph_content_bound_metadata_component_count.size(), 1U);
     ASSERT_EQ(graph_observed_edge_count.size(), 1U);
+    ASSERT_EQ(component_index.size(), 1U);
+    ASSERT_EQ(component_node_count.size(), 1U);
+    ASSERT_EQ(component_image_node_count.size(), 1U);
+    ASSERT_EQ(component_metadata_node_count.size(), 1U);
+    ASSERT_EQ(component_content_bound_metadata_node_count.size(), 1U);
+    ASSERT_EQ(component_edge_count.size(), 1U);
+    ASSERT_EQ(component_contains_primary.size(), 1U);
+    ASSERT_EQ(component_has_content_bound_metadata.size(), 1U);
+    ASSERT_EQ(component_multi_image_candidate.size(), 1U);
+    ASSERT_EQ(component_metadata_policy.size(), 1U);
+    ASSERT_EQ(component_multi_image_policy.size(), 1U);
     ASSERT_EQ(primary_graph_component_node_count.size(), 1U);
     ASSERT_EQ(primary_graph_component_image_node_count.size(), 1U);
     ASSERT_EQ(primary_graph_component_metadata_node_count.size(), 1U);
@@ -2175,6 +2210,17 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(graph_multi_image_component_count[0], 1U);
     EXPECT_EQ(graph_content_bound_metadata_component_count[0], 1U);
     EXPECT_EQ(graph_observed_edge_count[0], 8U);
+    EXPECT_EQ(component_index[0], 0U);
+    EXPECT_EQ(component_node_count[0], 8U);
+    EXPECT_EQ(component_image_node_count[0], 5U);
+    EXPECT_EQ(component_metadata_node_count[0], 2U);
+    EXPECT_EQ(component_content_bound_metadata_node_count[0], 1U);
+    EXPECT_EQ(component_edge_count[0], 8U);
+    EXPECT_EQ(component_contains_primary[0], 1U);
+    EXPECT_EQ(component_has_content_bound_metadata[0], 1U);
+    EXPECT_EQ(component_multi_image_candidate[0], 1U);
+    EXPECT_EQ(component_metadata_policy[0], "requires_target_rewrite");
+    EXPECT_EQ(component_multi_image_policy[0], "requires_target_rewrite");
     EXPECT_EQ(primary_graph_component_node_count[0], 8U);
     EXPECT_EQ(primary_graph_component_image_node_count[0], 5U);
     EXPECT_EQ(primary_graph_component_metadata_node_count[0], 2U);

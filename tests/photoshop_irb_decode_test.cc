@@ -1298,6 +1298,10 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     std::vector<std::byte> working_path(26U, std::byte { 0x00 });
     working_path[1] = std::byte { 0x01 };
 
+    std::vector<std::byte> numbered_path(52U, std::byte { 0x00 });
+    write_u16be(2U, 0U, &numbered_path);
+    write_u16be(3U, 26U, &numbered_path);
+
     std::vector<std::byte> halftone;
     append_u16be(0x1234U, &halftone);
 
@@ -1330,6 +1334,7 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     append_irb_resource(0x0404U, iptc_data, &irb);
     append_irb_resource(0x1F40U, lightroom_workflow, &irb);
     append_irb_resource(0x0401U, working_path, &irb);
+    append_irb_resource(0x07D0U, numbered_path, &irb);
     append_irb_resource(0x03F4U, halftone, &irb);
     append_irb_resource(0x03F7U, transfer_function, &irb);
     append_irb_resource(0x03FAU, duotone_info, &irb);
@@ -1338,8 +1343,8 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
     MetaStore store;
     const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
     EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
-    EXPECT_EQ(r.resources_decoded, 17U);
-    EXPECT_EQ(r.entries_decoded, 48U);
+    EXPECT_EQ(r.resources_decoded, 18U);
+    EXPECT_EQ(r.entries_decoded, 53U);
 
     const Entry* channels = find_photoshop_irb_field(store, 0x03E8U,
                                                      "Photoshop2ChannelCount");
@@ -1425,6 +1430,21 @@ TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)
                                            "PathRecordSelector");
     ASSERT_EQ(selectors.size(), 1U);
     EXPECT_EQ(selectors[0], 1U);
+
+    const Entry* numbered_path_count
+        = find_photoshop_irb_field(store, 0x07D0U, "PathRecordCount");
+    ASSERT_NE(numbered_path_count, nullptr);
+    EXPECT_EQ(numbered_path_count->value.data.u64, 2U);
+    const Entry* numbered_path_bytes
+        = find_photoshop_irb_field(store, 0x07D0U, "PathDataBytes");
+    ASSERT_NE(numbered_path_bytes, nullptr);
+    EXPECT_EQ(numbered_path_bytes->value.data.u64, 52U);
+    const std::vector<uint16_t> numbered_selectors
+        = collect_photoshop_irb_u16_fields(store, 0x07D0U,
+                                           "PathRecordSelector");
+    ASSERT_EQ(numbered_selectors.size(), 2U);
+    EXPECT_EQ(numbered_selectors[0], 2U);
+    EXPECT_EQ(numbered_selectors[1], 3U);
 
     const Entry* halftone_word
         = find_photoshop_irb_field(store, 0x03F4U, "HalftoneInfoFirstWord");

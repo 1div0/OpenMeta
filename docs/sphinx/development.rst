@@ -37,12 +37,14 @@ model should stay compact:
        lens-correction, sensor, BMFF brand/item-property
        associations and rollups including ``avio`` AVIF brands, item groups,
        item semantic counts, whole-scene policy hints including multi-image
-       policy text, graph-component policy summaries, ``container_graph``
+       policy text, graph-component and per-component policy summaries,
+       ``container_graph``
        concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,
        and display-transform summaries, JUMBF labels, Photoshop
        IRB embedded carriers plus
-       fixed-layout, XML/text, path-record, byte-count, descriptor-header,
+       fixed-layout, XML/text, working-path and numbered clipping-path
+       records, byte-count, descriptor-header,
        simple descriptor-item, enum, and bounded nested list/object summaries,
        EXIF 3.1 correction/noise labels, version/firmware-style value
        formatting for selected EXIF/Nikon/Olympus/native RAF contexts,

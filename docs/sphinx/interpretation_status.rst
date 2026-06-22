@@ -218,7 +218,9 @@ Coverage matrix
        ``avio`` AVIF-compatible brands, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, whole-scene item graph counts, bounded graph
-       component summaries, component content-bound counts, primary component
+       component summaries, bounded per-component rows for node counts,
+       image/metadata roles, primary membership, and conservative component
+       policy text, component content-bound counts, primary component
        content-bound flags, primary component multi-image candidates and
        policy text, and conservative content-bound metadata / multi-image
        policy hints, primary
@@ -257,8 +259,9 @@ Coverage matrix
        paths, depths, list indices, and parsed-value counts, for resources
        including layer comps, measurement scale, timeline info, sheet
        disclosure, HDR toning, print info, onion skins, count info, print
-       info/style, path selection state, and origin path info, path byte-count
-       and record summaries, alpha names/identifiers, captions,
+       info/style, path selection state, and origin path info, working-path
+       and numbered clipping-path byte-count / record summaries, alpha
+       names/identifiers, captions,
        QuickMask info, URL/list data, autosave strings, ``XMLData``,
        ImageReady XML text, Lightroom workflow text, thumbnail headers,
        channel options, clipping-path names, Macintosh PrintInfo,

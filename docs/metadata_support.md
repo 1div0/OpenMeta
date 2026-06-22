@@ -73,10 +73,10 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, descriptor-header, simple descriptor-item, enum, and nested list/object summaries, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, working-path and numbered clipping-path record summaries, descriptor-header, simple descriptor-item, enum, and nested list/object summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries with bounded per-component rows and policy hints, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 

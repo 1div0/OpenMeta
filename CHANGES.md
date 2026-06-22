@@ -1,5 +1,28 @@
 # OpenMeta Changes
 
+## 0.4.65 - 2026-06-22
+
+Changes compared with `0.4.64`.
+
+### Added
+
+- Added bounded BMFF per-component scene graph rows for component index,
+  node counts, image/metadata roles, primary-component membership, and
+  conservative content-bound metadata / multi-image policy text.
+- Added compatibility dump coverage for BMFF container-graph policy fields.
+- Added decoded-BMFF transfer diagnostic coverage so rendered-image drops for
+  content-bound metadata and multi-image scene policy are verified from parsed
+  fixture data.
+- Added Photoshop IRB coverage for numbered clipping-path resources in the
+  `0x07D0` range, including path byte counts, record counts, and selector
+  rows.
+
+### Changed
+
+- Updated public interpretation, support, API stability, compatibility-dump,
+  and development docs for BMFF per-component policy rows and numbered
+  Photoshop IRB path resources.
+
 ## 0.4.64 - 2026-06-22
 
 Changes compared with `0.4.63`.

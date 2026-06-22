@@ -1728,6 +1728,58 @@ namespace {
         bool contains_primary                      = false;
     };
 
+    static void emit_scene_component_summary_fields(
+        MetaStore& store, BlockId block, uint32_t* io_order,
+        std::span<const SceneGraphComponentStats> components) noexcept
+    {
+        if (!io_order) {
+            return;
+        }
+        for (uint32_t c = 0U; c < components.size(); ++c) {
+            const SceneGraphComponentStats& component = components[c];
+            const uint8_t contains_primary = component.contains_primary ? 1U
+                                                                        : 0U;
+            const uint8_t has_content_bound_metadata
+                = component.content_bound_metadata_node_count != 0U ? 1U : 0U;
+            const uint8_t multi_image_candidate
+                = component.image_node_count > 1U ? 1U : 0U;
+
+            emit_u32_field(store, block, (*io_order)++, "scene.component.index",
+                           c);
+            emit_u32_field(store, block, (*io_order)++,
+                           "scene.component.node_count", component.node_count);
+            emit_u32_field(store, block, (*io_order)++,
+                           "scene.component.image_node_count",
+                           component.image_node_count);
+            emit_u32_field(store, block, (*io_order)++,
+                           "scene.component.metadata_node_count",
+                           component.metadata_node_count);
+            emit_u32_field(store, block, (*io_order)++,
+                           "scene.component.content_bound_metadata_node_count",
+                           component.content_bound_metadata_node_count);
+            emit_u32_field(store, block, (*io_order)++,
+                           "scene.component.edge_count", component.edge_count);
+            emit_u8_field(store, block, (*io_order)++,
+                          "scene.component.contains_primary", contains_primary);
+            emit_u8_field(store, block, (*io_order)++,
+                          "scene.component.has_content_bound_metadata",
+                          has_content_bound_metadata);
+            emit_u8_field(store, block, (*io_order)++,
+                          "scene.component.multi_image_candidate",
+                          multi_image_candidate);
+            if (has_content_bound_metadata != 0U) {
+                emit_text_field(store, block, (*io_order)++,
+                                "scene.component.metadata_policy",
+                                "requires_target_rewrite");
+            }
+            if (multi_image_candidate != 0U) {
+                emit_text_field(store, block, (*io_order)++,
+                                "scene.component.multi_image_policy",
+                                "requires_target_rewrite");
+            }
+        }
+    }
+
     static uint32_t find_scene_node_index(std::span<const uint32_t> item_ids,
                                           uint32_t item_id) noexcept
     {
@@ -2021,6 +2073,11 @@ namespace {
             emit_u8_field(store, block, (*io_order)++,
                           "scene.graph_component_truncated", 1U);
         }
+
+        emit_scene_component_summary_fields(
+            store, block, io_order,
+            std::span<const SceneGraphComponentStats>(components.data(),
+                                                      component_count));
 
         if (primary_component) {
             emit_u32_field(store, block, (*io_order)++,

@@ -27,25 +27,25 @@ namespace {
     {
         MetaStore store;
         BlockInfo info;
-        info.format    = 1U;
-        info.container = 2U;
-        info.id        = 3U;
+        info.format         = 1U;
+        info.container      = 2U;
+        info.id             = 3U;
         const BlockId block = store.add_block(info);
 
         Entry make;
-        make.key = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
+        make.key   = make_exif_tag_key(store.arena(), "ifd0", 0x010F);
         make.value = make_text(store.arena(), "Canon", TextEncoding::Ascii);
-        make.origin.block          = block;
-        make.origin.order_in_block = 7U;
+        make.origin.block            = block;
+        make.origin.order_in_block   = 7U;
         make.origin.wire_type.family = WireFamily::Tiff;
         make.origin.wire_type.code   = 2U;
         make.origin.wire_count       = 6U;
         (void)store.add_entry(make);
 
         Entry rating;
-        rating.key = make_xmp_property_key(store.arena(),
-                                           "http://ns.adobe.com/xap/1.0/",
-                                           "Rating");
+        rating.key                   = make_xmp_property_key(store.arena(),
+                                                             "http://ns.adobe.com/xap/1.0/",
+                                                             "Rating");
         rating.value                 = make_i32(-2);
         rating.flags                 = EntryFlags::Derived;
         rating.origin.block          = block;
@@ -66,6 +66,28 @@ namespace {
         bytes.origin.order_in_block = 9U;
         (void)store.add_entry(bytes);
 
+        Entry bmff_metadata_policy;
+        bmff_metadata_policy.key
+            = make_bmff_field_key(store.arena(),
+                                  "scene.component.metadata_policy");
+        bmff_metadata_policy.value                 = make_text(store.arena(),
+                                                               "requires_target_rewrite",
+                                                               TextEncoding::Utf8);
+        bmff_metadata_policy.origin.block          = block;
+        bmff_metadata_policy.origin.order_in_block = 10U;
+        (void)store.add_entry(bmff_metadata_policy);
+
+        Entry bmff_multi_image_policy;
+        bmff_multi_image_policy.key
+            = make_bmff_field_key(store.arena(),
+                                  "scene.component.multi_image_policy");
+        bmff_multi_image_policy.value                 = make_text(store.arena(),
+                                                                  "requires_target_rewrite",
+                                                                  TextEncoding::Utf8);
+        bmff_multi_image_policy.origin.block          = block;
+        bmff_multi_image_policy.origin.order_in_block = 11U;
+        (void)store.add_entry(bmff_multi_image_policy);
+
         store.finalize();
         return store;
     }
@@ -82,9 +104,10 @@ TEST(CompatibilityDump, MetadataDumpIncludesNamesValuesTypesAndOrigins)
     options.style = ExportNameStyle::FlatHost;
     ASSERT_TRUE(dump_metadata_compatibility(store, options, &dump));
 
-    EXPECT_TRUE(contains_text(
-        dump, "openmeta.compat.metadata version=1 interop_version=1 "
-              "flat_host_version=1 style=\"flat_host\""));
+    EXPECT_TRUE(
+        contains_text(dump,
+                      "openmeta.compat.metadata version=1 interop_version=1 "
+                      "flat_host_version=1 style=\"flat_host\""));
     EXPECT_TRUE(contains_text(
         dump, "entry index=0 name=\"Make\" key_kind=\"exif_tag\" "
               "value_kind=\"text\" elem_type=\"u8\" text_encoding=\"ascii\" "
@@ -95,9 +118,17 @@ TEST(CompatibilityDump, MetadataDumpIncludesNamesValuesTypesAndOrigins)
               "value_kind=\"scalar\" elem_type=\"i32\""));
     EXPECT_TRUE(contains_text(dump, "value=\"-2\""));
     EXPECT_TRUE(contains_text(dump, "flag_derived=true"));
-    EXPECT_TRUE(contains_text(
-        dump, "entry index=2 name=\"ICC:tag:0x64657363\""));
+    EXPECT_TRUE(
+        contains_text(dump, "entry index=2 name=\"ICC:tag:0x64657363\""));
     EXPECT_TRUE(contains_text(dump, "value=\"0x010203\""));
+    EXPECT_TRUE(contains_text(dump,
+                              "name=\"bmff:scene.component.metadata_policy\" "
+                              "key_kind=\"bmff_field\" value_kind=\"text\""));
+    EXPECT_TRUE(
+        contains_text(dump, "name=\"bmff:scene.component.multi_image_policy\" "
+                            "key_kind=\"bmff_field\" value_kind=\"text\""));
+    EXPECT_TRUE(contains_text(dump, "text_encoding=\"utf8\" count=23 "
+                                    "value=\"requires_target_rewrite\""));
 }
 
 
@@ -124,16 +155,16 @@ TEST(CompatibilityDump, TransferDumpIncludesPolicyBlocksAndWriteback)
     block.payload.resize(12U);
     result.prepared.bundle.blocks.push_back(block);
 
-    result.execute.edit_requested       = true;
-    result.execute.compile.status       = TransferStatus::Ok;
-    result.execute.emit.status          = TransferStatus::Ok;
-    result.execute.edit_plan_status     = TransferStatus::Ok;
-    result.execute.edit_apply.status    = TransferStatus::Ok;
-    result.execute.edit_input_size      = 10U;
-    result.execute.edit_output_size     = 22U;
-    result.xmp_sidecar_requested        = true;
-    result.xmp_sidecar_status           = TransferStatus::Ok;
-    result.xmp_sidecar_path             = "target.xmp";
+    result.execute.edit_requested    = true;
+    result.execute.compile.status    = TransferStatus::Ok;
+    result.execute.emit.status       = TransferStatus::Ok;
+    result.execute.edit_plan_status  = TransferStatus::Ok;
+    result.execute.edit_apply.status = TransferStatus::Ok;
+    result.execute.edit_input_size   = 10U;
+    result.execute.edit_output_size  = 22U;
+    result.xmp_sidecar_requested     = true;
+    result.xmp_sidecar_status        = TransferStatus::Ok;
+    result.xmp_sidecar_path          = "target.xmp";
     result.xmp_sidecar_output.resize(5U);
     result.xmp_sidecar_cleanup_requested = true;
     result.xmp_sidecar_cleanup_status    = TransferStatus::Ok;
@@ -153,30 +184,32 @@ TEST(CompatibilityDump, TransferDumpIncludesPolicyBlocksAndWriteback)
 
     std::string dump;
     TransferCompatibilityDumpOptions options;
-    ASSERT_TRUE(dump_transfer_compatibility(result, &persisted, options,
-                                            &dump));
+    ASSERT_TRUE(
+        dump_transfer_compatibility(result, &persisted, options, &dump));
 
     EXPECT_TRUE(contains_text(
         dump, "openmeta.compat.transfer version=1 target_format=\"png\" "
               "file_status=\"ok\" prepare_status=\"ok\" prepared_blocks=1"));
-    EXPECT_TRUE(contains_text(
-        dump, "policy index=0 subject=\"xmp_iptc_projection\" "
-              "requested=\"keep\" effective=\"rewrite\" "
-              "reason=\"projected_payload\" matched_entries=2"));
+    EXPECT_TRUE(
+        contains_text(dump, "policy index=0 subject=\"xmp_iptc_projection\" "
+                            "requested=\"keep\" effective=\"rewrite\" "
+                            "reason=\"projected_payload\" matched_entries=2"));
     EXPECT_TRUE(contains_text(
         dump, "block index=0 order=3 kind=\"xmp\" route=\"png:itxt-xmp\" "
               "payload_bytes=12"));
-    EXPECT_TRUE(contains_text(
-        dump, "execute edit_requested=true compile_status=\"ok\" "
-              "emit_status=\"ok\" edit_plan_status=\"ok\""));
-    EXPECT_TRUE(contains_text(
-        dump, "writeback destination_embedded_loaded=false "
-              "destination_embedded_status=\"unsupported\" "
-              "xmp_sidecar_requested=true xmp_sidecar_status=\"ok\" "
-              "xmp_sidecar_path=\"target.xmp\" xmp_sidecar_bytes=5"));
-    EXPECT_TRUE(contains_text(
-        dump, "persist status=\"ok\" message=\"\" output_status=\"ok\" "
-              "output_path=\"target.png\" output_bytes=22"));
+    EXPECT_TRUE(
+        contains_text(dump, "execute edit_requested=true compile_status=\"ok\" "
+                            "emit_status=\"ok\" edit_plan_status=\"ok\""));
+    EXPECT_TRUE(
+        contains_text(dump,
+                      "writeback destination_embedded_loaded=false "
+                      "destination_embedded_status=\"unsupported\" "
+                      "xmp_sidecar_requested=true xmp_sidecar_status=\"ok\" "
+                      "xmp_sidecar_path=\"target.xmp\" xmp_sidecar_bytes=5"));
+    EXPECT_TRUE(
+        contains_text(dump,
+                      "persist status=\"ok\" message=\"\" output_status=\"ok\" "
+                      "output_path=\"target.png\" output_bytes=22"));
     EXPECT_TRUE(contains_text(dump, "xmp_sidecar_cleanup_removed=true"));
 }
 

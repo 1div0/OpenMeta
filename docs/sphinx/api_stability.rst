@@ -45,7 +45,9 @@ Host-facing API map
        ``dump_transfer_compatibility(...)``
      - ``openmeta/compatibility_dump.h``
      - Stable
-     - Stable v1 line-oriented compatibility dump contract. See
+     - Stable v1 line-oriented compatibility dump contract, including
+       generic BMFF derived policy fields as normal ``bmff_field`` entries.
+       See
        :doc:`compatibility_dump`.
    * - XMP sync and writeback policy enums: ``XmpConflictPolicy``,
        existing-carrier precedence enums, ``XmpWritebackMode``, destination
@@ -112,7 +114,8 @@ Host-facing API map
      - Bounded resource traversal with stable raw resource preservation
        behavior, but the interpreted subset can still grow. Current
        interpretation includes fixed-layout resource fields,
-       display/grid/thumbnail/color-sampler headers, path-record summaries,
+       display/grid/thumbnail/color-sampler headers, working-path and
+       numbered clipping-path byte counts / record summaries,
        descriptor-header summaries plus safe descriptor class-name/class-ID/
        item-count fields, bounded descriptor item bodies for ``bool``,
        ``long``, ``doub``, ``UntF``, ``TEXT``, ``enum``, and ``tdta``
@@ -120,7 +123,7 @@ Host-facing API map
        parsed maximum depth, and parsed per-type counters, nested
        object/list traversal with item path/depth/list-index and parsed-value
        count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom
-       workflow text, path-resource byte counts and record summaries,
+       workflow text,
        Macintosh PrintInfo, Macintosh NSPrintInfo, Windows DEVMODE,
        alternate duotone-color, alternate spot-color, and obsolete Photoshop
        tag byte counts,
