@@ -1348,6 +1348,11 @@ The CMake wheel target and install-time wheel script forward the active compiler
 flags, selected Python paths, `OPENMETA_USE_LIBCXX`, and optional feature
 toggles into the nested scikit-build configure step. This keeps wheel ABI
 choices aligned with the outer CMake build, including libc++-based Linux builds.
+Package lookup hints are forwarded as well. Prefer `CMAKE_PREFIX_PATH` for a
+complete dependency prefix. If nanobind was packaged with an external
+`tsl-robin-map` dependency and CMake cannot resolve it from that prefix, pass
+`-Dtsl-robin-map_DIR=/path/to/share/cmake/tsl-robin-map`; the wheel configure
+inherits that explicit package directory.
 
 When `OPENMETA_BUILD_WHEEL=ON`, `cmake --install` also builds a wheel and copies
 it into `${CMAKE_INSTALL_PREFIX}/share/openmeta/wheels` (and also copies the

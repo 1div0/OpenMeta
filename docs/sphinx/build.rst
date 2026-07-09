@@ -70,6 +70,12 @@ flags, selected Python paths, ``OPENMETA_USE_LIBCXX``, and optional feature
 toggles into the nested scikit-build configure step, so wheel ABI choices stay
 aligned with the outer CMake build.
 
+Package lookup hints are forwarded as well. Prefer ``CMAKE_PREFIX_PATH`` for a
+complete dependency prefix. If nanobind was packaged with an external
+``tsl-robin-map`` dependency and CMake cannot resolve it from that prefix, pass
+``-Dtsl-robin-map_DIR=/path/to/share/cmake/tsl-robin-map``; the nested wheel
+configure inherits that explicit package directory.
+
 If you install dependencies into a custom prefix, provide it via
 ``CMAKE_PREFIX_PATH``.
 

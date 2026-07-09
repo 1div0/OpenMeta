@@ -680,6 +680,7 @@ if(OPENMETA_BUILD_WHEEL)
       Python_SABI_LIBRARY
       Python_SABI_LIBRARY_RELEASE
       nanobind_DIR
+      tsl-robin-map_DIR
       rapidfuzz_DIR
       dng_sdk_DIR
       dng_sdk_ROOT)

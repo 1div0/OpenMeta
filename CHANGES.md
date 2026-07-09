@@ -1,5 +1,16 @@
 # OpenMeta Changes
 
+## 0.4.66 - 2026-07-09
+
+Changes compared with `0.4.65`.
+
+### Fixed
+
+- Forwarded an explicit `tsl-robin-map_DIR` package hint into the nested
+  scikit-build configure used by CMake wheel targets and install-time wheel
+  builds. This supports nanobind packages that use an external
+  `tsl-robin-map` installation when prefix-only lookup is insufficient.
+
 ## 0.4.65 - 2026-06-22
 
 Changes compared with `0.4.64`.
