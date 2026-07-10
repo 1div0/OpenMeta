@@ -1725,12 +1725,42 @@ namespace {
         uint32_t metadata_node_count               = 0;
         uint32_t content_bound_metadata_node_count = 0;
         uint32_t edge_count                        = 0;
-        bool contains_primary                      = false;
+        ItemSemanticCounts semantic_counts {};
+        uint32_t auxiliary_edge_count           = 0;
+        uint32_t alpha_edge_count               = 0;
+        uint32_t depth_edge_count               = 0;
+        uint32_t disparity_edge_count           = 0;
+        uint32_t matte_edge_count               = 0;
+        uint32_t derived_image_edge_count       = 0;
+        uint32_t thumbnail_edge_count           = 0;
+        uint32_t content_description_edge_count = 0;
+        uint32_t other_edge_count               = 0;
+        bool contains_primary                   = false;
     };
+
+    static AuxSemantic find_aux_item_semantic(const PrimaryProps& out,
+                                              uint32_t item_id) noexcept;
+
+    static std::string_view scene_component_role_name(
+        const SceneGraphComponentStats& component) noexcept
+    {
+        if (component.contains_primary) {
+            return "primary_scene";
+        }
+        if (component.image_node_count != 0U) {
+            return "image_scene";
+        }
+        if (component.metadata_node_count != 0U) {
+            return "metadata_only";
+        }
+        return "unclassified";
+    }
 
     static void emit_scene_component_summary_fields(
         MetaStore& store, BlockId block, uint32_t* io_order,
-        std::span<const SceneGraphComponentStats> components) noexcept
+        std::span<const SceneGraphComponentStats> components,
+        std::span<const uint32_t> item_ids,
+        std::span<const uint32_t> component_indices) noexcept
     {
         if (!io_order) {
             return;
@@ -1746,8 +1776,17 @@ namespace {
 
             emit_u32_field(store, block, (*io_order)++, "scene.component.index",
                            c);
+            emit_text_field(store, block, (*io_order)++, "scene.component.role",
+                            scene_component_role_name(component));
             emit_u32_field(store, block, (*io_order)++,
                            "scene.component.node_count", component.node_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.known_node_count",
+                                        component.semantic_counts.known);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.unknown_node_count",
+                                        component.node_count
+                                            - component.semantic_counts.known);
             emit_u32_field(store, block, (*io_order)++,
                            "scene.component.image_node_count",
                            component.image_node_count);
@@ -1757,10 +1796,80 @@ namespace {
             emit_u32_field(store, block, (*io_order)++,
                            "scene.component.content_bound_metadata_node_count",
                            component.content_bound_metadata_node_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.exif_node_count",
+                                        component.semantic_counts.exif);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.xmp_node_count",
+                                        component.semantic_counts.xmp);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.jumbf_node_count",
+                                        component.semantic_counts.jumbf);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.c2pa_node_count",
+                                        component.semantic_counts.c2pa);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.icc_profile_node_count",
+                                        component.semantic_counts.icc_profile);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.auxiliary_node_count",
+                                        component.semantic_counts.auxiliary);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.component.derived_image_node_count",
+                component.semantic_counts.derived);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.thumbnail_node_count",
+                                        component.semantic_counts.thumbnail);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.component.content_description_node_count",
+                component.semantic_counts.content_description);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.uri_node_count",
+                                        component.semantic_counts.uri);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.json_node_count",
+                                        component.semantic_counts.json);
             emit_u32_field(store, block, (*io_order)++,
                            "scene.component.edge_count", component.edge_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.auxiliary_edge_count",
+                                        component.auxiliary_edge_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.alpha_edge_count",
+                                        component.alpha_edge_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.depth_edge_count",
+                                        component.depth_edge_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.disparity_edge_count",
+                                        component.disparity_edge_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.matte_edge_count",
+                                        component.matte_edge_count);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.component.derived_image_edge_count",
+                component.derived_image_edge_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.thumbnail_edge_count",
+                                        component.thumbnail_edge_count);
+            emit_count_field_if_nonzero(
+                store, block, io_order,
+                "scene.component.content_description_edge_count",
+                component.content_description_edge_count);
+            emit_count_field_if_nonzero(store, block, io_order,
+                                        "scene.component.other_edge_count",
+                                        component.other_edge_count);
             emit_u8_field(store, block, (*io_order)++,
                           "scene.component.contains_primary", contains_primary);
+            emit_u8_field(store, block, (*io_order)++,
+                          "scene.component.isolated",
+                          component.node_count == 1U
+                                  && component.edge_count == 0U
+                              ? 1U
+                              : 0U);
             emit_u8_field(store, block, (*io_order)++,
                           "scene.component.has_content_bound_metadata",
                           has_content_bound_metadata);
@@ -1776,6 +1885,14 @@ namespace {
                 emit_text_field(store, block, (*io_order)++,
                                 "scene.component.multi_image_policy",
                                 "requires_target_rewrite");
+            }
+            const uint32_t membership_count = static_cast<uint32_t>(
+                std::min(item_ids.size(), component_indices.size()));
+            for (uint32_t i = 0U; i < membership_count; ++i) {
+                if (component_indices[i] == c) {
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "scene.component.item_id", item_ids[i]);
+                }
             }
         }
     }
@@ -1976,6 +2093,7 @@ namespace {
         }
 
         std::array<uint32_t, 512> component_roots {};
+        std::array<uint32_t, 512> graph_component_indices {};
         std::array<SceneGraphComponentStats, 512> components {};
         uint32_t component_count = 0U;
         for (uint32_t i = 0U; i < graph_node_count; ++i) {
@@ -1992,8 +2110,10 @@ namespace {
                 component_roots[component_count] = root;
                 component_count += 1U;
             }
+            graph_component_indices[i]          = component_index;
             SceneGraphComponentStats& component = components[component_index];
             component.node_count += 1U;
+            count_item_semantic(semantics[i], &component.semantic_counts);
             if (semantic_is_scene_image_node(semantics[i])) {
                 component.image_node_count += 1U;
             }
@@ -2018,7 +2138,36 @@ namespace {
             const uint32_t root = scene_find_root(parent, from_idx);
             for (uint32_t c = 0U; c < component_count; ++c) {
                 if (component_roots[c] == root) {
-                    components[c].edge_count += 1U;
+                    SceneGraphComponentStats& component = components[c];
+                    component.edge_count += 1U;
+                    const uint32_t ref_type = p.iref_edges[i].ref_type;
+                    if (ref_type == fourcc('a', 'u', 'x', 'l')) {
+                        component.auxiliary_edge_count += 1U;
+                        switch (find_aux_item_semantic(
+                            p, p.iref_edges[i].to_item_id)) {
+                        case AuxSemantic::Alpha:
+                            component.alpha_edge_count += 1U;
+                            break;
+                        case AuxSemantic::Depth:
+                            component.depth_edge_count += 1U;
+                            break;
+                        case AuxSemantic::Disparity:
+                            component.disparity_edge_count += 1U;
+                            break;
+                        case AuxSemantic::Matte:
+                            component.matte_edge_count += 1U;
+                            break;
+                        case AuxSemantic::Unknown: break;
+                        }
+                    } else if (ref_type == fourcc('d', 'i', 'm', 'g')) {
+                        component.derived_image_edge_count += 1U;
+                    } else if (ref_type == fourcc('t', 'h', 'm', 'b')) {
+                        component.thumbnail_edge_count += 1U;
+                    } else if (ref_type == fourcc('c', 'd', 's', 'c')) {
+                        component.content_description_edge_count += 1U;
+                    } else {
+                        component.other_edge_count += 1U;
+                    }
                     break;
                 }
             }
@@ -2077,7 +2226,10 @@ namespace {
         emit_scene_component_summary_fields(
             store, block, io_order,
             std::span<const SceneGraphComponentStats>(components.data(),
-                                                      component_count));
+                                                      component_count),
+            graph_ids,
+            std::span<const uint32_t>(graph_component_indices.data(),
+                                      graph_node_count));
 
         if (primary_component) {
             emit_u32_field(store, block, (*io_order)++,

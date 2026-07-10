@@ -1,5 +1,27 @@
 # OpenMeta Changes
 
+## 0.4.67 - 2026-07-10
+
+Changes compared with `0.4.66`.
+
+### Added
+
+- Added bounded BMFF component role and membership rows, including ordered
+  member item IDs, known/unknown and semantic node counts, isolated-state,
+  and typed auxiliary, derived-image, thumbnail, content-description, alpha,
+  depth, disparity, matte, and other relation-edge counts.
+- Added independent-image component coverage and direct `container_graph`
+  concept/transfer-diagnostic routing for per-component metadata and
+  multi-image policy fields.
+- Added compatibility-dump coverage for BMFF component role and membership
+  fields.
+
+### Changed
+
+- Updated public BMFF interpretation, support, compatibility, API stability,
+  and development documentation for component membership and typed relation
+  summaries.
+
 ## 0.4.66 - 2026-07-09
 
 Changes compared with `0.4.65`.

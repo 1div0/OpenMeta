@@ -3041,6 +3041,8 @@ namespace {
             uint8_t priority         = 0U;
             if (bmff_entry_field_matches(store, entry,
                                          "scene.content_bound_metadata_policy")
+                || bmff_entry_field_matches(store, entry,
+                                            "scene.component.metadata_policy")
                 || bmff_entry_field_matches(
                     store, entry,
                     "scene.primary_graph_component_metadata_policy")) {
@@ -3050,6 +3052,10 @@ namespace {
                                                 "scene.multi_image_candidate")
                        || bmff_entry_field_matches(store, entry,
                                                    "scene.multi_image_policy")
+                       || bmff_entry_field_matches(
+                           store, entry, "scene.component.multi_image_policy")
+                       || bmff_entry_field_matches(
+                           store, entry, "scene.component.multi_image_candidate")
                        || bmff_entry_field_matches(
                            store, entry,
                            "scene.primary_graph_component_multi_image_"

@@ -28,7 +28,7 @@ group names, and intentional-difference notes. Each new lane should add:
 | Nikon NEF/NRW | Strong TIFF/EXIF path plus expanded Nikon MakerNote tables and normalized Nikon Capture crop bounds | Model-specific encrypted/custom-setting tables and less common correction records | Add focused Nikon tables with byte-order/version gates and safety buckets |
 | Sony ARW/SR2/SRF | Strong TIFF/EXIF path plus Sony RAW/source-processing classification and panorama crop-margin interpretation | Older SRF/SR2 private structures and model-specific private tables | Extend native SR2/SRF table naming and keep raw payload preservation as the fallback |
 | Canon CR2 | Strong TIFF/EXIF path plus Canon MakerNote, normalized aspect/crop geometry, and crop/aspect/color-data classification | Long-tail Canon custom functions and per-model color/correction tables | Continue table-by-table decode with rendered-transfer safety coverage |
-| Canon CR3 | Bounded BMFF plus EXIF/XMP/ICC/CR3 maker metadata, including item/property associations, item relations, and item groups | Remaining BMFF scene-graph semantics and CR3-specific private records | Continue BMFF metadata graph interpretation before broad CR3 private-table work |
+| Canon CR3 | Bounded BMFF plus EXIF/XMP/ICC/CR3 maker metadata, including item/property associations, item relations, item groups, component membership, semantic composition, and typed relation counts | Remaining derived-image/group semantics and CR3-specific private records | Continue bounded BMFF metadata graph interpretation before broad CR3 private-table work |
 | Canon CRW/CIFF | Partial native lane: recursive CIFF directories, stable scalar/subtable decoding, common native names, and derived EXIF bridge | Older Canon private tables and long-tail legacy records | Continue table-by-table decode only where stable validation data exists |
 | Fujifilm RAF | Partial native lane: header-declared preview-JPEG EXIF/XMP discovery, FujiIFD/TIFF follow path, RAF header fields, RAF directory geometry tags, RAFData geometry projection, normalized raw crop/zoom rectangles, and standalone XMP fallback | Model-specific RAF tables and less common native sections outside the stable carrier/header/directory subset | Extend native RAF section inventory table-by-table, with broader color/correction safety buckets before transfer use |
 | Sigma X3F | Partial native lane: header fields, known PROP properties, section-directory JPEG metadata follow path, and legacy embedded-EXIF fallback | Deeper image-processing/compression sections and model-specific private records | Add X3F native sections only when they expose stable user-visible fields or transfer-safety inputs |
@@ -45,7 +45,8 @@ group names, and intentional-difference notes. Each new lane should add:
    sections, long-tail CRW/CIFF private tables, and deeper X3F section
    interpretation.
 3. Deepen remaining BMFF interpretation for CR3, HEIF, and AVIF metadata
-   graphs beyond current relations, item groups, and primary-item summaries.
+   graphs beyond current component membership, typed relations, item groups,
+   and primary-item summaries.
 4. Add X3F image-processing section decode only when the fields can be named,
    typed, and safety-classified.
 5. Continue vendor MakerNote table work for fields that affect crop, color,

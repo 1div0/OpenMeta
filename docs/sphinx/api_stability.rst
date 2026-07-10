@@ -46,7 +46,8 @@ Host-facing API map
      - ``openmeta/compatibility_dump.h``
      - Stable
      - Stable v1 line-oriented compatibility dump contract, including
-       generic BMFF derived policy fields as normal ``bmff_field`` entries.
+       generic BMFF component membership, role, relation-summary, and policy
+       fields as normal ``bmff_field`` entries.
        See
        :doc:`compatibility_dump`.
    * - XMP sync and writeback policy enums: ``XmpConflictPolicy``,
@@ -211,9 +212,9 @@ Host-facing API map
        fields, date/time precision, timezone kind, normalized geometry fields,
        normalized exposure values, and same-role conflicts for orientation,
        date/time, exposure/gain, color/profile/source-color-transform, GPS,
-       geometry, lens-correction, and RAW-processing evidence across EXIF, XMP,
-       IPTC, ICC, PNG text, and query-backed interpretation records where
-       applicable. Exposure
+       geometry, lens-correction, RAW-processing, and container-graph evidence
+       across EXIF, XMP, IPTC, ICC, PNG text, BMFF fields, and query-backed
+       interpretation records where applicable. Exposure
        candidates cover exposure time, aperture, ISO sensitivity, exposure
        bias, exposure program/mode, gain, and raw exposure-adjustment roles
        across standard EXIF/DNG/XMP evidence and selected decoded
@@ -230,11 +231,13 @@ Host-facing API map
        Candidate transfer hints distinguish ``safe``, ``source_bound``,
        ``rendered_unsafe``, and ``requires_target_image_spec`` evidence, with
        compatible-file and rendered-image safety booleans.
-       Color/white-balance, source-color-transform, lens-correction, and
-       RAW-processing concepts preserve grouped matrix/vector/table values for
-       host inspection; source-bound color transforms and RAW
-       curve/linearity/calibration roles are marked rendered-unsafe, while
+       Color/white-balance, source-color-transform, lens-correction,
+       RAW-processing, and container-graph concepts preserve source evidence
+       for host inspection; source-bound color transforms and RAW
+       curve/linearity/calibration roles are marked rendered-unsafe,
        computational, thermal, and stitch/panorama RAW-processing roles are
+       marked source-bound, and BMFF whole-scene, primary-component, and
+       per-component content-bound metadata / multi-image policy fields are
        marked source-bound.
        RAW curve/LUT-like concept roles are conservatively marked
        ``conditional_on_raw_encoding`` until a raw data descriptor can confirm

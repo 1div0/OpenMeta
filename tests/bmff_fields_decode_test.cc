@@ -2035,8 +2035,14 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
         = collect_u32_values(store, "scene.graph_observed_edge_count");
     const std::vector<uint32_t> component_index
         = collect_u32_values(store, "scene.component.index");
+    const std::vector<std::string> component_role
+        = collect_text_values(store, "scene.component.role");
     const std::vector<uint32_t> component_node_count
         = collect_u32_values(store, "scene.component.node_count");
+    const std::vector<uint32_t> component_known_node_count
+        = collect_u32_values(store, "scene.component.known_node_count");
+    const std::vector<uint32_t> component_unknown_node_count
+        = collect_u32_values(store, "scene.component.unknown_node_count");
     const std::vector<uint32_t> component_image_node_count
         = collect_u32_values(store, "scene.component.image_node_count");
     const std::vector<uint32_t> component_metadata_node_count
@@ -2046,8 +2052,36 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
             store, "scene.component.content_bound_metadata_node_count");
     const std::vector<uint32_t> component_edge_count
         = collect_u32_values(store, "scene.component.edge_count");
+    const std::vector<uint32_t> component_auxiliary_node_count
+        = collect_u32_values(store, "scene.component.auxiliary_node_count");
+    const std::vector<uint32_t> component_derived_image_node_count
+        = collect_u32_values(store, "scene.component.derived_image_node_count");
+    const std::vector<uint32_t> component_thumbnail_node_count
+        = collect_u32_values(store, "scene.component.thumbnail_node_count");
+    const std::vector<uint32_t> component_content_description_node_count
+        = collect_u32_values(store,
+                             "scene.component.content_description_node_count");
+    const std::vector<uint32_t> component_c2pa_node_count
+        = collect_u32_values(store, "scene.component.c2pa_node_count");
+    const std::vector<uint32_t> component_auxiliary_edge_count
+        = collect_u32_values(store, "scene.component.auxiliary_edge_count");
+    const std::vector<uint32_t> component_alpha_edge_count
+        = collect_u32_values(store, "scene.component.alpha_edge_count");
+    const std::vector<uint32_t> component_depth_edge_count
+        = collect_u32_values(store, "scene.component.depth_edge_count");
+    const std::vector<uint32_t> component_derived_image_edge_count
+        = collect_u32_values(store, "scene.component.derived_image_edge_count");
+    const std::vector<uint32_t> component_thumbnail_edge_count
+        = collect_u32_values(store, "scene.component.thumbnail_edge_count");
+    const std::vector<uint32_t> component_content_description_edge_count
+        = collect_u32_values(store,
+                             "scene.component.content_description_edge_count");
+    const std::vector<uint32_t> component_item_ids
+        = collect_u32_values(store, "scene.component.item_id");
     const std::vector<uint8_t> component_contains_primary
         = collect_u8_values(store, "scene.component.contains_primary");
+    const std::vector<uint8_t> component_isolated
+        = collect_u8_values(store, "scene.component.isolated");
     const std::vector<uint8_t> component_has_content_bound_metadata
         = collect_u8_values(store,
                             "scene.component.has_content_bound_metadata");
@@ -2137,12 +2171,28 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     ASSERT_EQ(graph_content_bound_metadata_component_count.size(), 1U);
     ASSERT_EQ(graph_observed_edge_count.size(), 1U);
     ASSERT_EQ(component_index.size(), 1U);
+    ASSERT_EQ(component_role.size(), 1U);
     ASSERT_EQ(component_node_count.size(), 1U);
+    ASSERT_EQ(component_known_node_count.size(), 1U);
+    ASSERT_EQ(component_unknown_node_count.size(), 1U);
     ASSERT_EQ(component_image_node_count.size(), 1U);
     ASSERT_EQ(component_metadata_node_count.size(), 1U);
     ASSERT_EQ(component_content_bound_metadata_node_count.size(), 1U);
     ASSERT_EQ(component_edge_count.size(), 1U);
+    ASSERT_EQ(component_auxiliary_node_count.size(), 1U);
+    ASSERT_EQ(component_derived_image_node_count.size(), 1U);
+    ASSERT_EQ(component_thumbnail_node_count.size(), 1U);
+    ASSERT_EQ(component_content_description_node_count.size(), 1U);
+    ASSERT_EQ(component_c2pa_node_count.size(), 1U);
+    ASSERT_EQ(component_auxiliary_edge_count.size(), 1U);
+    ASSERT_EQ(component_alpha_edge_count.size(), 1U);
+    ASSERT_EQ(component_depth_edge_count.size(), 1U);
+    ASSERT_EQ(component_derived_image_edge_count.size(), 1U);
+    ASSERT_EQ(component_thumbnail_edge_count.size(), 1U);
+    ASSERT_EQ(component_content_description_edge_count.size(), 1U);
+    ASSERT_EQ(component_item_ids.size(), 8U);
     ASSERT_EQ(component_contains_primary.size(), 1U);
+    ASSERT_EQ(component_isolated.size(), 1U);
     ASSERT_EQ(component_has_content_bound_metadata.size(), 1U);
     ASSERT_EQ(component_multi_image_candidate.size(), 1U);
     ASSERT_EQ(component_metadata_policy.size(), 1U);
@@ -2211,12 +2261,30 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(graph_content_bound_metadata_component_count[0], 1U);
     EXPECT_EQ(graph_observed_edge_count[0], 8U);
     EXPECT_EQ(component_index[0], 0U);
+    EXPECT_EQ(component_role[0], "primary_scene");
     EXPECT_EQ(component_node_count[0], 8U);
+    EXPECT_EQ(component_known_node_count[0], 7U);
+    EXPECT_EQ(component_unknown_node_count[0], 1U);
     EXPECT_EQ(component_image_node_count[0], 5U);
     EXPECT_EQ(component_metadata_node_count[0], 2U);
     EXPECT_EQ(component_content_bound_metadata_node_count[0], 1U);
     EXPECT_EQ(component_edge_count[0], 8U);
+    EXPECT_EQ(component_auxiliary_node_count[0], 3U);
+    EXPECT_EQ(component_derived_image_node_count[0], 1U);
+    EXPECT_EQ(component_thumbnail_node_count[0], 1U);
+    EXPECT_EQ(component_content_description_node_count[0], 1U);
+    EXPECT_EQ(component_c2pa_node_count[0], 1U);
+    EXPECT_EQ(component_auxiliary_edge_count[0], 3U);
+    EXPECT_EQ(component_alpha_edge_count[0], 1U);
+    EXPECT_EQ(component_depth_edge_count[0], 1U);
+    EXPECT_EQ(component_derived_image_edge_count[0], 1U);
+    EXPECT_EQ(component_thumbnail_edge_count[0], 1U);
+    EXPECT_EQ(component_content_description_edge_count[0], 3U);
+    for (uint32_t i = 0U; i < component_item_ids.size(); ++i) {
+        EXPECT_EQ(component_item_ids[i], i + 1U);
+    }
     EXPECT_EQ(component_contains_primary[0], 1U);
+    EXPECT_EQ(component_isolated[0], 0U);
     EXPECT_EQ(component_has_content_bound_metadata[0], 1U);
     EXPECT_EQ(component_multi_image_candidate[0], 1U);
     EXPECT_EQ(component_metadata_policy[0], "requires_target_rewrite");
@@ -2313,6 +2381,139 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryLinkedItemRoles)
     EXPECT_EQ(linked_thumbnail[0], 1U);
     EXPECT_EQ(linked_content_description[0], 1U);
     EXPECT_EQ(linked_c2pa[0], 1U);
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsComponentMembershipAndIndependentRoles)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('a', 'v', 'i', 'f'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> cdsc_payload;
+    append_u16be(&cdsc_payload, 1U);
+    append_u16be(&cdsc_payload, 1U);
+    append_u16be(&cdsc_payload, 2U);
+    std::vector<std::byte> cdsc_box;
+    append_bmff_box(&cdsc_box, fourcc('c', 'd', 's', 'c'), cdsc_payload);
+    std::vector<std::byte> other_payload;
+    append_u16be(&other_payload, 1U);
+    append_u16be(&other_payload, 1U);
+    append_u16be(&other_payload, 2U);
+    std::vector<std::byte> other_box;
+    append_bmff_box(&other_box, fourcc('a', 'b', 'c', 'd'), other_payload);
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    iref_payload.insert(iref_payload.end(), cdsc_box.begin(), cdsc_box.end());
+    iref_payload.insert(iref_payload.end(), other_box.begin(), other_box.end());
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 4U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('a', 'v', '0', '1'),
+                   "primary");
+    append_infe_v2_mime(&iinf_payload, 2U, 0U, "xmp", "application/rdf+xml",
+                        "");
+    append_infe_v2(&iinf_payload, 3U, 0U, fourcc('a', 'v', '0', '1'),
+                   "independent");
+    append_infe_v2_mime(&iinf_payload, 4U, 0U, "manifest", "application/json",
+                        "");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 1024> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<std::string> roles
+        = collect_text_values(store, "scene.component.role");
+    const std::vector<uint32_t> item_ids
+        = collect_u32_values(store, "scene.component.item_id");
+    const std::vector<uint32_t> node_counts
+        = collect_u32_values(store, "scene.component.node_count");
+    const std::vector<uint32_t> image_counts
+        = collect_u32_values(store, "scene.component.image_node_count");
+    const std::vector<uint32_t> metadata_counts
+        = collect_u32_values(store, "scene.component.metadata_node_count");
+    const std::vector<uint32_t> xmp_counts
+        = collect_u32_values(store, "scene.component.xmp_node_count");
+    const std::vector<uint32_t> json_counts
+        = collect_u32_values(store, "scene.component.json_node_count");
+    const std::vector<uint32_t> cdsc_edge_counts
+        = collect_u32_values(store,
+                             "scene.component.content_description_edge_count");
+    const std::vector<uint32_t> other_edge_counts
+        = collect_u32_values(store, "scene.component.other_edge_count");
+    const std::vector<uint8_t> isolated
+        = collect_u8_values(store, "scene.component.isolated");
+    const std::vector<uint32_t> image_component_count
+        = collect_u32_values(store, "scene.graph_image_component_count");
+    const std::vector<uint8_t> multi_image
+        = collect_u8_values(store, "scene.multi_image_candidate");
+
+    ASSERT_EQ(roles.size(), 3U);
+    EXPECT_EQ(roles[0], "primary_scene");
+    EXPECT_EQ(roles[1], "image_scene");
+    EXPECT_EQ(roles[2], "metadata_only");
+    ASSERT_EQ(item_ids.size(), 4U);
+    EXPECT_EQ(item_ids[0], 1U);
+    EXPECT_EQ(item_ids[1], 2U);
+    EXPECT_EQ(item_ids[2], 3U);
+    EXPECT_EQ(item_ids[3], 4U);
+    ASSERT_EQ(node_counts.size(), 3U);
+    EXPECT_EQ(node_counts[0], 2U);
+    EXPECT_EQ(node_counts[1], 1U);
+    EXPECT_EQ(node_counts[2], 1U);
+    ASSERT_EQ(image_counts.size(), 3U);
+    EXPECT_EQ(image_counts[0], 1U);
+    EXPECT_EQ(image_counts[1], 1U);
+    EXPECT_EQ(image_counts[2], 0U);
+    ASSERT_EQ(metadata_counts.size(), 3U);
+    EXPECT_EQ(metadata_counts[0], 1U);
+    EXPECT_EQ(metadata_counts[1], 0U);
+    EXPECT_EQ(metadata_counts[2], 1U);
+    ASSERT_EQ(xmp_counts.size(), 1U);
+    EXPECT_EQ(xmp_counts[0], 1U);
+    ASSERT_EQ(json_counts.size(), 1U);
+    EXPECT_EQ(json_counts[0], 1U);
+    ASSERT_EQ(cdsc_edge_counts.size(), 1U);
+    EXPECT_EQ(cdsc_edge_counts[0], 1U);
+    ASSERT_EQ(other_edge_counts.size(), 1U);
+    EXPECT_EQ(other_edge_counts[0], 1U);
+    ASSERT_EQ(isolated.size(), 3U);
+    EXPECT_EQ(isolated[0], 0U);
+    EXPECT_EQ(isolated[1], 1U);
+    EXPECT_EQ(isolated[2], 1U);
+    ASSERT_EQ(image_component_count.size(), 1U);
+    EXPECT_EQ(image_component_count[0], 2U);
+    ASSERT_EQ(multi_image.size(), 1U);
+    EXPECT_EQ(multi_image[0], 1U);
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsDisparityAndMatteAuxCountsFromAuxC)

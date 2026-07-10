@@ -218,9 +218,12 @@ Coverage matrix
        ``avio`` AVIF-compatible brands, item-info rows,
        item type/semantic labels and semantic aggregate counters for common
        metadata carriers, whole-scene item graph counts, bounded graph
-       component summaries, bounded per-component rows for node counts,
-       image/metadata roles, primary membership, and conservative component
-       policy text, component content-bound counts, primary component
+       component summaries, bounded per-component rows with role text,
+       ordered member item IDs, known/unknown and semantic node counts,
+       isolated-state, primary membership, typed auxiliary/derived/thumbnail/
+       content-description relation counts, alpha/depth/disparity/matte
+       auxiliary counts, and conservative component policy text, component
+       content-bound counts, primary component
        content-bound flags, primary component multi-image candidates and
        policy text, and conservative content-bound metadata / multi-image
        policy hints, primary
@@ -241,8 +244,8 @@ Coverage matrix
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - Medium-high, about 88-92%.
-     - Full multi-image BMFF scene modeling and full C2PA manifest/policy
+     - High, about 90-93%.
+     - Deeper derived-image/group semantics and full C2PA manifest/policy
        semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
@@ -290,7 +293,8 @@ Coverage matrix
        source-processing aliases including Canon AF micro-adjustment and
        ambience-selection fields, source-processing buckets, explicit
        ``container_graph`` concepts for BMFF content-bound metadata and
-       whole-scene/primary-component multi-image policy, optional
+       whole-scene/primary-component/per-component multi-image policy,
+       optional
        RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,
@@ -345,9 +349,9 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Deepen remaining BMFF/CR3/HEIF/AVIF scene-graph semantics beyond current
-   relations, item groups, primary-item summaries, primary-scene summaries,
-   primary sidecar summaries, and item-property rollups only where hosts can
+1. Deepen remaining BMFF/CR3/HEIF/AVIF derived-image and item-group semantics
+   beyond current component membership, typed relations, primary-item,
+   primary-scene, sidecar, and item-property summaries only where hosts can
    use the result safely.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
    layouts, bounded descriptor traversal, and embedded metadata carriers.

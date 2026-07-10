@@ -88,6 +88,23 @@ namespace {
         bmff_multi_image_policy.origin.order_in_block = 11U;
         (void)store.add_entry(bmff_multi_image_policy);
 
+        Entry bmff_component_role;
+        bmff_component_role.key   = make_bmff_field_key(store.arena(),
+                                                        "scene.component.role");
+        bmff_component_role.value = make_text(store.arena(), "primary_scene",
+                                              TextEncoding::Utf8);
+        bmff_component_role.origin.block          = block;
+        bmff_component_role.origin.order_in_block = 12U;
+        (void)store.add_entry(bmff_component_role);
+
+        Entry bmff_component_item;
+        bmff_component_item.key
+            = make_bmff_field_key(store.arena(), "scene.component.item_id");
+        bmff_component_item.value                 = make_u32(7U);
+        bmff_component_item.origin.block          = block;
+        bmff_component_item.origin.order_in_block = 13U;
+        (void)store.add_entry(bmff_component_item);
+
         store.finalize();
         return store;
     }
@@ -127,8 +144,15 @@ TEST(CompatibilityDump, MetadataDumpIncludesNamesValuesTypesAndOrigins)
     EXPECT_TRUE(
         contains_text(dump, "name=\"bmff:scene.component.multi_image_policy\" "
                             "key_kind=\"bmff_field\" value_kind=\"text\""));
+    EXPECT_TRUE(contains_text(
+        dump, "name=\"bmff:scene.component.role\" key_kind=\"bmff_field\" "
+              "value_kind=\"text\""));
+    EXPECT_TRUE(contains_text(dump,
+                              "name=\"bmff:scene.component.item_id\" "
+                              "key_kind=\"bmff_field\" value_kind=\"scalar\""));
     EXPECT_TRUE(contains_text(dump, "text_encoding=\"utf8\" count=23 "
                                     "value=\"requires_target_rewrite\""));
+    EXPECT_TRUE(contains_text(dump, "value=\"primary_scene\""));
 }
 
 

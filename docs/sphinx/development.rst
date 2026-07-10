@@ -37,7 +37,8 @@ model should stay compact:
        lens-correction, sensor, BMFF brand/item-property
        associations and rollups including ``avio`` AVIF brands, item groups,
        item semantic counts, whole-scene policy hints including multi-image
-       policy text, graph-component and per-component policy summaries,
+       policy text, graph-component summaries with per-component roles,
+       member item IDs, semantic composition, and typed relation counts,
        ``container_graph``
        concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,

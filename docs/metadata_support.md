@@ -76,7 +76,7 @@ Current tracked-gate status:
 | Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, working-path and numbered clipping-path record summaries, descriptor-header, simple descriptor-item, enum, and nested list/object summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries with bounded per-component rows and policy hints, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries with bounded component roles, member item IDs, semantic/relation counts and policy hints, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
@@ -213,7 +213,10 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   explicit multi-image policy text
 - bounded scene graph component counters for observed relation graph nodes,
   connected components, image and multi-image components, isolated image
-  nodes, components with content-bound metadata, primary graph-component
+  nodes, components with content-bound metadata, per-component role text,
+  ordered member item IDs, known/unknown and semantic node counts, isolated
+  state, typed auxiliary/derived/thumbnail/content-description edge counts,
+  alpha/depth/disparity/matte auxiliary edge counts, primary graph-component
   nodes/edges, primary component content-bound flags, primary component
   multi-image candidates and policy text, and primary component content-bound
   metadata policy

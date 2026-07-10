@@ -1853,6 +1853,9 @@ namespace {
             = add_bmff_text(&store,
                             "scene.primary_graph_component_metadata_policy",
                             "requires_target_rewrite");
+        const EntryId component_content_bound
+            = add_bmff_text(&store, "scene.component.metadata_policy",
+                            "requires_target_rewrite");
         const EntryId multi_image
             = add_bmff_u8(&store, "scene.multi_image_candidate", 1U);
         const EntryId multi_image_policy
@@ -1863,6 +1866,11 @@ namespace {
         const EntryId primary_component_multi_image_policy
             = add_bmff_text(&store,
                             "scene.primary_graph_component_multi_image_policy",
+                            "requires_target_rewrite");
+        const EntryId component_multi_image
+            = add_bmff_u8(&store, "scene.component.multi_image_candidate", 1U);
+        const EntryId component_multi_image_policy
+            = add_bmff_text(&store, "scene.component.multi_image_policy",
                             "requires_target_rewrite");
         store.finalize();
 
@@ -1884,6 +1892,8 @@ namespace {
         EXPECT_TRUE(
             contains_entry(content_candidate->source_entries, content_bound));
         EXPECT_TRUE(contains_entry(graph.source_entries, primary_component));
+        EXPECT_TRUE(
+            contains_entry(graph.source_entries, component_content_bound));
 
         const MetadataConceptCandidate* multi_candidate
             = find_role(graph, MetadataConceptRole::MultiImageScene);
@@ -1900,6 +1910,10 @@ namespace {
                                    primary_component_multi_image));
         EXPECT_TRUE(contains_entry(graph.source_entries,
                                    primary_component_multi_image_policy));
+        EXPECT_TRUE(
+            contains_entry(graph.source_entries, component_multi_image));
+        EXPECT_TRUE(
+            contains_entry(graph.source_entries, component_multi_image_policy));
 
         const MetadataConceptResult all = resolve_metadata_concepts(store);
         const MetadataConceptResolution* graph_in_all
