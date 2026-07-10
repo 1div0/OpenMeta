@@ -89,6 +89,41 @@ namespace {
         append_bmff_box(out, type, payload);
     }
 
+    static void append_iloc_v1_entry(std::vector<std::byte>* out,
+                                     uint16_t item_id, uint16_t method,
+                                     uint32_t offset, uint32_t length)
+    {
+        append_u16be(out, item_id);
+        append_u16be(out, method);
+        append_u16be(out, 0U);
+        append_u16be(out, 1U);
+        append_u32be(out, offset);
+        append_u32be(out, length);
+    }
+
+    static void append_iloc_v1_idat_entry(std::vector<std::byte>* out,
+                                          uint16_t item_id, uint32_t offset,
+                                          uint32_t length)
+    {
+        append_iloc_v1_entry(out, item_id, 1U, offset, length);
+    }
+
+    static void append_iloc_v1_split_file_entry(std::vector<std::byte>* out,
+                                                uint16_t item_id,
+                                                uint32_t offset,
+                                                uint32_t length_a,
+                                                uint32_t length_b)
+    {
+        append_u16be(out, item_id);
+        append_u16be(out, 0U);
+        append_u16be(out, 0U);
+        append_u16be(out, 2U);
+        append_u32be(out, offset);
+        append_u32be(out, length_a);
+        append_u32be(out, offset + length_a);
+        append_u32be(out, length_b);
+    }
+
     static void append_entity_group_box(std::vector<std::byte>* out,
                                         uint32_t group_type, uint32_t group_id,
                                         std::span<const uint32_t> entity_ids)
@@ -1082,6 +1117,405 @@ TEST(BmffDerivedFieldsDecode, SeparatesPrimaryDerivedSourcesFromDerivedItems)
     ASSERT_EQ(to_roles.size(), 2U);
     EXPECT_EQ(to_roles[0], "source_image");
     EXPECT_EQ(to_roles[1], "source_image");
+}
+
+TEST(BmffDerivedFieldsDecode, EmitsDerivedImageConstructionSemantics)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 3U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('g', 'r', 'i', 'd'), "grid");
+    append_infe_v2(&iinf_payload, 2U, 0U, fourcc('i', 'o', 'v', 'l'),
+                   "overlay");
+    append_infe_v2(&iinf_payload, 3U, 0U, fourcc('i', 'd', 'e', 'n'),
+                   "identity");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 10U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 11U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 12U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 13U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 2U, 20U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 2U, 21U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 3U, 30U);
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> idat_payload;
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 1U });
+    idat_payload.push_back(std::byte { 1U });
+    append_u16be(&idat_payload, 640U);
+    append_u16be(&idat_payload, 480U);
+    const uint32_t overlay_offset = static_cast<uint32_t>(idat_payload.size());
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 0U });
+    append_u16be(&idat_payload, 1U);
+    append_u16be(&idat_payload, 2U);
+    append_u16be(&idat_payload, 3U);
+    append_u16be(&idat_payload, 0xFFFFU);
+    append_u16be(&idat_payload, 800U);
+    append_u16be(&idat_payload, 600U);
+    append_u16be(&idat_payload, static_cast<uint16_t>(-10));
+    append_u16be(&idat_payload, 20U);
+    append_u16be(&idat_payload, 30U);
+    append_u16be(&idat_payload, static_cast<uint16_t>(-40));
+    const uint32_t overlay_length = static_cast<uint32_t>(idat_payload.size())
+                                    - overlay_offset;
+    std::vector<std::byte> idat_box;
+    append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+    std::vector<std::byte> iloc_payload;
+    append_fullbox_header(&iloc_payload, 1U);
+    iloc_payload.push_back(std::byte { 0x44U });
+    iloc_payload.push_back(std::byte { 0x00U });
+    append_u16be(&iloc_payload, 2U);
+    append_iloc_v1_idat_entry(&iloc_payload, 1U, 0U, 8U);
+    append_iloc_v1_idat_entry(&iloc_payload, 2U, overlay_offset,
+                              overlay_length);
+    std::vector<std::byte> iloc_box;
+    append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    meta_payload.insert(meta_payload.end(), idat_box.begin(), idat_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload {};
+    std::array<uint32_t, 64> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<std::string> construction
+        = collect_text_values(store, "derived_image.construction");
+    ASSERT_EQ(construction.size(), 3U);
+    EXPECT_EQ(construction[0], "grid");
+    EXPECT_EQ(construction[1], "overlay");
+    EXPECT_EQ(construction[2], "identity");
+    const std::vector<uint8_t> construction_valid
+        = collect_u8_values(store, "derived_image.construction_valid");
+    ASSERT_EQ(construction_valid.size(), 3U);
+    EXPECT_EQ(construction_valid[0], 1U);
+    EXPECT_EQ(construction_valid[1], 1U);
+    EXPECT_EQ(construction_valid[2], 1U);
+    const std::vector<uint8_t> descriptor_available
+        = collect_u8_values(store, "derived_image.descriptor_available");
+    ASSERT_EQ(descriptor_available.size(), 3U);
+    EXPECT_EQ(descriptor_available[0], 1U);
+    EXPECT_EQ(descriptor_available[1], 1U);
+    EXPECT_EQ(descriptor_available[2], 0U);
+
+    const std::vector<uint16_t> grid_rows
+        = collect_u16_values(store, "derived_image.grid.rows");
+    const std::vector<uint16_t> grid_columns
+        = collect_u16_values(store, "derived_image.grid.columns");
+    ASSERT_EQ(grid_rows.size(), 1U);
+    ASSERT_EQ(grid_columns.size(), 1U);
+    EXPECT_EQ(grid_rows[0], 2U);
+    EXPECT_EQ(grid_columns[0], 2U);
+    const std::vector<uint32_t> grid_source_ids
+        = collect_u32_values(store, "derived_image.grid.source_item_id");
+    const std::vector<uint32_t> grid_source_rows
+        = collect_u32_values(store, "derived_image.grid.source_row");
+    const std::vector<uint32_t> grid_source_columns
+        = collect_u32_values(store, "derived_image.grid.source_column");
+    ASSERT_EQ(grid_source_ids.size(), 4U);
+    ASSERT_EQ(grid_source_rows.size(), 4U);
+    ASSERT_EQ(grid_source_columns.size(), 4U);
+    for (uint32_t i = 0U; i < 4U; ++i) {
+        EXPECT_EQ(grid_source_ids[i], 10U + i);
+    }
+    EXPECT_EQ(grid_source_rows[0], 0U);
+    EXPECT_EQ(grid_source_rows[1], 0U);
+    EXPECT_EQ(grid_source_rows[2], 1U);
+    EXPECT_EQ(grid_source_rows[3], 1U);
+    EXPECT_EQ(grid_source_columns[0], 0U);
+    EXPECT_EQ(grid_source_columns[1], 1U);
+    EXPECT_EQ(grid_source_columns[2], 0U);
+    EXPECT_EQ(grid_source_columns[3], 1U);
+
+    const std::vector<uint32_t> overlay_width
+        = collect_u32_values(store, "derived_image.overlay.output_width");
+    const std::vector<uint32_t> overlay_height
+        = collect_u32_values(store, "derived_image.overlay.output_height");
+    ASSERT_EQ(overlay_width.size(), 1U);
+    ASSERT_EQ(overlay_height.size(), 1U);
+    EXPECT_EQ(overlay_width[0], 800U);
+    EXPECT_EQ(overlay_height[0], 600U);
+    const std::vector<int32_t> overlay_x
+        = collect_i32_values(store, "derived_image.overlay.offset_x");
+    const std::vector<int32_t> overlay_y
+        = collect_i32_values(store, "derived_image.overlay.offset_y");
+    ASSERT_EQ(overlay_x.size(), 2U);
+    ASSERT_EQ(overlay_y.size(), 2U);
+    EXPECT_EQ(overlay_x[0], -10);
+    EXPECT_EQ(overlay_y[0], 20);
+    EXPECT_EQ(overlay_x[1], 30);
+    EXPECT_EQ(overlay_y[1], -40);
+
+    const std::vector<uint32_t> identity_source
+        = collect_u32_values(store, "derived_image.identity.source_item_id");
+    ASSERT_EQ(identity_source.size(), 1U);
+    EXPECT_EQ(identity_source[0], 30U);
+    const std::vector<std::string> primary_construction
+        = collect_text_values(store, "primary.derived_construction");
+    ASSERT_EQ(primary_construction.size(), 1U);
+    EXPECT_EQ(primary_construction[0], "grid");
+    const std::vector<uint16_t> primary_rows
+        = collect_u16_values(store, "primary.derived_grid_rows");
+    ASSERT_EQ(primary_rows.size(), 1U);
+    EXPECT_EQ(primary_rows[0], 2U);
+
+    const std::vector<uint32_t> derived_semantic_count
+        = collect_u32_values(store, "item.semantic_derived_count");
+    ASSERT_EQ(derived_semantic_count.size(), 1U);
+    EXPECT_EQ(derived_semantic_count[0], 3U);
+}
+
+TEST(BmffDerivedFieldsDecode, ReadsDerivedDescriptorFromFileOffsetExtent)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 1U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('g', 'r', 'i', 'd'),
+                   "file_grid");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 10U);
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> descriptor;
+    descriptor.push_back(std::byte { 0U });
+    descriptor.push_back(std::byte { 0U });
+    descriptor.push_back(std::byte { 0U });
+    descriptor.push_back(std::byte { 0U });
+    append_u16be(&descriptor, 320U);
+    append_u16be(&descriptor, 240U);
+
+    std::vector<std::byte> iloc_payload;
+    append_fullbox_header(&iloc_payload, 1U);
+    iloc_payload.push_back(std::byte { 0x44U });
+    iloc_payload.push_back(std::byte { 0x00U });
+    append_u16be(&iloc_payload, 1U);
+    append_iloc_v1_split_file_entry(&iloc_payload, 1U, 0U, 4U, 4U);
+    std::vector<std::byte> iloc_box;
+    append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    const uint32_t descriptor_offset = static_cast<uint32_t>(
+        file.size() + 8U + meta_payload.size() + 8U);
+
+    iloc_payload.clear();
+    append_fullbox_header(&iloc_payload, 1U);
+    iloc_payload.push_back(std::byte { 0x44U });
+    iloc_payload.push_back(std::byte { 0x00U });
+    append_u16be(&iloc_payload, 1U);
+    append_iloc_v1_split_file_entry(&iloc_payload, 1U, descriptor_offset, 4U,
+                                    4U);
+    iloc_box.clear();
+    append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+    meta_payload.clear();
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+    append_bmff_box(&file, fourcc('m', 'd', 'a', 't'), descriptor);
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 2048> payload {};
+    std::array<uint32_t, 32> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint8_t> construction_valid
+        = collect_u8_values(store, "derived_image.construction_valid");
+    ASSERT_EQ(construction_valid.size(), 1U);
+    EXPECT_EQ(construction_valid[0], 1U);
+    const std::vector<uint32_t> width
+        = collect_u32_values(store, "derived_image.grid.output_width");
+    const std::vector<uint32_t> height
+        = collect_u32_values(store, "derived_image.grid.output_height");
+    ASSERT_EQ(width.size(), 1U);
+    ASSERT_EQ(height.size(), 1U);
+    EXPECT_EQ(width[0], 320U);
+    EXPECT_EQ(height[0], 240U);
+}
+
+TEST(BmffDerivedFieldsDecode, RejectsInvalidDerivedImageConstructions)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 3U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('g', 'r', 'i', 'd'),
+                   "bad_grid");
+    append_infe_v2(&iinf_payload, 2U, 0U, fourcc('i', 'o', 'v', 'l'),
+                   "bad_overlay");
+    append_infe_v2(&iinf_payload, 3U, 0U, fourcc('i', 'd', 'e', 'n'),
+                   "self_identity");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 10U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 11U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 12U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 2U, 20U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 3U, 3U);
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> idat_payload;
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 1U });
+    idat_payload.push_back(std::byte { 1U });
+    append_u16be(&idat_payload, 640U);
+    append_u16be(&idat_payload, 480U);
+    const uint32_t overlay_offset = static_cast<uint32_t>(idat_payload.size());
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 0U });
+    append_u16be(&idat_payload, 1U);
+    std::vector<std::byte> idat_box;
+    append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+    std::vector<std::byte> iloc_payload;
+    append_fullbox_header(&iloc_payload, 1U);
+    iloc_payload.push_back(std::byte { 0x44U });
+    iloc_payload.push_back(std::byte { 0x00U });
+    append_u16be(&iloc_payload, 2U);
+    append_iloc_v1_idat_entry(&iloc_payload, 1U, 0U, 8U);
+    append_iloc_v1_idat_entry(&iloc_payload, 2U, overlay_offset, 4U);
+    std::vector<std::byte> iloc_box;
+    append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    meta_payload.insert(meta_payload.end(), idat_box.begin(), idat_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    MetaStore store;
+    std::array<ContainerBlockRef, 16> blocks {};
+    std::array<ExifIfdRef, 8> ifds {};
+    std::array<std::byte, 4096> payload {};
+    std::array<uint32_t, 64> payload_scratch {};
+    ExifDecodeOptions exif_opts;
+    PayloadOptions payload_opts;
+    (void)simple_meta_read(file, store, blocks, ifds, payload, payload_scratch,
+                           exif_opts, payload_opts);
+    store.finalize();
+
+    const std::vector<uint8_t> descriptor_available
+        = collect_u8_values(store, "derived_image.descriptor_available");
+    const std::vector<uint8_t> descriptor_valid
+        = collect_u8_values(store, "derived_image.descriptor_valid");
+    const std::vector<uint8_t> source_count_valid
+        = collect_u8_values(store, "derived_image.source_count_valid");
+    const std::vector<uint8_t> construction_valid
+        = collect_u8_values(store, "derived_image.construction_valid");
+    ASSERT_EQ(descriptor_available.size(), 3U);
+    ASSERT_EQ(descriptor_valid.size(), 3U);
+    ASSERT_EQ(source_count_valid.size(), 3U);
+    ASSERT_EQ(construction_valid.size(), 3U);
+    EXPECT_EQ(descriptor_available[0], 1U);
+    EXPECT_EQ(descriptor_available[1], 1U);
+    EXPECT_EQ(descriptor_available[2], 0U);
+    EXPECT_EQ(descriptor_valid[0], 1U);
+    EXPECT_EQ(descriptor_valid[1], 0U);
+    EXPECT_EQ(descriptor_valid[2], 1U);
+    EXPECT_EQ(source_count_valid[0], 0U);
+    EXPECT_EQ(source_count_valid[1], 1U);
+    EXPECT_EQ(source_count_valid[2], 1U);
+    EXPECT_EQ(construction_valid[0], 0U);
+    EXPECT_EQ(construction_valid[1], 0U);
+    EXPECT_EQ(construction_valid[2], 0U);
+
+    EXPECT_TRUE(
+        collect_i32_values(store, "derived_image.overlay.offset_x").empty());
+    const std::vector<uint32_t> identity_source
+        = collect_u32_values(store, "derived_image.identity.source_item_id");
+    ASSERT_EQ(identity_source.size(), 1U);
+    EXPECT_EQ(identity_source[0], 3U);
+    const std::vector<uint8_t> primary_valid
+        = collect_u8_values(store, "primary.derived_construction_valid");
+    ASSERT_EQ(primary_valid.size(), 1U);
+    EXPECT_EQ(primary_valid[0], 0U);
 }
 
 TEST(BmffDerivedFieldsDecode, EmitsItemGroupsAndPrimaryMembership)

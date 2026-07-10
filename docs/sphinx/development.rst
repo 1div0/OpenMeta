@@ -40,7 +40,8 @@ model should stay compact:
        policy text, graph-component summaries with per-component roles,
        member item IDs, semantic composition, direction-correct relation
        endpoint roles and named item-id aliases, semantic item-group roles,
-       and typed relation counts,
+       typed relation counts, and bounded ``grid``/``iovl``/``iden``
+       construction semantics,
        ``container_graph``
        concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,
@@ -66,7 +67,8 @@ model should stay compact:
        flags for crop/border/active-area, exposure/gain,
        color/WB/profile/source-color-transform, orientation, date/time, GPS,
        lens-correction, computational/thermal/stitch, and
-       RAW/source-processing fields across standard and vendor metadata.
+       RAW/source-processing fields plus BMFF derived-image construction
+       evidence across standard and vendor metadata.
      - Medium-high, about 88-93%.
    * - Creation
      - Build fresh metadata entries from host-provided values.

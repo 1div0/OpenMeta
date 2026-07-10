@@ -46,8 +46,8 @@ Host-facing API map
      - ``openmeta/compatibility_dump.h``
      - Stable
      - Stable v1 line-oriented compatibility dump contract, including
-       generic BMFF component membership, role, relation-summary, and policy
-       fields as normal ``bmff_field`` entries.
+       generic BMFF component membership, role, relation-summary, policy, and
+       derived-image construction fields as normal ``bmff_field`` entries.
        See
        :doc:`compatibility_dump`.
    * - XMP sync and writeback policy enums: ``XmpConflictPolicy``,
@@ -237,8 +237,8 @@ Host-facing API map
        curve/linearity/calibration roles are marked rendered-unsafe,
        computational, thermal, and stitch/panorama RAW-processing roles are
        marked source-bound, and BMFF whole-scene, primary-component, and
-       per-component content-bound metadata / multi-image policy fields are
-       marked source-bound.
+       per-component content-bound metadata / multi-image policy plus
+       derived-image construction fields are marked source-bound.
        RAW curve/LUT-like concept roles are conservatively marked
        ``conditional_on_raw_encoding`` until a raw data descriptor can confirm
        whether they affect the stored samples. Descriptor-aware overloads
@@ -287,8 +287,9 @@ Host-facing API map
        Rendered-transfer drop messages distinguish source color transforms,
        white balance, lens-correction records, source RAW curves/linearity
        metadata that still require storage-context confirmation, and BMFF
-       content-bound/multi-image scene policy, plus computational/thermal/
-       stitch source-processing drops from generic source-processing metadata.
+       content-bound/multi-image scene/derived-image construction policy, plus
+       computational/thermal/stitch source-processing drops from generic
+       source-processing metadata.
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``token``, ``message_token``,

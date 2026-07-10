@@ -82,6 +82,7 @@ enum class MetadataConceptRole : uint8_t {
     RawCurveControlPoints,
     ContentBoundMetadata,
     MultiImageScene,
+    DerivedImageConstruction,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {

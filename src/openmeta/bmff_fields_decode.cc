@@ -892,6 +892,8 @@ namespace {
         uint8_t item_location_index_size       = 0;
         bool have_idat                         = false;
         uint64_t idat_bytes                    = 0;
+        uint64_t idat_payload_offset           = 0;
+        uint64_t idat_payload_end              = 0;
 
         std::array<ItemPropertyAssociation, 512> ipma_associations {};
         uint32_t ipma_association_count = 0;
@@ -1836,7 +1838,10 @@ namespace {
             if (info.item_type == fourcc('a', 'u', 'x', 'l')) {
                 return ItemSemantic::Auxiliary;
             }
-            if (info.item_type == fourcc('d', 'e', 'r', 'v')) {
+            if (info.item_type == fourcc('d', 'e', 'r', 'v')
+                || info.item_type == fourcc('g', 'r', 'i', 'd')
+                || info.item_type == fourcc('i', 'o', 'v', 'l')
+                || info.item_type == fourcc('i', 'd', 'e', 'n')) {
                 return ItemSemantic::DerivedImage;
             }
             if (info.item_type == fourcc('t', 'h', 'm', 'b')) {
@@ -1850,9 +1855,7 @@ namespace {
             }
             if (info.item_type == fourcc('h', 'v', 'c', '1')
                 || info.item_type == fourcc('a', 'v', '0', '1')
-                || info.item_type == fourcc('j', 'p', 'e', 'g')
-                || info.item_type == fourcc('g', 'r', 'i', 'd')
-                || info.item_type == fourcc('i', 'd', 'e', 'n')) {
+                || info.item_type == fourcc('j', 'p', 'e', 'g')) {
                 return ItemSemantic::Image;
             }
         }
@@ -3005,6 +3008,650 @@ namespace {
             return nullptr;
         }
         return &out.item_infos[idx];
+    }
+
+    struct ItemDataCursor final {
+        std::span<const std::byte> bytes;
+        const ItemLocation* location = nullptr;
+        uint64_t idat_payload_offset = 0U;
+        uint64_t idat_payload_end    = 0U;
+        uint32_t extent_index        = 0U;
+        uint64_t extent_offset       = 0U;
+    };
+
+    static bool checked_add_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
+    {
+        if (!out || b > UINT64_MAX - a) {
+            return false;
+        }
+        *out = a + b;
+        return true;
+    }
+
+    static bool item_extent_absolute_offset(const ItemDataCursor& cursor,
+                                            uint32_t extent_index,
+                                            uint64_t* out_offset) noexcept
+    {
+        if (!out_offset || !cursor.location
+            || extent_index >= cursor.location->extent_record_count) {
+            return false;
+        }
+        const ItemLocationExtent& extent
+            = cursor.location->extents[extent_index];
+        uint64_t relative = 0U;
+        if (!checked_add_u64(cursor.location->base_offset, extent.offset,
+                             &relative)) {
+            return false;
+        }
+        if (cursor.location->construction_method == 0U) {
+            *out_offset = relative;
+            return true;
+        }
+        if (cursor.location->construction_method == 1U) {
+            return checked_add_u64(cursor.idat_payload_offset, relative,
+                                   out_offset);
+        }
+        return false;
+    }
+
+    static bool init_item_data_cursor(std::span<const std::byte> bytes,
+                                      const PrimaryProps& p, uint32_t item_id,
+                                      ItemDataCursor* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        *out                         = ItemDataCursor {};
+        const ItemLocation* location = find_item_location(p, item_id);
+        if (!location || location->data_reference_index != 0U
+            || location->extent_truncated || location->length_overflow
+            || location->extent_count == 0U
+            || location->extent_count != location->extent_record_count
+            || location->construction_method > 1U) {
+            return false;
+        }
+        if (location->construction_method == 1U
+            && (!p.have_idat || p.idat_payload_offset > p.idat_payload_end
+                || p.idat_payload_end > bytes.size())) {
+            return false;
+        }
+
+        ItemDataCursor cursor;
+        cursor.bytes               = bytes;
+        cursor.location            = location;
+        cursor.idat_payload_offset = p.idat_payload_offset;
+        cursor.idat_payload_end    = p.idat_payload_end;
+        for (uint32_t i = 0U; i < location->extent_record_count; ++i) {
+            const ItemLocationExtent& extent = location->extents[i];
+            if (extent.index != 0U || extent.length == 0U) {
+                return false;
+            }
+            uint64_t absolute = 0U;
+            if (!item_extent_absolute_offset(cursor, i, &absolute)) {
+                return false;
+            }
+            const uint64_t limit = location->construction_method == 1U
+                                       ? p.idat_payload_end
+                                       : bytes.size();
+            if (absolute > limit || extent.length > limit - absolute) {
+                return false;
+            }
+        }
+        *out = cursor;
+        return true;
+    }
+
+    static bool read_item_data_u8(ItemDataCursor* cursor, uint8_t* out) noexcept
+    {
+        if (!cursor || !out || !cursor->location) {
+            return false;
+        }
+        while (cursor->extent_index < cursor->location->extent_record_count) {
+            const ItemLocationExtent& extent
+                = cursor->location->extents[cursor->extent_index];
+            if (cursor->extent_offset >= extent.length) {
+                cursor->extent_index += 1U;
+                cursor->extent_offset = 0U;
+                continue;
+            }
+            uint64_t absolute = 0U;
+            if (!item_extent_absolute_offset(*cursor, cursor->extent_index,
+                                             &absolute)
+                || !checked_add_u64(absolute, cursor->extent_offset, &absolute)
+                || absolute >= cursor->bytes.size()) {
+                return false;
+            }
+            *out = u8(cursor->bytes[absolute]);
+            cursor->extent_offset += 1U;
+            return true;
+        }
+        return false;
+    }
+
+    static bool read_item_data_u16(ItemDataCursor* cursor,
+                                   uint16_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint8_t a = 0U;
+        uint8_t b = 0U;
+        if (!read_item_data_u8(cursor, &a) || !read_item_data_u8(cursor, &b)) {
+            return false;
+        }
+        *out = static_cast<uint16_t>((static_cast<uint16_t>(a) << 8U)
+                                     | static_cast<uint16_t>(b));
+        return true;
+    }
+
+    static bool read_item_data_u32(ItemDataCursor* cursor,
+                                   uint32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint8_t value[4] {};
+        for (uint32_t i = 0U; i < 4U; ++i) {
+            if (!read_item_data_u8(cursor, &value[i])) {
+                return false;
+            }
+        }
+        *out = (static_cast<uint32_t>(value[0]) << 24U)
+               | (static_cast<uint32_t>(value[1]) << 16U)
+               | (static_cast<uint32_t>(value[2]) << 8U)
+               | static_cast<uint32_t>(value[3]);
+        return true;
+    }
+
+    static bool read_item_data_i16(ItemDataCursor* cursor,
+                                   int32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint16_t raw = 0U;
+        if (!read_item_data_u16(cursor, &raw)) {
+            return false;
+        }
+        *out = raw <= 0x7FFFU ? static_cast<int32_t>(raw)
+                              : static_cast<int32_t>(raw) - 0x10000;
+        return true;
+    }
+
+    static bool read_item_data_i32(ItemDataCursor* cursor,
+                                   int32_t* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        uint32_t raw = 0U;
+        if (!read_item_data_u32(cursor, &raw)) {
+            return false;
+        }
+        const int64_t signed_value = raw <= 0x7FFFFFFFU
+                                         ? static_cast<int64_t>(raw)
+                                         : static_cast<int64_t>(raw)
+                                               - INT64_C(0x100000000);
+        *out                       = static_cast<int32_t>(signed_value);
+        return true;
+    }
+
+    static uint32_t count_dimg_sources(const PrimaryProps& p,
+                                       uint32_t item_id) noexcept
+    {
+        uint32_t count = 0U;
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            if (p.iref_edges[i].ref_type == fourcc('d', 'i', 'm', 'g')
+                && p.iref_edges[i].from_item_id == item_id) {
+                count += 1U;
+            }
+        }
+        return count;
+    }
+
+    static bool get_dimg_source(const PrimaryProps& p, uint32_t item_id,
+                                uint32_t source_index,
+                                uint32_t* out_source_item_id) noexcept
+    {
+        if (!out_source_item_id) {
+            return false;
+        }
+        uint32_t index = 0U;
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            if (p.iref_edges[i].ref_type != fourcc('d', 'i', 'm', 'g')
+                || p.iref_edges[i].from_item_id != item_id) {
+                continue;
+            }
+            if (index == source_index) {
+                *out_source_item_id = p.iref_edges[i].to_item_id;
+                return true;
+            }
+            index += 1U;
+        }
+        return false;
+    }
+
+    struct GridDescriptor final {
+        bool available         = false;
+        bool have_header       = false;
+        bool valid             = false;
+        uint8_t version        = 0U;
+        uint8_t flags          = 0U;
+        uint16_t rows          = 0U;
+        uint16_t columns       = 0U;
+        uint32_t output_width  = 0U;
+        uint32_t output_height = 0U;
+    };
+
+    static GridDescriptor
+    parse_grid_descriptor(std::span<const std::byte> bytes,
+                          const PrimaryProps& p, uint32_t item_id) noexcept
+    {
+        GridDescriptor out;
+        ItemDataCursor cursor;
+        if (!init_item_data_cursor(bytes, p, item_id, &cursor)) {
+            return out;
+        }
+        out.available             = true;
+        uint8_t rows_minus_one    = 0U;
+        uint8_t columns_minus_one = 0U;
+        if (!read_item_data_u8(&cursor, &out.version)
+            || !read_item_data_u8(&cursor, &out.flags)) {
+            return out;
+        }
+        out.have_header = true;
+        if (out.version != 0U || !read_item_data_u8(&cursor, &rows_minus_one)
+            || !read_item_data_u8(&cursor, &columns_minus_one)) {
+            return out;
+        }
+        out.rows    = static_cast<uint16_t>(rows_minus_one) + 1U;
+        out.columns = static_cast<uint16_t>(columns_minus_one) + 1U;
+        if ((out.flags & 1U) != 0U) {
+            if (!read_item_data_u32(&cursor, &out.output_width)
+                || !read_item_data_u32(&cursor, &out.output_height)) {
+                return out;
+            }
+        } else {
+            uint16_t width  = 0U;
+            uint16_t height = 0U;
+            if (!read_item_data_u16(&cursor, &width)
+                || !read_item_data_u16(&cursor, &height)) {
+                return out;
+            }
+            out.output_width  = width;
+            out.output_height = height;
+        }
+        out.valid = out.output_width != 0U && out.output_height != 0U;
+        return out;
+    }
+
+    struct OverlayDescriptor final {
+        bool available   = false;
+        bool have_header = false;
+        bool valid       = false;
+        uint8_t version  = 0U;
+        uint8_t flags    = 0U;
+        std::array<uint16_t, 4> background {};
+        uint32_t output_width  = 0U;
+        uint32_t output_height = 0U;
+        std::array<int32_t, 512> offset_x {};
+        std::array<int32_t, 512> offset_y {};
+    };
+
+    static OverlayDescriptor
+    parse_overlay_descriptor(std::span<const std::byte> bytes,
+                             const PrimaryProps& p, uint32_t item_id,
+                             uint32_t source_count) noexcept
+    {
+        OverlayDescriptor out;
+        ItemDataCursor cursor;
+        if (!init_item_data_cursor(bytes, p, item_id, &cursor)) {
+            return out;
+        }
+        out.available = true;
+        if (source_count == 0U || source_count > out.offset_x.size()) {
+            return out;
+        }
+        if (!read_item_data_u8(&cursor, &out.version)
+            || !read_item_data_u8(&cursor, &out.flags)) {
+            return out;
+        }
+        out.have_header = true;
+        if (out.version != 0U) {
+            return out;
+        }
+        for (uint32_t i = 0U; i < out.background.size(); ++i) {
+            if (!read_item_data_u16(&cursor, &out.background[i])) {
+                return out;
+            }
+        }
+        const bool long_fields = (out.flags & 1U) != 0U;
+        if (long_fields) {
+            if (!read_item_data_u32(&cursor, &out.output_width)
+                || !read_item_data_u32(&cursor, &out.output_height)) {
+                return out;
+            }
+        } else {
+            uint16_t width  = 0U;
+            uint16_t height = 0U;
+            if (!read_item_data_u16(&cursor, &width)
+                || !read_item_data_u16(&cursor, &height)) {
+                return out;
+            }
+            out.output_width  = width;
+            out.output_height = height;
+        }
+        for (uint32_t i = 0U; i < source_count; ++i) {
+            const bool ok
+                = long_fields
+                      ? (read_item_data_i32(&cursor, &out.offset_x[i])
+                         && read_item_data_i32(&cursor, &out.offset_y[i]))
+                      : (read_item_data_i16(&cursor, &out.offset_x[i])
+                         && read_item_data_i16(&cursor, &out.offset_y[i]));
+            if (!ok) {
+                return out;
+            }
+        }
+        out.valid = out.output_width != 0U && out.output_height != 0U;
+        return out;
+    }
+
+    static std::string_view derived_construction_name(uint32_t type) noexcept
+    {
+        if (type == fourcc('g', 'r', 'i', 'd')) {
+            return "grid";
+        }
+        if (type == fourcc('i', 'o', 'v', 'l')) {
+            return "overlay";
+        }
+        if (type == fourcc('i', 'd', 'e', 'n')) {
+            return "identity";
+        }
+        return {};
+    }
+
+    static void emit_derived_image_fields(MetaStore& store, BlockId block,
+                                          uint32_t* io_order,
+                                          std::span<const std::byte> bytes,
+                                          const PrimaryProps& p) noexcept
+    {
+        if (!io_order) {
+            return;
+        }
+        uint32_t item_count     = 0U;
+        uint32_t grid_count     = 0U;
+        uint32_t overlay_count  = 0U;
+        uint32_t identity_count = 0U;
+        for (uint32_t i = 0U; i < p.item_info_count; ++i) {
+            const ItemInfo& info = p.item_infos[i];
+            if (!info.have_type
+                || derived_construction_name(info.item_type).empty()) {
+                continue;
+            }
+            item_count += 1U;
+            if (info.item_type == fourcc('g', 'r', 'i', 'd')) {
+                grid_count += 1U;
+            } else if (info.item_type == fourcc('i', 'o', 'v', 'l')) {
+                overlay_count += 1U;
+            } else {
+                identity_count += 1U;
+            }
+        }
+        if (item_count == 0U) {
+            return;
+        }
+        emit_u32_field(store, block, (*io_order)++, "derived_image.count",
+                       item_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "derived_image.grid_count", grid_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "derived_image.overlay_count",
+                                    overlay_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "derived_image.identity_count",
+                                    identity_count);
+
+        for (uint32_t i = 0U; i < p.item_info_count; ++i) {
+            const ItemInfo& info = p.item_infos[i];
+            if (!info.have_type) {
+                continue;
+            }
+            const std::string_view construction = derived_construction_name(
+                info.item_type);
+            if (construction.empty()) {
+                continue;
+            }
+            const uint32_t source_count = count_dimg_sources(p, info.item_id);
+            emit_u32_field(store, block, (*io_order)++, "derived_image.item_id",
+                           info.item_id);
+            emit_u32_field(store, block, (*io_order)++, "derived_image.type",
+                           info.item_type);
+            emit_text_field(store, block, (*io_order)++,
+                            "derived_image.type_name",
+                            bmff_fourcc_display_name(info.item_type));
+            emit_text_field(store, block, (*io_order)++,
+                            "derived_image.construction", construction);
+            emit_u32_field(store, block, (*io_order)++,
+                           "derived_image.source_count", source_count);
+            for (uint32_t source_i = 0U; source_i < source_count; ++source_i) {
+                uint32_t source_id = 0U;
+                if (!get_dimg_source(p, info.item_id, source_i, &source_id)) {
+                    continue;
+                }
+                emit_u32_field(store, block, (*io_order)++,
+                               "derived_image.source_index", source_i);
+                emit_u32_field(store, block, (*io_order)++,
+                               "derived_image.source_item_id", source_id);
+            }
+
+            bool descriptor_required  = true;
+            bool descriptor_available = false;
+            bool descriptor_valid     = false;
+            bool source_count_valid   = false;
+            bool construction_valid   = false;
+            uint32_t output_width     = 0U;
+            uint32_t output_height    = 0U;
+            uint16_t grid_rows        = 0U;
+            uint16_t grid_columns     = 0U;
+
+            if (info.item_type == fourcc('g', 'r', 'i', 'd')) {
+                const GridDescriptor grid = parse_grid_descriptor(bytes, p,
+                                                                  info.item_id);
+                descriptor_available      = grid.available;
+                descriptor_valid          = grid.valid;
+                const uint32_t expected_sources
+                    = static_cast<uint32_t>(grid.rows)
+                      * static_cast<uint32_t>(grid.columns);
+                source_count_valid = grid.valid
+                                     && source_count == expected_sources;
+                construction_valid = descriptor_valid && source_count_valid;
+                output_width       = grid.output_width;
+                output_height      = grid.output_height;
+                grid_rows          = grid.rows;
+                grid_columns       = grid.columns;
+                emit_u32_field(store, block, (*io_order)++,
+                               "derived_image.grid.item_id", info.item_id);
+                if (grid.have_header) {
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "derived_image.grid.descriptor_version",
+                                  grid.version);
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "derived_image.grid.descriptor_flags",
+                                  grid.flags);
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "derived_image.grid.field_bits",
+                                  (grid.flags & 1U) != 0U ? 32U : 16U);
+                }
+                if (grid.valid) {
+                    emit_u16_field(store, block, (*io_order)++,
+                                   "derived_image.grid.rows", grid.rows);
+                    emit_u16_field(store, block, (*io_order)++,
+                                   "derived_image.grid.columns", grid.columns);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "derived_image.grid.output_width",
+                                   grid.output_width);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "derived_image.grid.output_height",
+                                   grid.output_height);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "derived_image.grid.expected_source_count",
+                                   expected_sources);
+                    for (uint32_t source_i = 0U; source_i < source_count;
+                         ++source_i) {
+                        uint32_t source_id = 0U;
+                        if (!get_dimg_source(p, info.item_id, source_i,
+                                             &source_id)) {
+                            continue;
+                        }
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "derived_image.grid.source_index",
+                                       source_i);
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "derived_image.grid.source_item_id",
+                                       source_id);
+                        const bool source_in_grid = source_i < expected_sources;
+                        emit_u8_field(store, block, (*io_order)++,
+                                      "derived_image.grid.source_in_grid",
+                                      source_in_grid ? 1U : 0U);
+                        if (!source_in_grid) {
+                            continue;
+                        }
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "derived_image.grid.source_row",
+                                       source_i / grid.columns);
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "derived_image.grid.source_column",
+                                       source_i % grid.columns);
+                    }
+                }
+            } else if (info.item_type == fourcc('i', 'o', 'v', 'l')) {
+                const OverlayDescriptor overlay
+                    = parse_overlay_descriptor(bytes, p, info.item_id,
+                                               source_count);
+                descriptor_available = overlay.available;
+                descriptor_valid     = overlay.valid;
+                source_count_valid   = source_count > 0U;
+                construction_valid   = descriptor_valid && source_count_valid;
+                output_width         = overlay.output_width;
+                output_height        = overlay.output_height;
+                emit_u32_field(store, block, (*io_order)++,
+                               "derived_image.overlay.item_id", info.item_id);
+                if (overlay.have_header) {
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "derived_image.overlay.descriptor_version",
+                                  overlay.version);
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "derived_image.overlay.descriptor_flags",
+                                  overlay.flags);
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "derived_image.overlay.field_bits",
+                                  (overlay.flags & 1U) != 0U ? 32U : 16U);
+                }
+                if (overlay.valid) {
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "derived_image.overlay.output_width",
+                                   overlay.output_width);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "derived_image.overlay.output_height",
+                                   overlay.output_height);
+                    static constexpr const char* kBackgroundFields[4] = {
+                        "derived_image.overlay.background_r",
+                        "derived_image.overlay.background_g",
+                        "derived_image.overlay.background_b",
+                        "derived_image.overlay.background_a",
+                    };
+                    for (uint32_t channel = 0U; channel < 4U; ++channel) {
+                        emit_u16_field(store, block, (*io_order)++,
+                                       kBackgroundFields[channel],
+                                       overlay.background[channel]);
+                    }
+                    for (uint32_t source_i = 0U; source_i < source_count;
+                         ++source_i) {
+                        uint32_t source_id = 0U;
+                        if (!get_dimg_source(p, info.item_id, source_i,
+                                             &source_id)) {
+                            continue;
+                        }
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "derived_image.overlay.source_index",
+                                       source_i);
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "derived_image.overlay.source_item_id",
+                                       source_id);
+                        emit_i32_field(store, block, (*io_order)++,
+                                       "derived_image.overlay.offset_x",
+                                       overlay.offset_x[source_i]);
+                        emit_i32_field(store, block, (*io_order)++,
+                                       "derived_image.overlay.offset_y",
+                                       overlay.offset_y[source_i]);
+                    }
+                }
+            } else {
+                descriptor_required    = false;
+                descriptor_valid       = true;
+                source_count_valid     = source_count == 1U;
+                uint32_t source_id     = 0U;
+                const bool have_source = get_dimg_source(p, info.item_id, 0U,
+                                                         &source_id);
+                construction_valid     = source_count_valid && have_source
+                                     && source_id != info.item_id;
+                emit_u32_field(store, block, (*io_order)++,
+                               "derived_image.identity.item_id", info.item_id);
+                if (have_source) {
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "derived_image.identity.source_item_id",
+                                   source_id);
+                }
+            }
+
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.descriptor_required",
+                          descriptor_required ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.descriptor_available",
+                          descriptor_available ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.descriptor_valid",
+                          descriptor_valid ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.source_count_valid",
+                          source_count_valid ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.construction_valid",
+                          construction_valid ? 1U : 0U);
+
+            if (p.have_item_id && info.item_id == p.item_id) {
+                emit_text_field(store, block, (*io_order)++,
+                                "primary.derived_construction", construction);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_descriptor_valid",
+                              descriptor_valid ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_source_count_valid",
+                              source_count_valid ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_construction_valid",
+                              construction_valid ? 1U : 0U);
+                if (descriptor_valid
+                    && info.item_type != fourcc('i', 'd', 'e', 'n')) {
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "primary.derived_output_width",
+                                   output_width);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "primary.derived_output_height",
+                                   output_height);
+                }
+                if (info.item_type == fourcc('g', 'r', 'i', 'd')) {
+                    if (descriptor_valid) {
+                        emit_u16_field(store, block, (*io_order)++,
+                                       "primary.derived_grid_rows", grid_rows);
+                        emit_u16_field(store, block, (*io_order)++,
+                                       "primary.derived_grid_columns",
+                                       grid_columns);
+                    }
+                }
+            }
+        }
     }
 
     static const AuxItemInfo* find_aux_item_info(const PrimaryProps& out,
@@ -4940,8 +5587,10 @@ namespace {
             if (idat.header_size > idat.size) {
                 return false;
             }
-            out->have_idat  = true;
-            out->idat_bytes = idat.size - idat.header_size;
+            out->have_idat           = true;
+            out->idat_bytes          = idat.size - idat.header_size;
+            out->idat_payload_offset = idat.offset + idat.header_size;
+            out->idat_payload_end    = idat.offset + idat.size;
         }
 
         if (has_iloc) {
@@ -5193,6 +5842,8 @@ namespace {
                                            p);
                     emit_item_location_fields(*ctx->store, ctx->block,
                                               ctx->order, p);
+                    emit_derived_image_fields(*ctx->store, ctx->block,
+                                              ctx->order, bytes, p);
                     if (p.have_item_id) {
                         emit_u32_field(*ctx->store, ctx->block, (*ctx->order)++,
                                        "meta.primary_item_id", p.item_id);

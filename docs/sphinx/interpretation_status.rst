@@ -243,15 +243,18 @@ Coverage matrix
        ``altr``, ``ster``, and ``pymd``, per-group-type summaries, primary
        item-group
        memberships, bounded ``iloc``/``idat`` item-data layout summaries,
-       primary item-location aliases, primary-linked roles with linked-item
+       bounded ``grid``/``iovl``/``iden`` construction descriptors with
+       ordered source IDs, grid coordinates, overlay offsets/background,
+       identity sources, and fail-closed validity fields, primary item-location
+       and derived-construction aliases, primary-linked roles with linked-item
        semantic aggregate counters, aux semantics, primary color/profile
        property summaries, primary display dimensions and transform summary,
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - High, about 92-94%.
-     - Complex derived-image construction semantics and full C2PA
-       manifest/policy semantics.
+     - High, about 94-96%.
+     - Item-offset derived descriptors, newer derived/tiled constructions,
+       graph-cycle validation, and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
@@ -297,8 +300,9 @@ Coverage matrix
        including NikonSettings groups, expanded source color/style/lens/
        source-processing aliases including Canon AF micro-adjustment and
        ambience-selection fields, source-processing buckets, explicit
-       ``container_graph`` concepts for BMFF content-bound metadata and
-       whole-scene/primary-component/per-component multi-image policy,
+       ``container_graph`` concepts for BMFF content-bound metadata,
+       derived-image construction, and whole-scene/primary-component/
+       per-component multi-image policy,
        optional
        RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
@@ -320,13 +324,15 @@ Coverage matrix
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
        source-specific image geometry, color/profile, RAW curves/linearity
-       metadata, RAW-processing, MakerNote, JUMBF/C2PA, and vendor-private
-       data, with concept-level diagnostics that report
+       metadata, RAW-processing, MakerNote, BMFF content-bound/multi-image/
+       derived-construction policy, JUMBF/C2PA, and vendor-private data, with
+       concept-level diagnostics that report
        keep/drop/requires-target-image-spec actions, severity, stable summary
        and message tokens, localizable argument tokens, RAW applicability, and
        role-specific default message text before prepare. BMFF
-       content-bound/multi-image scene policy fields now resolve to
-       source-bound container-graph diagnostics for rendered-image transfers.
+       content-bound/multi-image scene and derived-image construction fields
+       now resolve to source-bound container-graph diagnostics for
+       rendered-image transfers.
        Source-processing
        diagnostics distinguish computational, thermal, and stitch/panorama
        message tokens.
@@ -354,10 +360,10 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Deepen remaining BMFF/CR3/HEIF/AVIF derived-image construction semantics
-   beyond current direction-aware relations, semantic item groups, component
-   membership, primary-item, primary-scene, sidecar, and item-property
-   summaries only where hosts can use the result safely.
+1. Extend remaining BMFF/CR3/HEIF/AVIF derived-image interpretation to
+   item-offset descriptor chains, newer tiled/derived item types, and bounded
+   graph-cycle/source validation without weakening current fail-closed extent
+   rules.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
    layouts, bounded descriptor traversal, and embedded metadata carriers.
 3. Broaden transfer diagnostic policy coverage now that stable message tokens

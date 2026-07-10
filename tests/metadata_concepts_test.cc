@@ -1872,6 +1872,8 @@ namespace {
         const EntryId component_multi_image_policy
             = add_bmff_text(&store, "scene.component.multi_image_policy",
                             "requires_target_rewrite");
+        const EntryId derived_construction
+            = add_bmff_text(&store, "derived_image.construction", "grid");
         store.finalize();
 
         const MetadataConceptResolution graph
@@ -1914,6 +1916,18 @@ namespace {
             contains_entry(graph.source_entries, component_multi_image));
         EXPECT_TRUE(
             contains_entry(graph.source_entries, component_multi_image_policy));
+
+        const MetadataConceptCandidate* derived_candidate
+            = find_role(graph, MetadataConceptRole::DerivedImageConstruction);
+        ASSERT_NE(derived_candidate, nullptr);
+        EXPECT_EQ(derived_candidate->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(derived_candidate->compatible_file_safe);
+        EXPECT_FALSE(derived_candidate->rendered_image_safe);
+        EXPECT_TRUE(derived_candidate->source_bound);
+        EXPECT_EQ(derived_candidate->text, "grid");
+        EXPECT_TRUE(contains_entry(derived_candidate->source_entries,
+                                   derived_construction));
 
         const MetadataConceptResult all = resolve_metadata_concepts(store);
         const MetadataConceptResolution* graph_in_all

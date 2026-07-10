@@ -840,6 +840,7 @@ namespace {
         case MetadataConceptRole::RawExposureAdjustment:
         case MetadataConceptRole::ContentBoundMetadata:
         case MetadataConceptRole::MultiImageScene:
+        case MetadataConceptRole::DerivedImageConstruction:
         case MetadataConceptRole::Primary:
         case MetadataConceptRole::Orientation:
         case MetadataConceptRole::Created:
@@ -934,6 +935,7 @@ namespace {
             case MetadataConceptRole::RawExposureAdjustment:
             case MetadataConceptRole::ContentBoundMetadata:
             case MetadataConceptRole::MultiImageScene:
+            case MetadataConceptRole::DerivedImageConstruction:
             case MetadataConceptRole::Primary:
                 set_transfer_hint(candidate,
                                   MetadataConceptTransferHint::SourceBound,
@@ -1013,7 +1015,8 @@ namespace {
             case MetadataConceptRole::Gain:
             case MetadataConceptRole::RawExposureAdjustment: break;
             case MetadataConceptRole::ContentBoundMetadata:
-            case MetadataConceptRole::MultiImageScene: break;
+            case MetadataConceptRole::MultiImageScene:
+            case MetadataConceptRole::DerivedImageConstruction: break;
             }
             break;
         }
@@ -3066,6 +3069,12 @@ namespace {
                            "candidate")) {
                 role     = MetadataConceptRole::MultiImageScene;
                 priority = 88U;
+            } else if (bmff_entry_field_matches(store, entry,
+                                                "derived_image.construction")
+                       || bmff_entry_field_matches(
+                           store, entry, "primary.derived_construction")) {
+                role     = MetadataConceptRole::DerivedImageConstruction;
+                priority = 89U;
             } else {
                 continue;
             }
@@ -3205,7 +3214,8 @@ namespace {
         case MetadataConceptRole::Gain:
         case MetadataConceptRole::RawExposureAdjustment:
         case MetadataConceptRole::ContentBoundMetadata:
-        case MetadataConceptRole::MultiImageScene: break;
+        case MetadataConceptRole::MultiImageScene:
+        case MetadataConceptRole::DerivedImageConstruction: break;
         }
         return 0.0;
     }
@@ -3391,6 +3401,7 @@ namespace {
             MetadataConceptRole::SourceColorTransform,
             MetadataConceptRole::ContentBoundMetadata,
             MetadataConceptRole::MultiImageScene,
+            MetadataConceptRole::DerivedImageConstruction,
         };
         for (size_t i = 0U; i < std::size(roles); ++i) {
             mark_role_preferred(resolution, roles[i]);
@@ -3625,7 +3636,8 @@ metadata_raw_applicability_for_descriptor(
     case MetadataConceptRole::RawExposureAdjustment:
     case MetadataConceptRole::SourceColorTransform:
     case MetadataConceptRole::ContentBoundMetadata:
-    case MetadataConceptRole::MultiImageScene: break;
+    case MetadataConceptRole::MultiImageScene:
+    case MetadataConceptRole::DerivedImageConstruction: break;
     }
     return MetadataRawApplicabilityState::Unknown;
 }
@@ -3716,6 +3728,8 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::ContentBoundMetadata:
         return "content_bound_metadata";
     case MetadataConceptRole::MultiImageScene: return "multi_image_scene";
+    case MetadataConceptRole::DerivedImageConstruction:
+        return "derived_image_construction";
     }
     return "unknown";
 }

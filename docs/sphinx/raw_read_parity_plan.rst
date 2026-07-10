@@ -60,9 +60,9 @@ Family Gap Matrix
      - Bounded BMFF plus EXIF/XMP/ICC/CR3 maker metadata, including
        item/property associations, direction-aware item relations, semantic
        item groups, component membership, semantic composition, and typed
-       relation counts
-     - Complex derived-image construction semantics and CR3-specific private
-       records
+       relation counts, plus bounded ``grid``/``iovl``/``iden`` constructions
+     - Item-offset/newer tiled-derived semantics, graph-cycle validation, and
+       CR3-specific private records
      - Continue bounded BMFF metadata graph interpretation before broad CR3
        private-table work
    * - Canon CRW/CIFF
@@ -114,8 +114,9 @@ Priority
    sections, long-tail CRW/CIFF private tables, and deeper X3F section
    interpretation.
 3. Deepen remaining BMFF interpretation for CR3, HEIF, and AVIF metadata
-   graphs beyond current component membership, direction-aware typed
-   relations, semantic item groups, and primary-item summaries.
+   graphs beyond current construction descriptors, component membership,
+   direction-aware typed relations, semantic item groups, and primary-item
+   summaries.
 4. Add X3F image-processing section decode only when the fields can be named,
    typed, and safety-classified.
 5. Continue vendor MakerNote table work for fields that affect crop, color,

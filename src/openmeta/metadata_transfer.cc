@@ -13695,6 +13695,13 @@ transfer_concept_diagnostic_message(
                        "source container graph and will be dropped for this "
                        "transfer mode";
             }
+            if (diagnostic.kind == MetadataConceptKind::ContainerGraph
+                && diagnostic.role
+                       == MetadataConceptRole::DerivedImageConstruction) {
+                return "derived-image construction metadata is bound to the "
+                       "source container graph and will be dropped for this "
+                       "transfer mode";
+            }
             if (diagnostic.kind == MetadataConceptKind::RawProcessing
                 && diagnostic.role
                        == MetadataConceptRole::ComputationalProcessing) {
@@ -13809,6 +13816,11 @@ transfer_concept_diagnostic_message_token(
             if (diagnostic.kind == MetadataConceptKind::ContainerGraph
                 && diagnostic.role == MetadataConceptRole::MultiImageScene) {
                 return "drop.multi_image_scene";
+            }
+            if (diagnostic.kind == MetadataConceptKind::ContainerGraph
+                && diagnostic.role
+                       == MetadataConceptRole::DerivedImageConstruction) {
+                return "drop.derived_image_construction";
             }
             if (diagnostic.kind == MetadataConceptKind::RawProcessing
                 && diagnostic.role

@@ -6309,7 +6309,9 @@ NB_MODULE(_openmeta, m)
                MetadataConceptRole::RawCurveControlPoints)
         .value("ContentBoundMetadata",
                MetadataConceptRole::ContentBoundMetadata)
-        .value("MultiImageScene", MetadataConceptRole::MultiImageScene);
+        .value("MultiImageScene", MetadataConceptRole::MultiImageScene)
+        .value("DerivedImageConstruction",
+               MetadataConceptRole::DerivedImageConstruction);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

@@ -47,10 +47,13 @@ entry index=0 name="Make" key_kind="exif_tag" value_kind="text" ...
 Each emitted entry is based on `visit_metadata(...)`, so ordering, duplicate
 handling, and naming follow the selected `ExportNameStyle`. By default the
 dump uses the stable `FlatHost` contract.
-BMFF component membership, role, and policy fields such as
+BMFF component membership, role, policy, and derived-image construction fields
+such as
 `bmff:scene.component.item_id`, `bmff:scene.component.role`,
 `bmff:scene.component.metadata_policy`, and
-`bmff:scene.component.multi_image_policy` are emitted as normal `bmff_field`
+`bmff:scene.component.multi_image_policy`, plus
+`bmff:derived_image.construction` and
+`bmff:derived_image.construction_valid`, are emitted as normal `bmff_field`
 entries, so host baselines can verify container-graph evidence without a
 separate decoder-specific dump format.
 

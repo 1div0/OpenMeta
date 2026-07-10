@@ -76,7 +76,7 @@ Current tracked-gate status:
 | Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, working-path and numbered clipping-path record summaries, descriptor-header, simple descriptor-item, enum, and nested list/object summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
-| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, graph summaries with bounded component roles, member item IDs, semantic/relation counts and policy hints, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
+| BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, bounded `grid`/`iovl`/`iden` construction semantics, graph summaries with component roles, member item IDs, semantic/relation counts and policy hints, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
 | JUMBF / C2PA (`JumbfField`, `JumbfCborKey`) | Partial | Yes | Yes | Draft structural and semantic layer with box labels; not full conformance |
 | EXR attributes (`ExrAttribute`) | Yes | Native names | Yes | Header attributes only |
 
@@ -228,6 +228,11 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
 - bounded `iloc`/`idat` item-data layout summaries, including construction
   methods, extent counts, total extent byte counts, idat byte counts, and
   primary-item location aliases
+- bounded `grid`, `iovl`, and `iden` derived-image construction rows with
+  ordered `dimg` source IDs, descriptor/source/construction validity, grid
+  rows, columns, tile coordinates and output size, overlay canvas/background
+  and signed source offsets, identity sources, primary aliases, and a
+  source-bound `container_graph` concept for query/transfer diagnostics
 - graph summaries
 - `auxC`-typed auxiliary semantics
 - bounded primary-linked image-role fields, separate primary inbound
@@ -239,6 +244,10 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   ratio, pixel component bit depth, and clean aperture
 
 This is intentionally smaller than a full QuickTime/BMFF semantic model.
+Derived descriptors are interpreted only from complete self-contained
+method-0 file extents or method-1 `idat` extents. Method-2 item-offset chains,
+external data references, and incomplete extent inventories remain
+structural-only.
 
 ### JXL
 

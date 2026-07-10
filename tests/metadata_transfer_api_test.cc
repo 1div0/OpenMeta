@@ -22041,6 +22041,8 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
     const openmeta::EntryId component_multi_image
         = add_bmff_text(&store, "scene.component.multi_image_policy",
                         "requires_target_rewrite");
+    const openmeta::EntryId derived_construction
+        = add_bmff_text(&store, "derived_image.construction", "overlay");
     store.finalize();
 
     const openmeta::TransferConceptDiagnostics rendered
@@ -22086,6 +22088,23 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
     EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(
                      *multi_image_diag),
                  "multi-image container scene metadata is bound to the source "
+                 "container graph and will be dropped for this transfer mode");
+
+    const openmeta::TransferConceptDiagnostic* derived_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::DerivedImageConstruction,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(derived_diag, nullptr);
+    EXPECT_EQ(derived_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_TRUE(derived_diag->source_bound);
+    EXPECT_TRUE(
+        contains_entry_id(derived_diag->source_entries, derived_construction));
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(*derived_diag),
+              "drop.derived_image_construction");
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(*derived_diag),
+                 "derived-image construction metadata is bound to the source "
                  "container graph and will be dropped for this transfer mode");
 
     const openmeta::TransferConceptDiagnostics compatible

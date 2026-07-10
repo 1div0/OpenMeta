@@ -1,5 +1,28 @@
 # OpenMeta Changes
 
+## 0.4.69 - 2026-07-10
+
+Changes compared with `0.4.68`.
+
+### Added
+
+- Added bounded BMFF `grid`, `iovl`, and `iden` construction interpretation,
+  including ordered source items, grid tile coordinates, output dimensions,
+  overlay background color and signed source offsets, and identity sources.
+- Added construction validity fields for descriptor availability, descriptor
+  parsing, source-count constraints, and complete derived-image usability.
+- Added direct bounded descriptor reads across local-file and `idat` `iloc`
+  extents without copying complete item payloads.
+- Added a source-bound `DerivedImageConstruction` container-graph concept role,
+  rendered-transfer diagnostic text/token, and thin Python enum exposure.
+
+### Changed
+
+- Classified `grid`, `iovl`, and `iden` item types as derived images in BMFF
+  semantic summaries.
+- Updated public BMFF support, interpretation, compatibility, API stability,
+  RAW parity, and development documentation for derived-image constructions.
+
 ## 0.4.68 - 2026-07-10
 
 Changes compared with `0.4.67`.
