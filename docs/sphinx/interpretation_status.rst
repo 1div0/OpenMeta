@@ -221,7 +221,8 @@ Coverage matrix
        component summaries, bounded per-component rows with role text,
        ordered member item IDs, known/unknown and semantic node counts,
        isolated-state, primary membership, typed auxiliary/derived/thumbnail/
-       content-description relation counts, alpha/depth/disparity/matte
+       content-description relation counts with direction-correct endpoint
+       roles and named item-id aliases, alpha/depth/disparity/matte
        auxiliary counts, and conservative component policy text, component
        content-bound counts, primary component
        content-bound flags, primary component multi-image candidates and
@@ -229,14 +230,18 @@ Coverage matrix
        policy hints, primary
        metadata-carrier/C2PA/JUMBF flags when the primary item itself is a
        metadata item, primary sidecar counts/flags for
-       linked metadata and image sidecars, content-bound C2PA/JUMBF sidecar
+       linked metadata and image sidecars, separate primary inbound
+       derived-item and outbound derived-source summaries, content-bound
+       C2PA/JUMBF sidecar
        policy hints, compact primary-scene node/edge summaries with unique
        linked-item role buckets, per-role edge counters, and
        image/metadata/content-bound metadata node counts, bounded
        ``ipco`` property-container summary counts, bounded
        ``ipma`` item-property association rows and per-property-type
        association/primary/essential rollups, bounded relations, ``grpl``
-       item-group rows, per-group-type summaries, primary item-group
+       item-group rows with group semantics and ordered entity roles for
+       ``altr``, ``ster``, and ``pymd``, per-group-type summaries, primary
+       item-group
        memberships, bounded ``iloc``/``idat`` item-data layout summaries,
        primary item-location aliases, primary-linked roles with linked-item
        semantic aggregate counters, aux semantics, primary color/profile
@@ -244,9 +249,9 @@ Coverage matrix
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - High, about 90-93%.
-     - Deeper derived-image/group semantics and full C2PA manifest/policy
-       semantics.
+     - High, about 92-94%.
+     - Complex derived-image construction semantics and full C2PA
+       manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
@@ -349,10 +354,10 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Deepen remaining BMFF/CR3/HEIF/AVIF derived-image and item-group semantics
-   beyond current component membership, typed relations, primary-item,
-   primary-scene, sidecar, and item-property summaries only where hosts can
-   use the result safely.
+1. Deepen remaining BMFF/CR3/HEIF/AVIF derived-image construction semantics
+   beyond current direction-aware relations, semantic item groups, component
+   membership, primary-item, primary-scene, sidecar, and item-property
+   summaries only where hosts can use the result safely.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
    layouts, bounded descriptor traversal, and embedded metadata carriers.
 3. Broaden transfer diagnostic policy coverage now that stable message tokens

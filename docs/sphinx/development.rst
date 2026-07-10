@@ -38,7 +38,9 @@ model should stay compact:
        associations and rollups including ``avio`` AVIF brands, item groups,
        item semantic counts, whole-scene policy hints including multi-image
        policy text, graph-component summaries with per-component roles,
-       member item IDs, semantic composition, and typed relation counts,
+       member item IDs, semantic composition, direction-correct relation
+       endpoint roles and named item-id aliases, semantic item-group roles,
+       and typed relation counts,
        ``container_graph``
        concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,

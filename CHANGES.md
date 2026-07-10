@@ -1,5 +1,27 @@
 # OpenMeta Changes
 
+## 0.4.68 - 2026-07-10
+
+Changes compared with `0.4.67`.
+
+### Added
+
+- Added direction-correct semantic endpoint roles and named item-id aliases
+  for BMFF `auxl`, `dimg`, `thmb`, and `cdsc` item references while preserving
+  the literal source/target fields.
+- Added separate primary derived-image and derived-source summaries so inbound
+  derived items are not confused with source images used by a derived primary.
+- Added semantic and per-entity role fields for bounded BMFF `altr`, `ster`,
+  and `pymd` item groups.
+
+### Changed
+
+- Corrected primary sidecar, auxiliary subtype, and scene-component
+  interpretation to follow the encoded direction of known BMFF item-reference
+  types.
+- Updated public BMFF support, interpretation, RAW parity, and development
+  documentation for direction-aware relations and semantic item groups.
+
 ## 0.4.67 - 2026-07-10
 
 Changes compared with `0.4.66`.

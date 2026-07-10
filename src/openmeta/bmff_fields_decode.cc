@@ -424,6 +424,92 @@ namespace {
                || ref_type == fourcc('c', 'd', 's', 'c');
     }
 
+    static std::string_view iref_from_role_name(uint32_t ref_type) noexcept
+    {
+        if (ref_type == fourcc('a', 'u', 'x', 'l')) {
+            return "auxiliary_image";
+        }
+        if (ref_type == fourcc('d', 'i', 'm', 'g')) {
+            return "derived_image";
+        }
+        if (ref_type == fourcc('t', 'h', 'm', 'b')) {
+            return "thumbnail_image";
+        }
+        if (ref_type == fourcc('c', 'd', 's', 'c')) {
+            return "descriptive_item";
+        }
+        return {};
+    }
+
+    static std::string_view iref_to_role_name(uint32_t ref_type) noexcept
+    {
+        if (ref_type == fourcc('a', 'u', 'x', 'l')
+            || ref_type == fourcc('t', 'h', 'm', 'b')) {
+            return "master_image";
+        }
+        if (ref_type == fourcc('d', 'i', 'm', 'g')) {
+            return "source_image";
+        }
+        if (ref_type == fourcc('c', 'd', 's', 'c')) {
+            return "described_item";
+        }
+        return {};
+    }
+
+    static void emit_iref_semantic_edge_fields(MetaStore& store, BlockId block,
+                                               uint32_t* io_order,
+                                               uint32_t ref_type,
+                                               std::string_view rel_type,
+                                               uint32_t from_item_id,
+                                               uint32_t to_item_id) noexcept
+    {
+        if (!io_order || rel_type.empty()) {
+            return;
+        }
+        const std::string_view from_role = iref_from_role_name(ref_type);
+        const std::string_view to_role   = iref_to_role_name(ref_type);
+        if (from_role.empty() || to_role.empty()) {
+            return;
+        }
+
+        std::string field("iref.");
+        field.append(rel_type);
+        const size_t base_len = field.size();
+
+        field.append(".from_role");
+        emit_text_field(store, block, (*io_order)++, field, from_role);
+        field.resize(base_len);
+        field.append(".to_role");
+        emit_text_field(store, block, (*io_order)++, field, to_role);
+        field.resize(base_len);
+
+        if (ref_type == fourcc('a', 'u', 'x', 'l')) {
+            field.append(".auxiliary_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, from_item_id);
+            field.resize(base_len);
+            field.append(".master_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, to_item_id);
+        } else if (ref_type == fourcc('d', 'i', 'm', 'g')) {
+            field.append(".derived_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, from_item_id);
+            field.resize(base_len);
+            field.append(".source_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, to_item_id);
+        } else if (ref_type == fourcc('t', 'h', 'm', 'b')) {
+            field.append(".thumbnail_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, from_item_id);
+            field.resize(base_len);
+            field.append(".master_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, to_item_id);
+        } else if (ref_type == fourcc('c', 'd', 's', 'c')) {
+            field.append(".descriptive_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, from_item_id);
+            field.resize(base_len);
+            field.append(".described_item_id");
+            emit_u32_field(store, block, (*io_order)++, field, to_item_id);
+        }
+    }
+
     static void emit_iref_typed_edge_fields(MetaStore& store, BlockId block,
                                             uint32_t* io_order,
                                             std::string_view rel_type,
@@ -832,6 +918,8 @@ namespace {
 
         std::array<uint32_t, 128> primary_dimg_item_ids {};
         uint32_t primary_dimg_count = 0;
+        std::array<uint32_t, 128> primary_dimg_source_item_ids {};
+        uint32_t primary_dimg_source_count = 0;
         std::array<uint32_t, 128> primary_thmb_item_ids {};
         uint32_t primary_thmb_count = 0;
         std::array<uint32_t, 128> primary_cdsc_item_ids {};
@@ -950,6 +1038,41 @@ namespace {
                                       edge_count, from_count, to_count);
     }
 
+    static std::string_view item_group_semantic_name(uint32_t type) noexcept
+    {
+        if (type == fourcc('a', 'l', 't', 'r')) {
+            return "alternatives";
+        }
+        if (type == fourcc('s', 't', 'e', 'r')) {
+            return "stereo_pair";
+        }
+        if (type == fourcc('p', 'y', 'm', 'd')) {
+            return "image_pyramid";
+        }
+        return "unclassified";
+    }
+
+    static std::string_view item_group_entity_role_name(uint32_t type,
+                                                        uint32_t index) noexcept
+    {
+        if (type == fourcc('a', 'l', 't', 'r')) {
+            return "alternative";
+        }
+        if (type == fourcc('s', 't', 'e', 'r')) {
+            if (index == 0U) {
+                return "left_image";
+            }
+            if (index == 1U) {
+                return "right_image";
+            }
+            return "stereo_member";
+        }
+        if (type == fourcc('p', 'y', 'm', 'd')) {
+            return "pyramid_layer";
+        }
+        return "member";
+    }
+
     static void
     emit_item_group_type_summary(MetaStore& store, BlockId block,
                                  uint32_t* io_order, uint32_t group_type,
@@ -994,9 +1117,19 @@ namespace {
             field.resize(base_len);
 
             for (uint32_t j = 0U; j < group.entity_id_count; ++j) {
+                field.append(".entity_index");
+                emit_u32_field(store, block, (*io_order)++, field, j);
+                field.resize(base_len);
+
                 field.append(".entity_id");
                 emit_u32_field(store, block, (*io_order)++, field,
                                group.entity_ids[j]);
+                field.resize(base_len);
+
+                field.append(".entity_role");
+                emit_text_field(store, block, (*io_order)++, field,
+                                item_group_entity_role_name(group.group_type,
+                                                            j));
                 field.resize(base_len);
             }
             if (group.entity_truncated) {
@@ -1034,13 +1167,21 @@ namespace {
                            group.group_type);
             emit_text_field(store, block, (*io_order)++, "item_group.type_name",
                             bmff_fourcc_display_name(group.group_type));
+            emit_text_field(store, block, (*io_order)++, "item_group.semantic",
+                            item_group_semantic_name(group.group_type));
             emit_u32_field(store, block, (*io_order)++, "item_group.id",
                            group.group_id);
             emit_u32_field(store, block, (*io_order)++,
                            "item_group.entity_count", group.entity_count);
             for (uint32_t j = 0U; j < group.entity_id_count; ++j) {
                 emit_u32_field(store, block, (*io_order)++,
+                               "item_group.entity_index", j);
+                emit_u32_field(store, block, (*io_order)++,
                                "item_group.entity_id", group.entity_ids[j]);
+                emit_text_field(store, block, (*io_order)++,
+                                "item_group.entity_role",
+                                item_group_entity_role_name(group.group_type,
+                                                            j));
             }
             if (group.entity_truncated) {
                 emit_u8_field(store, block, (*io_order)++,
@@ -1095,6 +1236,9 @@ namespace {
             emit_text_field(store, block, (*io_order)++,
                             "primary.item_group_type_name",
                             bmff_fourcc_display_name(group.group_type));
+            emit_text_field(store, block, (*io_order)++,
+                            "primary.item_group_semantic",
+                            item_group_semantic_name(group.group_type));
             emit_u32_field(store, block, (*io_order)++, "primary.item_group_id",
                            group.group_id);
             emit_u32_field(store, block, (*io_order)++,
@@ -1104,6 +1248,26 @@ namespace {
                 emit_u32_field(store, block, (*io_order)++,
                                "primary.item_group_entity_id",
                                group.entity_ids[j]);
+                emit_u32_field(store, block, (*io_order)++,
+                               "primary.item_group_entity_index", j);
+                emit_text_field(store, block, (*io_order)++,
+                                "primary.item_group_entity_role",
+                                item_group_entity_role_name(group.group_type,
+                                                            j));
+                if (group.entity_ids[j] == p.item_id) {
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "primary.item_group_primary_entity_index",
+                                   j);
+                    emit_text_field(store, block, (*io_order)++,
+                                    "primary.item_group_primary_role",
+                                    item_group_entity_role_name(group.group_type,
+                                                                j));
+                }
+            }
+            if (group.entity_count > 0U) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "primary.item_group_other_entity_count",
+                               group.entity_count - 1U);
             }
             if (group.entity_truncated) {
                 emit_u8_field(store, block, (*io_order)++,
@@ -1719,6 +1883,45 @@ namespace {
         return ItemSemantic::Unknown;
     }
 
+    static ItemSemantic
+    scene_relation_source_semantic(uint32_t ref_type) noexcept
+    {
+        if (ref_type == fourcc('a', 'u', 'x', 'l')) {
+            return ItemSemantic::Auxiliary;
+        }
+        if (ref_type == fourcc('d', 'i', 'm', 'g')) {
+            return ItemSemantic::DerivedImage;
+        }
+        if (ref_type == fourcc('t', 'h', 'm', 'b')) {
+            return ItemSemantic::Thumbnail;
+        }
+        if (ref_type == fourcc('c', 'd', 's', 'c')) {
+            return ItemSemantic::ContentDescription;
+        }
+        return ItemSemantic::Unknown;
+    }
+
+    static ItemSemantic
+    classify_scene_item_semantic(const PrimaryProps& p,
+                                 const ItemInfo& info) noexcept
+    {
+        const ItemSemantic base = classify_item_semantic(info);
+        if (item_semantic_is_metadata(base)) {
+            return base;
+        }
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            if (p.iref_edges[i].from_item_id != info.item_id) {
+                continue;
+            }
+            const ItemSemantic relation_semantic
+                = scene_relation_source_semantic(p.iref_edges[i].ref_type);
+            if (relation_semantic != ItemSemantic::Unknown) {
+                return relation_semantic;
+            }
+        }
+        return base;
+    }
+
     struct SceneGraphComponentStats final {
         uint32_t node_count                        = 0;
         uint32_t image_node_count                  = 0;
@@ -1994,7 +2197,7 @@ namespace {
 
         ItemSemanticCounts counts {};
         for (uint32_t i = 0U; i < p.item_info_count; ++i) {
-            count_item_semantic(classify_item_semantic(p.item_infos[i]),
+            count_item_semantic(classify_scene_item_semantic(p, p.item_infos[i]),
                                 &counts);
         }
 
@@ -2061,12 +2264,13 @@ namespace {
         for (uint32_t i = 0U; i < p.item_info_count; ++i) {
             push_scene_node(graph_item_ids, graph_semantics, graph_parent,
                             &graph_node_count, p.item_infos[i].item_id,
-                            classify_item_semantic(p.item_infos[i]));
+                            classify_scene_item_semantic(p, p.item_infos[i]));
         }
         for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
             push_scene_node(graph_item_ids, graph_semantics, graph_parent,
                             &graph_node_count, p.iref_edges[i].from_item_id,
-                            ItemSemantic::Unknown);
+                            scene_relation_source_semantic(
+                                p.iref_edges[i].ref_type));
             push_scene_node(graph_item_ids, graph_semantics, graph_parent,
                             &graph_node_count, p.iref_edges[i].to_item_id,
                             ItemSemantic::Unknown);
@@ -2144,7 +2348,7 @@ namespace {
                     if (ref_type == fourcc('a', 'u', 'x', 'l')) {
                         component.auxiliary_edge_count += 1U;
                         switch (find_aux_item_semantic(
-                            p, p.iref_edges[i].to_item_id)) {
+                            p, p.iref_edges[i].from_item_id)) {
                         case AuxSemantic::Alpha:
                             component.alpha_edge_count += 1U;
                             break;
@@ -2576,7 +2780,7 @@ namespace {
                 }
             }
             if (info) {
-                count_item_semantic(classify_item_semantic(*info),
+                count_item_semantic(classify_scene_item_semantic(p, *info),
                                     &linked_semantic_counts);
             }
         }
@@ -3122,24 +3326,34 @@ namespace {
     }
 
     static void add_primary_item_ref(PrimaryProps* out, uint32_t ref_type,
-                                     uint32_t to_item_id) noexcept
+                                     uint32_t referring_item_id) noexcept
     {
         if (!out) {
             return;
         }
         if (ref_type == fourcc('a', 'u', 'x', 'l')) {
             push_primary_rel(out->primary_auxl_item_ids,
-                             &out->primary_auxl_count, to_item_id);
+                             &out->primary_auxl_count, referring_item_id);
         } else if (ref_type == fourcc('d', 'i', 'm', 'g')) {
             push_primary_rel(out->primary_dimg_item_ids,
-                             &out->primary_dimg_count, to_item_id);
+                             &out->primary_dimg_count, referring_item_id);
         } else if (ref_type == fourcc('t', 'h', 'm', 'b')) {
             push_primary_rel(out->primary_thmb_item_ids,
-                             &out->primary_thmb_count, to_item_id);
+                             &out->primary_thmb_count, referring_item_id);
         } else if (ref_type == fourcc('c', 'd', 's', 'c')) {
             push_primary_rel(out->primary_cdsc_item_ids,
-                             &out->primary_cdsc_count, to_item_id);
+                             &out->primary_cdsc_count, referring_item_id);
         }
+    }
+
+    static void add_primary_dimg_source(PrimaryProps* out,
+                                        uint32_t source_item_id) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        push_primary_rel(out->primary_dimg_source_item_ids,
+                         &out->primary_dimg_source_count, source_item_id);
     }
 
     static bool append_iref_edge(PrimaryProps* out, uint32_t ref_type,
@@ -3161,12 +3375,15 @@ namespace {
             out->iref_truncated = true;
         }
 
-        if (out->have_item_id && from_item_id == out->item_id) {
-            add_primary_item_ref(out, ref_type, to_item_id);
+        if (out->have_item_id && to_item_id == out->item_id) {
+            add_primary_item_ref(out, ref_type, from_item_id);
+        }
+        if (out->have_item_id && from_item_id == out->item_id
+            && ref_type == fourcc('d', 'i', 'm', 'g')) {
+            add_primary_dimg_source(out, to_item_id);
         }
         return true;
     }
-
 
     static bool bmff_parse_pitm(std::span<const std::byte> bytes,
                                 const BmffBox& pitm,
@@ -5299,6 +5516,11 @@ namespace {
                                                    (*ctx->order)++,
                                                    "iref.auxl.to_item_id",
                                                    p.iref_edges[i].to_item_id);
+                                    emit_iref_semantic_edge_fields(
+                                        *ctx->store, ctx->block, ctx->order,
+                                        p.iref_edges[i].ref_type, "auxl",
+                                        p.iref_edges[i].from_item_id,
+                                        p.iref_edges[i].to_item_id);
                                     bump_item_edge_count(
                                         auxl_item_ids, auxl_item_out_counts,
                                         &auxl_item_count,
@@ -5311,10 +5533,10 @@ namespace {
                                         *ctx->store, ctx->block,
                                         (*ctx->order)++, "iref.auxl.semantic",
                                         aux_semantic_name(find_aux_item_semantic(
-                                            p, p.iref_edges[i].to_item_id)));
+                                            p, p.iref_edges[i].from_item_id)));
                                     if (const AuxItemInfo* info
                                         = find_aux_item_info(
-                                            p, p.iref_edges[i].to_item_id)) {
+                                            p, p.iref_edges[i].from_item_id)) {
                                         if (info->aux_type_len > 0) {
                                             emit_text_field(
                                                 *ctx->store, ctx->block,
@@ -5397,6 +5619,11 @@ namespace {
                                                    (*ctx->order)++,
                                                    "iref.dimg.to_item_id",
                                                    p.iref_edges[i].to_item_id);
+                                    emit_iref_semantic_edge_fields(
+                                        *ctx->store, ctx->block, ctx->order,
+                                        p.iref_edges[i].ref_type, "dimg",
+                                        p.iref_edges[i].from_item_id,
+                                        p.iref_edges[i].to_item_id);
                                     bump_item_edge_count(
                                         dimg_item_ids, dimg_item_out_counts,
                                         &dimg_item_count,
@@ -5422,6 +5649,11 @@ namespace {
                                                    (*ctx->order)++,
                                                    "iref.thmb.to_item_id",
                                                    p.iref_edges[i].to_item_id);
+                                    emit_iref_semantic_edge_fields(
+                                        *ctx->store, ctx->block, ctx->order,
+                                        p.iref_edges[i].ref_type, "thmb",
+                                        p.iref_edges[i].from_item_id,
+                                        p.iref_edges[i].to_item_id);
                                     bump_item_edge_count(
                                         thmb_item_ids, thmb_item_out_counts,
                                         &thmb_item_count,
@@ -5447,6 +5679,11 @@ namespace {
                                                    (*ctx->order)++,
                                                    "iref.cdsc.to_item_id",
                                                    p.iref_edges[i].to_item_id);
+                                    emit_iref_semantic_edge_fields(
+                                        *ctx->store, ctx->block, ctx->order,
+                                        p.iref_edges[i].ref_type, "cdsc",
+                                        p.iref_edges[i].from_item_id,
+                                        p.iref_edges[i].to_item_id);
                                     bump_item_edge_count(
                                         cdsc_item_ids, cdsc_item_out_counts,
                                         &cdsc_item_count,
@@ -5701,11 +5938,19 @@ namespace {
                                                         ctx->order,
                                                         "primary.auxl_count",
                                                         p.primary_auxl_count);
+                            emit_count_field_if_nonzero(
+                                *ctx->store, ctx->block, ctx->order,
+                                "primary.auxiliary_image_count",
+                                p.primary_auxl_count);
                             for (uint32_t i = 0; i < p.primary_auxl_count;
                                  ++i) {
                                 emit_u32_field(*ctx->store, ctx->block,
                                                (*ctx->order)++,
                                                "primary.auxl_item_id",
+                                               p.primary_auxl_item_ids[i]);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.auxiliary_image_item_id",
                                                p.primary_auxl_item_ids[i]);
                                 emit_text_field(
                                     *ctx->store, ctx->block, (*ctx->order)++,
@@ -5761,33 +6006,76 @@ namespace {
                                                         ctx->order,
                                                         "primary.dimg_count",
                                                         p.primary_dimg_count);
+                            emit_count_field_if_nonzero(
+                                *ctx->store, ctx->block, ctx->order,
+                                "primary.derived_image_count",
+                                p.primary_dimg_count);
                             for (uint32_t i = 0; i < p.primary_dimg_count;
                                  ++i) {
                                 emit_u32_field(*ctx->store, ctx->block,
                                                (*ctx->order)++,
                                                "primary.dimg_item_id",
                                                p.primary_dimg_item_ids[i]);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.derived_image_item_id",
+                                               p.primary_dimg_item_ids[i]);
+                            }
+                            emit_count_field_if_nonzero(
+                                *ctx->store, ctx->block, ctx->order,
+                                "primary.dimg_source_count",
+                                p.primary_dimg_source_count);
+                            emit_count_field_if_nonzero(
+                                *ctx->store, ctx->block, ctx->order,
+                                "primary.source_image_count",
+                                p.primary_dimg_source_count);
+                            for (uint32_t i = 0;
+                                 i < p.primary_dimg_source_count; ++i) {
+                                emit_u32_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.dimg_source_item_id",
+                                    p.primary_dimg_source_item_ids[i]);
+                                emit_u32_field(
+                                    *ctx->store, ctx->block, (*ctx->order)++,
+                                    "primary.source_image_item_id",
+                                    p.primary_dimg_source_item_ids[i]);
                             }
                             emit_count_field_if_nonzero(*ctx->store, ctx->block,
                                                         ctx->order,
                                                         "primary.thmb_count",
                                                         p.primary_thmb_count);
+                            emit_count_field_if_nonzero(
+                                *ctx->store, ctx->block, ctx->order,
+                                "primary.thumbnail_image_count",
+                                p.primary_thmb_count);
                             for (uint32_t i = 0; i < p.primary_thmb_count;
                                  ++i) {
                                 emit_u32_field(*ctx->store, ctx->block,
                                                (*ctx->order)++,
                                                "primary.thmb_item_id",
                                                p.primary_thmb_item_ids[i]);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.thumbnail_image_item_id",
+                                               p.primary_thmb_item_ids[i]);
                             }
                             emit_count_field_if_nonzero(*ctx->store, ctx->block,
                                                         ctx->order,
                                                         "primary.cdsc_count",
                                                         p.primary_cdsc_count);
+                            emit_count_field_if_nonzero(
+                                *ctx->store, ctx->block, ctx->order,
+                                "primary.descriptive_item_count",
+                                p.primary_cdsc_count);
                             for (uint32_t i = 0; i < p.primary_cdsc_count;
                                  ++i) {
                                 emit_u32_field(*ctx->store, ctx->block,
                                                (*ctx->order)++,
                                                "primary.cdsc_item_id",
+                                               p.primary_cdsc_item_ids[i]);
+                                emit_u32_field(*ctx->store, ctx->block,
+                                               (*ctx->order)++,
+                                               "primary.descriptive_item_id",
                                                p.primary_cdsc_item_ids[i]);
                             }
                             emit_primary_linked_item_roles(*ctx->store,

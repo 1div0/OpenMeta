@@ -220,15 +220,19 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   nodes/edges, primary component content-bound flags, primary component
   multi-image candidates and policy text, and primary component content-bound
   metadata policy
-- typed `iref.<type>.*` rows
-- bounded `grpl` item-group rows and per-group-type summaries
+- typed `iref.<type>.*` rows, including direction-correct endpoint roles and
+  named item-id aliases for `auxl`, `dimg`, `thmb`, and `cdsc`; literal
+  `from_item_id` and `to_item_id` rows remain unchanged
+- bounded `grpl` item-group rows and per-group-type summaries, including group
+  semantics and ordered entity roles for `altr`, `ster`, and `pymd`
 - bounded `iloc`/`idat` item-data layout summaries, including construction
   methods, extent counts, total extent byte counts, idat byte counts, and
   primary-item location aliases
 - graph summaries
 - `auxC`-typed auxiliary semantics
-- bounded primary-linked image-role fields, compact primary sidecar aggregate
-  fields, and compact primary-scene aggregate fields
+- bounded primary-linked image-role fields, separate primary inbound
+  derived-image and outbound derived-source summaries, compact primary sidecar
+  aggregate fields, and compact primary-scene aggregate fields
 - primary `colr` summaries for `nclx`/`nclc` color fields and ICC profile-size
   carriers
 - primary `pasp`, `pixi`, and `clap` item-property summaries for pixel aspect

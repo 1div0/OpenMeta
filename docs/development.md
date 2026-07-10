@@ -701,7 +701,10 @@ This policy surface is intentionally marked draft and may be refined.
     present), bounded `iref.*` relation fields (`ref_type`, `ref_type_name`,
     `from_item_id`, `to_item_id`, `edge_count`), typed derived relation rows
     (`iref.auxl.*`, `iref.dimg.*`, `iref.thmb.*`, `iref.cdsc.*`, and other safe
-    ASCII FourCC relation families), per-type relation counters
+    ASCII FourCC relation families), direction-correct endpoint role and
+    named item-id aliases (`from_role`, `to_role`, auxiliary/master,
+    derived/source, thumbnail/master, and descriptive/described item IDs),
+    per-type relation counters
     (`iref.<type>.edge_count`) and per-type unique source/target counters
     (`iref.<type>.from_item_unique_count`,
     `iref.<type>.to_item_unique_count`), per-type graph-summary aliases
@@ -713,7 +716,8 @@ This policy surface is intentionally marked draft and may be refined.
     relation-graph summaries (`iref.item_count`,
     `iref.from_item_unique_count`, `iref.to_item_unique_count`, row-wise
     `iref.item_id` + `iref.item_out_edge_count` +
-    `iref.item_in_edge_count`), bounded primary-linked image-role rows
+    `iref.item_in_edge_count`), separate primary inbound derived-item and
+    outbound derived-source summaries, bounded primary-linked image-role rows
     (`primary.linked_item_role_count`, row-wise `primary.linked_item_id` +
     `primary.linked_item_type` + `primary.linked_item_type_name` +
     `primary.linked_item_name` + `primary.linked_item_semantic` +
@@ -729,7 +733,8 @@ This policy surface is intentionally marked draft and may be refined.
     `primary.scene_*_edge_count`), whole-scene policy summaries
     (`scene.item_count`, `scene.known_item_count`, `scene.image_node_count`,
     `scene.metadata_node_count`, `scene.content_bound_metadata_node_count`,
-    `scene.edge_count`, `scene.item_group_count`,
+    `scene.edge_count`, `scene.item_group_count`, bounded item-group semantic,
+    entity-index, and entity-role rows for `altr`, `ster`, and `pymd`,
     `scene.has_content_bound_metadata`,
     `scene.content_bound_metadata_policy`, and
     `scene.multi_image_candidate`, `scene.multi_image_policy`),
