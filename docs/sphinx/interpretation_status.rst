@@ -269,9 +269,11 @@ Coverage matrix
        item bodies (``bool``, ``long``, ``comp``, ``doub``, ``UntF``,
        ``TEXT``, ``enum``, ``type``, ``GlbC``, opaque ``alis`` and ``tdta``
        byte counts) with type-name/type-code
-       fields, parsed maximum depth, and parsed per-type counters, empty and
-       non-empty
-       nested object/list summaries with item
+       fields, parsed maximum depth, and parsed per-type counters, ordered
+       bounded ``obj`` reference streams for property,
+       class, enumerated, offset, identifier, index, and name forms with
+       reference paths, depths, indices, values, and aggregate counters,
+       plus empty and non-empty nested object/list summaries with item
        paths, depths, list indices, and parsed-value counts, for resources
        including layer comps, measurement scale, timeline info, sheet
        disclosure, HDR toning, print info, onion skins, count info, print
@@ -286,10 +288,9 @@ Coverage matrix
        halftone/transfer/duotone/EPS byte
        summaries, embedded IPTC/ICC/XMP/EXIF resource byte counts, and
        embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 89-93%.
-     - Bounded descriptor references (``obj`` reference type), full Photoshop
-       action semantics, opaque alias/raw payload interpretation, and
-       long-tail resource interpretation.
+     - Medium-high, about 90-94%.
+     - Full Photoshop action execution semantics, opaque alias/raw payload
+       interpretation, and long-tail resource interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm
@@ -366,20 +367,17 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Add bounded Photoshop descriptor-reference (``obj`` reference type)
-   traversal and reference item summaries without exposing platform-specific
-   alias payload contents.
-2. Keep experimental BMFF tiled-image configuration structural-only until a
+1. Keep experimental BMFF tiled-image configuration structural-only until a
    stable field contract can be exposed without weakening current fail-closed
    extent rules.
-3. Broaden transfer diagnostic policy coverage now that stable message tokens
+2. Broaden transfer diagnostic policy coverage now that stable message tokens
    and localizable argument tokens are available for GUI workflows.
-4. Expand GPS/date policy beyond current coordinate tolerance,
+3. Expand GPS/date policy beyond current coordinate tolerance,
    altitude-reference display, EXIF/XMP timestamp assembly, and bounded
    digitized-date aliases into broader cross-family reconciliation.
-5. Expand the remaining unambiguous MakerNote long tail: encrypted/custom
+4. Expand the remaining unambiguous MakerNote long tail: encrypted/custom
    settings, per-model firmware formulas outside currently supported
    formatter contexts, remaining live-vendor scalar/string-coded fields, and
    per-model tables only where context is strong enough to avoid wrong labels.
-6. Keep transfer-safety classification conservative when interpretation is
+5. Keep transfer-safety classification conservative when interpretation is
    incomplete.

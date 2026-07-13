@@ -121,7 +121,9 @@ Host-facing API map
        item-count fields, bounded descriptor item bodies for ``bool``,
        ``long``, ``comp``, ``doub``, ``UntF``, ``TEXT``, ``enum``, ``type``,
        and ``GlbC``, opaque ``alis`` and ``tdta`` byte counts, descriptor item
-       type-name/type-code fields,
+       type-name/type-code fields, ordered bounded ``obj`` property, class,
+       enumerated, offset, identifier, index, and name reference fields with
+       per-value and aggregate limits,
        parsed maximum depth, and parsed per-type counters, nested
        object/list traversal with item path/depth/list-index and parsed-value
        count fields, ``XMLData``, ImageReady ASCII text resources, Lightroom

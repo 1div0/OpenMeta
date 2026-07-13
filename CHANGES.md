@@ -1,5 +1,26 @@
 # OpenMeta Changes
 
+## 0.4.72 - 2026-07-13
+
+Changes compared with `0.4.71`.
+
+### Added
+
+- Added bounded Photoshop action-descriptor `obj ` reference traversal for
+  property, class, enumerated, offset, identifier, index, and name forms.
+- Added ordered reference path, depth, index, type, class, subtype-value, and
+  aggregate counter fields for host inspection.
+- Added fail-closed malformed, unknown-type, per-reference limit, aggregate
+  limit, and nested-list reference regressions.
+
+### Changed
+
+- Descriptor references are limited to 64 items per `obj ` value and 128
+  items per descriptor; excess or incomplete data sets the existing
+  `DescriptorItemParseTruncated` field.
+- Updated public Photoshop IRB support, interpretation, API stability, and
+  development documentation for the expanded descriptor grammar.
+
 ## 0.4.71 - 2026-07-13
 
 Changes compared with `0.4.70`.

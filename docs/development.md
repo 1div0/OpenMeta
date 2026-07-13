@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups including `avio` AVIF brands, item groups, item semantic counts, whole-scene policy hints, graph-component summaries with per-component roles, member item IDs, semantic composition, typed relation counts, bounded `grid`/`iovl`/`iden` construction semantics with recursive item-offset descriptors and graph-cycle/source validation, `tili` image-item recognition, `container_graph` concepts, primary item properties, primary metadata-carrier flags, primary sidecar and scene summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, working-path and numbered clipping-path records, byte-count, descriptor-header, scalar/class/alias/enum, and bounded nested list/object summaries, EXIF 3.1 correction/noise labels, version/firmware-style value formatting for selected EXIF/Nikon/Olympus/native RAF contexts, selected Sony ILCE-7RM6 correction-offset routing, Fujifilm flash white-balance naming, Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo scalar MakerNote labels, current Canon RF/Nikon Z lens labels, an ambiguous Pentax Sigma/Samsung/Tokina lens-family label, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 97%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups including `avio` AVIF brands, item groups, item semantic counts, whole-scene policy hints, graph-component summaries with per-component roles, member item IDs, semantic composition, typed relation counts, bounded `grid`/`iovl`/`iden` construction semantics with recursive item-offset descriptors and graph-cycle/source validation, `tili` image-item recognition, `container_graph` concepts, primary item properties, primary metadata-carrier flags, primary sidecar and scene summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, working-path and numbered clipping-path records, byte-count, descriptor-header, scalar/class/alias/enum/reference, and bounded nested list/object summaries, EXIF 3.1 correction/noise labels, version/firmware-style value formatting for selected EXIF/Nikon/Olympus/native RAF contexts, selected Sony ILCE-7RM6 correction-offset routing, Fujifilm flash white-balance naming, Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo scalar MakerNote labels, current Canon RF/Nikon Z lens labels, an ambiguous Pentax Sigma/Samsung/Tokina lens-family label, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 97%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, RAW/source-processing fields, and BMFF derived-image construction evidence across standard and vendor metadata. | Medium-high, about 88-93%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -969,9 +969,9 @@ Internal helper conventions (used by vendor decoders):
   `exif_entry_name(..., ExifTagNamePolicy::ExifToolCompat)`.
 - Photoshop IRB stays lossless at the raw-resource layer (`PhotoshopIrb`).
   Add interpreted IRB fields only for fixed-layout resources, bounded
-  descriptor-header summaries, or bounded scalar/class/alias descriptor item
-  bodies, and emit them as separate `PhotoshopIrbField` entries instead of
-  weakening the raw payload surface. The current bounded
+  descriptor-header summaries, or bounded scalar/class/alias/reference
+  descriptor item bodies, and emit them as separate `PhotoshopIrbField`
+  entries instead of weakening the raw payload surface. The current bounded
   interpreted subset includes `ResolutionInfo`,
   `AlphaChannelsNames`, `DisplayInfo`, `PStringCaption`, `BorderInformation`,
   `BackgroundColor`, `Photoshop2Info`, `Photoshop2ColorTable`, `VersionInfo`,
@@ -986,8 +986,9 @@ Internal helper conventions (used by vendor decoders):
   `IPTCDataBytes`, `IPTCDigest`, `PrintScaleInfo`, `PixelInfo`,
   `AutoSaveFilePath`, `AutoSaveFormat`, `XMLData`, `ImageReadyVariables`,
   `ImageReadyDataSets`, working-path and numbered clipping-path record
-  summaries, descriptor-header, scalar/class/alias/enum, and bounded
-  nested list/object summaries for
+  summaries, descriptor-header, scalar/class/alias/enum, bounded `obj `
+  property/class/enumerated/offset/identifier/index/name reference streams,
+  and bounded nested list/object summaries for
   `LayerComps`, `MeasurementScale`, `HDRToningInfo`, `PrintInfo`,
   `TimelineInfo`, `SheetDisclosure`, `OnionSkins`, `CountInfo`,
   `PrintInfo2`, `PrintStyle`,
@@ -997,6 +998,9 @@ Internal helper conventions (used by vendor decoders):
   `MacintoshPrintInfo`, `MacintoshNSPrintInfo`, `WindowsDEVMODE`,
   `AlternateDuotoneColors`, `AlternateSpotColors`, ObsoletePhotoshopTag1,
   ObsoletePhotoshopTag2, and ObsoletePhotoshopTag3.
+- Descriptor `obj ` traversal is capped at 64 reference items per value and
+  128 per descriptor. Unknown, incomplete, or excess items stop traversal,
+  set `DescriptorItemParseTruncated`, and never emit a partial reference item.
 - Legacy 8-bit Photoshop text stays opt-in and explicit. The IRB decoder
   exposes a bounded `PhotoshopIrbStringCharset` policy and currently uses it
   only for `AlphaChannelsNames`, `PStringCaption`, and `ClippingPathName`,

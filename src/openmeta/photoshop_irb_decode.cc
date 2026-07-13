@@ -681,6 +681,7 @@ namespace {
         case descriptor_fourcc('t', 'y', 'p', 'e'): return "class";
         case descriptor_fourcc('G', 'l', 'b', 'C'): return "global_class";
         case descriptor_fourcc('a', 'l', 'i', 's'): return "alias";
+        case descriptor_fourcc('o', 'b', 'j', ' '): return "reference";
         case descriptor_fourcc('O', 'b', 'j', 'c'): return "object";
         case descriptor_fourcc('G', 'l', 'b', 'O'): return "global_object";
         case descriptor_fourcc('V', 'l', 'L', 's'): return "list";
@@ -1412,34 +1413,45 @@ namespace {
     }
 
 
-    static constexpr uint32_t kMaxDescriptorItems  = 64U;
-    static constexpr uint32_t kMaxDescriptorValues = 128U;
-    static constexpr uint32_t kMaxDescriptorDepth  = 4U;
+    static constexpr uint32_t kMaxDescriptorItems           = 64U;
+    static constexpr uint32_t kMaxDescriptorValues          = 128U;
+    static constexpr uint32_t kMaxDescriptorDepth           = 4U;
+    static constexpr uint32_t kMaxDescriptorReferenceItems  = 64U;
+    static constexpr uint32_t kMaxDescriptorReferenceValues = 128U;
 
 
     struct DescriptorParseState final {
-        MetaStore* store                 = nullptr;
-        BlockId block                    = {};
-        uint32_t order                   = 0U;
-        uint16_t resource_id             = 0U;
-        PhotoshopIrbDecodeResult* result = nullptr;
-        uint32_t parsed_values           = 0U;
-        uint32_t bool_count              = 0U;
-        uint32_t integer_count           = 0U;
-        uint32_t double_count            = 0U;
-        uint32_t unit_float_count        = 0U;
-        uint32_t text_count              = 0U;
-        uint32_t enum_count              = 0U;
-        uint32_t large_integer_count     = 0U;
-        uint32_t class_count             = 0U;
-        uint32_t global_class_count      = 0U;
-        uint32_t alias_count             = 0U;
-        uint32_t object_count            = 0U;
-        uint32_t global_object_count     = 0U;
-        uint32_t list_count              = 0U;
-        uint32_t raw_data_count          = 0U;
-        uint32_t max_depth               = 0U;
-        bool parse_truncated             = false;
+        MetaStore* store                    = nullptr;
+        BlockId block                       = {};
+        uint32_t order                      = 0U;
+        uint16_t resource_id                = 0U;
+        PhotoshopIrbDecodeResult* result    = nullptr;
+        uint32_t parsed_values              = 0U;
+        uint32_t bool_count                 = 0U;
+        uint32_t integer_count              = 0U;
+        uint32_t double_count               = 0U;
+        uint32_t unit_float_count           = 0U;
+        uint32_t text_count                 = 0U;
+        uint32_t enum_count                 = 0U;
+        uint32_t large_integer_count        = 0U;
+        uint32_t class_count                = 0U;
+        uint32_t global_class_count         = 0U;
+        uint32_t alias_count                = 0U;
+        uint32_t reference_count            = 0U;
+        uint32_t reference_item_count       = 0U;
+        uint32_t reference_property_count   = 0U;
+        uint32_t reference_class_count      = 0U;
+        uint32_t reference_enum_count       = 0U;
+        uint32_t reference_offset_count     = 0U;
+        uint32_t reference_identifier_count = 0U;
+        uint32_t reference_index_count      = 0U;
+        uint32_t reference_name_count       = 0U;
+        uint32_t object_count               = 0U;
+        uint32_t global_object_count        = 0U;
+        uint32_t list_count                 = 0U;
+        uint32_t raw_data_count             = 0U;
+        uint32_t max_depth                  = 0U;
+        bool parse_truncated                = false;
     };
 
 
@@ -1474,6 +1486,30 @@ namespace {
         const int n = std::snprintf(index_text, sizeof(index_text), "%u",
                                     list_index);
         out->assign(parent.data(), parent.size());
+        out->push_back('[');
+        if (n > 0) {
+            out->append(index_text, static_cast<size_t>(n));
+        }
+        out->push_back(']');
+    }
+
+
+    static void descriptor_make_reference_path(std::string_view parent,
+                                               uint32_t reference_index,
+                                               std::string* out) noexcept
+    {
+        if (!out) {
+            return;
+        }
+        char index_text[32] = {};
+        const int n = std::snprintf(index_text, sizeof(index_text), "%u",
+                                    reference_index);
+        out->assign(parent.data(), parent.size());
+        if (!parent.empty()) {
+            out->append(".ref");
+        } else {
+            out->append("ref");
+        }
         out->push_back('[');
         if (n > 0) {
             out->append(index_text, static_cast<size_t>(n));
@@ -1522,6 +1558,9 @@ namespace {
             break;
         case descriptor_fourcc('a', 'l', 'i', 's'):
             state->alias_count += 1U;
+            break;
+        case descriptor_fourcc('o', 'b', 'j', ' '):
+            state->reference_count += 1U;
             break;
         case descriptor_fourcc('O', 'b', 'j', 'c'):
             state->object_count += 1U;
@@ -1613,6 +1652,283 @@ namespace {
         DescriptorParseState* state, std::string_view item_key,
         std::string_view item_path, uint32_t item_type, uint32_t depth,
         bool have_list_index, uint32_t list_index) noexcept;
+
+
+    struct DescriptorReferenceItem final {
+        uint32_t type = 0U;
+        std::string class_name;
+        std::string class_id;
+        std::string property_id;
+        std::string enum_type;
+        std::string enum_value;
+        std::string name;
+        int32_t offset      = 0;
+        uint32_t identifier = 0U;
+        int32_t index       = 0;
+    };
+
+
+    static std::string_view
+    descriptor_reference_type_name(uint32_t type) noexcept
+    {
+        switch (type) {
+        case descriptor_fourcc('p', 'r', 'o', 'p'): return "property";
+        case descriptor_fourcc('C', 'l', 's', 's'): return "class";
+        case descriptor_fourcc('E', 'n', 'm', 'r'): return "enumerated";
+        case descriptor_fourcc('r', 'e', 'l', 'e'): return "offset";
+        case descriptor_fourcc('I', 'd', 'n', 't'): return "identifier";
+        case descriptor_fourcc('i', 'n', 'd', 'x'): return "index";
+        case descriptor_fourcc('n', 'a', 'm', 'e'): return "name";
+        default: return "unknown";
+        }
+    }
+
+
+    static bool
+    read_descriptor_reference_item(std::span<const std::byte> payload,
+                                   uint64_t* io_offset,
+                                   DescriptorReferenceItem* out) noexcept
+    {
+        if (!io_offset || !out) {
+            return false;
+        }
+        uint64_t offset = *io_offset;
+        if (!read_u32be(payload, offset, &out->type)) {
+            return false;
+        }
+        offset += 4U;
+
+        switch (out->type) {
+        case descriptor_fourcc('p', 'r', 'o', 'p'):
+        case descriptor_fourcc('C', 'l', 's', 's'):
+        case descriptor_fourcc('E', 'n', 'm', 'r'):
+        case descriptor_fourcc('r', 'e', 'l', 'e'):
+        case descriptor_fourcc('I', 'd', 'n', 't'):
+        case descriptor_fourcc('i', 'n', 'd', 'x'):
+        case descriptor_fourcc('n', 'a', 'm', 'e'): break;
+        default: return false;
+        }
+
+        if (!read_var_ustr32_utf8(payload, &offset, &out->class_name)
+            || !read_descriptor_class_id(payload, &offset, &out->class_id)) {
+            return false;
+        }
+        trim_trailing_nul(&out->class_name);
+
+        switch (out->type) {
+        case descriptor_fourcc('p', 'r', 'o', 'p'):
+            if (!read_descriptor_class_id(payload, &offset, &out->property_id)) {
+                return false;
+            }
+            break;
+        case descriptor_fourcc('E', 'n', 'm', 'r'):
+            if (!read_descriptor_class_id(payload, &offset, &out->enum_type)
+                || !read_descriptor_class_id(payload, &offset,
+                                             &out->enum_value)) {
+                return false;
+            }
+            break;
+        case descriptor_fourcc('r', 'e', 'l', 'e'):
+            if (!read_i32be(payload, offset, &out->offset)) {
+                return false;
+            }
+            offset += 4U;
+            break;
+        case descriptor_fourcc('I', 'd', 'n', 't'):
+            if (!read_u32be(payload, offset, &out->identifier)) {
+                return false;
+            }
+            offset += 4U;
+            break;
+        case descriptor_fourcc('i', 'n', 'd', 'x'):
+            if (!read_i32be(payload, offset, &out->index)) {
+                return false;
+            }
+            offset += 4U;
+            break;
+        case descriptor_fourcc('n', 'a', 'm', 'e'):
+            if (!read_var_ustr32_utf8(payload, &offset, &out->name)) {
+                return false;
+            }
+            trim_trailing_nul(&out->name);
+            break;
+        default: break;
+        }
+
+        *io_offset = offset;
+        return true;
+    }
+
+
+    static void count_descriptor_reference_type(DescriptorParseState* state,
+                                                uint32_t type) noexcept
+    {
+        if (!state) {
+            return;
+        }
+        switch (type) {
+        case descriptor_fourcc('p', 'r', 'o', 'p'):
+            state->reference_property_count += 1U;
+            break;
+        case descriptor_fourcc('C', 'l', 's', 's'):
+            state->reference_class_count += 1U;
+            break;
+        case descriptor_fourcc('E', 'n', 'm', 'r'):
+            state->reference_enum_count += 1U;
+            break;
+        case descriptor_fourcc('r', 'e', 'l', 'e'):
+            state->reference_offset_count += 1U;
+            break;
+        case descriptor_fourcc('I', 'd', 'n', 't'):
+            state->reference_identifier_count += 1U;
+            break;
+        case descriptor_fourcc('i', 'n', 'd', 'x'):
+            state->reference_index_count += 1U;
+            break;
+        case descriptor_fourcc('n', 'a', 'm', 'e'):
+            state->reference_name_count += 1U;
+            break;
+        default: break;
+        }
+    }
+
+
+    static void
+    emit_descriptor_reference_item(DescriptorParseState* state,
+                                   std::string_view parent_path,
+                                   uint32_t reference_index, uint32_t depth,
+                                   const DescriptorReferenceItem& item) noexcept
+    {
+        if (!state || !state->store) {
+            return;
+        }
+        MetaStore& store = *state->store;
+        std::string path;
+        descriptor_make_reference_path(parent_path, reference_index, &path);
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorReferencePath",
+                           make_text(store.arena(), path, TextEncoding::Ascii),
+                           state->result);
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorReferenceDepth",
+                           make_u32(depth), state->result);
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorReferenceIndex",
+                           make_u32(reference_index), state->result);
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorReferenceType",
+                           make_u32(item.type), state->result);
+        char type_text[4] = {};
+        if (descriptor_fourcc_ascii(item.type, type_text)) {
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorReferenceTypeCode",
+                               make_text(store.arena(),
+                                         std::string_view(type_text, 4U),
+                                         TextEncoding::Ascii),
+                               state->result);
+        }
+        emit_derived_field(store, state->block, state->order,
+                           state->resource_id, "DescriptorReferenceTypeName",
+                           make_text(store.arena(),
+                                     descriptor_reference_type_name(item.type),
+                                     TextEncoding::Ascii),
+                           state->result);
+        if (!item.class_name.empty()) {
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorReferenceClassName",
+                               make_text(store.arena(), item.class_name,
+                                         TextEncoding::Utf8),
+                               state->result);
+        }
+        if (!item.class_id.empty()) {
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorReferenceClassID",
+                               make_text(store.arena(), item.class_id,
+                                         TextEncoding::Ascii),
+                               state->result);
+        }
+
+        switch (item.type) {
+        case descriptor_fourcc('p', 'r', 'o', 'p'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorReferencePropertyID",
+                               make_text(store.arena(), item.property_id,
+                                         TextEncoding::Ascii),
+                               state->result);
+            break;
+        case descriptor_fourcc('E', 'n', 'm', 'r'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorReferenceEnumType",
+                               make_text(store.arena(), item.enum_type,
+                                         TextEncoding::Ascii),
+                               state->result);
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorReferenceEnumValue",
+                               make_text(store.arena(), item.enum_value,
+                                         TextEncoding::Ascii),
+                               state->result);
+            break;
+        case descriptor_fourcc('r', 'e', 'l', 'e'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorReferenceOffset",
+                               make_i32(item.offset), state->result);
+            break;
+        case descriptor_fourcc('I', 'd', 'n', 't'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorReferenceIdentifier",
+                               make_u32(item.identifier), state->result);
+            break;
+        case descriptor_fourcc('i', 'n', 'd', 'x'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorReferenceIndexValue",
+                               make_i32(item.index), state->result);
+            break;
+        case descriptor_fourcc('n', 'a', 'm', 'e'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorReferenceName",
+                               make_text(store.arena(), item.name,
+                                         TextEncoding::Utf8),
+                               state->result);
+            break;
+        default: break;
+        }
+    }
+
+
+    static bool parse_descriptor_reference_items(
+        std::span<const std::byte> payload, uint64_t* io_offset,
+        DescriptorParseState* state, std::string_view parent_path,
+        uint32_t reference_count, uint32_t depth) noexcept
+    {
+        if (!io_offset || !state) {
+            return false;
+        }
+        if (reference_count > kMaxDescriptorReferenceItems
+            || state->reference_item_count
+                   > kMaxDescriptorReferenceValues - reference_count) {
+            state->parse_truncated = true;
+            return false;
+        }
+        for (uint32_t i = 0U; i < reference_count; ++i) {
+            DescriptorReferenceItem item;
+            if (!read_descriptor_reference_item(payload, io_offset, &item)) {
+                state->parse_truncated = true;
+                return false;
+            }
+            emit_descriptor_reference_item(state, parent_path, i, depth + 1U,
+                                           item);
+            state->reference_item_count += 1U;
+            count_descriptor_reference_type(state, item.type);
+        }
+        return true;
+    }
 
 
     static bool parse_descriptor_keyed_item(std::span<const std::byte> payload,
@@ -1745,7 +2061,8 @@ namespace {
         int64_t large_integer_value = 0;
         std::string class_name;
         std::string class_id;
-        uint32_t alias_bytes = 0U;
+        uint32_t alias_bytes     = 0U;
+        uint32_t reference_count = 0U;
         std::string object_class_name;
         std::string object_class_id;
         uint32_t object_item_count = 0U;
@@ -1815,6 +2132,12 @@ namespace {
                 return false;
             }
             *io_offset += alias_bytes;
+            break;
+        case descriptor_fourcc('o', 'b', 'j', ' '):
+            if (!read_u32be(payload, *io_offset, &reference_count)) {
+                return false;
+            }
+            *io_offset += 4U;
             break;
         case descriptor_fourcc('O', 'b', 'j', 'c'):
         case descriptor_fourcc('G', 'l', 'b', 'O'):
@@ -1927,6 +2250,12 @@ namespace {
                                state->resource_id, "DescriptorItemAliasBytes",
                                make_u32(alias_bytes), state->result);
             break;
+        case descriptor_fourcc('o', 'b', 'j', ' '):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id,
+                               "DescriptorItemReferenceCount",
+                               make_u32(reference_count), state->result);
+            break;
         case descriptor_fourcc('O', 'b', 'j', 'c'):
         case descriptor_fourcc('G', 'l', 'b', 'O'):
             if (!object_class_name.empty()) {
@@ -1966,6 +2295,11 @@ namespace {
         state->parsed_values += 1U;
         count_descriptor_parsed_type(state, item_type, depth);
 
+        if (item_type == descriptor_fourcc('o', 'b', 'j', ' ')) {
+            return parse_descriptor_reference_items(payload, io_offset, state,
+                                                    item_path, reference_count,
+                                                    depth);
+        }
         if (item_type == descriptor_fourcc('O', 'b', 'j', 'c')
             || item_type == descriptor_fourcc('G', 'l', 'b', 'O')) {
             return parse_descriptor_children(payload, io_offset, state,
@@ -2097,6 +2431,42 @@ namespace {
             emit_descriptor_count_if_nonzero(store, block, order, resource_id,
                                              "DescriptorParsedAliasCount",
                                              parse_state.alias_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedReferenceCount",
+                                             parse_state.reference_count,
+                                             result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferenceItemCount",
+                parse_state.reference_item_count, result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferencePropertyCount",
+                parse_state.reference_property_count, result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferenceClassCount",
+                parse_state.reference_class_count, result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferenceEnumCount",
+                parse_state.reference_enum_count, result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferenceOffsetCount",
+                parse_state.reference_offset_count, result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferenceIdentifierCount",
+                parse_state.reference_identifier_count, result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferenceIndexCount",
+                parse_state.reference_index_count, result);
+            emit_descriptor_count_if_nonzero(
+                store, block, order, resource_id,
+                "DescriptorParsedReferenceNameCount",
+                parse_state.reference_name_count, result);
             emit_descriptor_count_if_nonzero(store, block, order, resource_id,
                                              "DescriptorParsedObjectCount",
                                              parse_state.object_count, result);

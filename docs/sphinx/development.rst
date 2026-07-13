@@ -50,7 +50,8 @@ model should stay compact:
        IRB embedded carriers plus
        fixed-layout, XML/text, working-path and numbered clipping-path
        records, byte-count, descriptor-header,
-       scalar/class/alias/enum, and bounded nested list/object summaries,
+       scalar/class/alias/enum/reference, and bounded nested list/object
+       summaries,
        EXIF 3.1 correction/noise labels, version/firmware-style value
        formatting for selected EXIF/Nikon/Olympus/native RAF contexts,
        selected Sony ILCE-7RM6 correction-offset routing, Fujifilm flash

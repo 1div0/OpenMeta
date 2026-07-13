@@ -73,7 +73,7 @@ Current tracked-gate status:
 | XMP (`MetaKeyKind::XmpProperty`) | Yes | Native schema/path | Yes | Requires Expat at build time |
 | ICC (`IccHeaderField`, `IccTag`) | Yes | Yes | Yes | Header fields plus tag table; raw tag payload preserved |
 | IPTC-IIM (`IptcDataset`) | Yes | Yes | Yes | Raw dataset bytes preserved |
-| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, working-path and numbered clipping-path record summaries, descriptor-header, scalar/class/alias, enum, and nested list/object summaries, embedded IPTC/XMP/ICC decode |
+| Photoshop IRB (`PhotoshopIrb`) | Yes | Partial / Yes | Yes | Raw resources preserved, bounded interpreted subset, fixed-layout, Lightroom workflow, IPTC-NAA byte count, working-path and numbered clipping-path record summaries, descriptor-header, scalar/class/alias/reference, enum, and nested list/object summaries, embedded IPTC/XMP/ICC decode |
 | MPF | Yes | Yes | Yes | Basic TIFF-IFD decode |
 | GeoTIFF (`GeotiffKey`) | Yes | Yes | Yes | GeoKeyDirectoryTag decode |
 | BMFF derived fields (`BmffField`) | Yes | Yes | Yes | `ftyp` brand names including `avif`/`avis`/`avio` AVIF-compatible brands, item-info, `ipco`, `ipma`, `iref`, `grpl`, `iloc`/`idat`, bounded `grid`/`iovl`/`iden` construction semantics, graph summaries with component roles, member item IDs, semantic/relation counts and policy hints, aux semantics, primary item properties, primary metadata-carrier flags, primary sidecar summaries, primary-scene summaries, and bounded primary-linked image roles |
@@ -154,8 +154,8 @@ summaries such as:
 - `ColorSamplersResource` / `ColorSamplersResource2` headers and records
 - `WorkingPath` and numbered path resources as byte counts plus record
   counts/selectors
-- descriptor-header summaries, bounded scalar, class, alias, and enum
-  descriptor item bodies, raw-data descriptor byte counts, and bounded nested
+- descriptor-header summaries, bounded scalar, class, alias, enum, and `obj `
+  reference item bodies, raw-data descriptor byte counts, and bounded nested
   list/object traversal with item paths, depths, list indices, and
   parsed-value counts for resources such as
   `LayerComps`,
@@ -181,11 +181,16 @@ Current Photoshop IRB interpretation status:
 | Embedded IPTC/XMP/ICC/EXIF carriers | Interpreted where enabled | Payload bytes remain preserved; enabled decoders also emit regular family entries. |
 | Fixed-layout scalar/string resources | Interpreted | Resolution, alpha/caption strings, version, print flags, quick mask, JPEG quality, URL/list, pixel info, autosave strings, `XMLData`, ImageReady text, Lightroom workflow text, and similar bounded fields. |
 | Geometry/display/color-sampler/path headers | Interpreted / record-summary | Display/grid/thumbnail/color-sampler headers are decoded; path resources expose byte counts, record counts, and selectors without interpreting Bezier payloads. |
-| Descriptor-backed Photoshop resources | Descriptor header plus bounded item summaries | Descriptor version, remaining byte count, class ID/name, item count, complete value bodies for `bool`, `long`, `comp`, `doub`, `UntF`, `TEXT`, `enum`, `type`, and `GlbC`, opaque byte counts for `alis` and `tdta`, nested object/list paths, depths, list indices, list/object counts, and parsed-value count fields are emitted. Descriptor references (`obj `), alias/raw payload contents, and full Photoshop action semantics remain out of scope for this subset. |
+| Descriptor-backed Photoshop resources | Descriptor header plus bounded item summaries | Descriptor version, remaining byte count, class ID/name, item count, complete value bodies for `bool`, `long`, `comp`, `doub`, `UntF`, `TEXT`, `enum`, `type`, and `GlbC`, opaque byte counts for `alis` and `tdta`, nested object/list paths, depths, list indices, list/object counts, and parsed-value count fields are emitted. Bounded `obj ` streams expose ordered property, class, enumerated, offset, identifier, index, and name references with paths, depths, indices, class IDs/names, subtype values, and parsed counters. Alias/raw payload contents and full Photoshop action execution semantics remain out of scope for this subset. |
 | Legacy halftone/transfer/duotone/EPS resources | Header / byte-count only | OpenMeta emits byte counts and first header words where safe, without claiming full Photoshop semantics. |
 | Proprietary, obsolete, or OS-specific resources | Raw-preserved, selected byte counts | Kept losslessly; selected stable resource IDs expose byte counts without claiming payload semantics. |
 
 This is useful, but it is still not full Photoshop-resource parity.
+
+Descriptor reference traversal accepts at most 64 items in one `obj ` value
+and 128 reference items across one descriptor. Unknown, incomplete, or excess
+reference data stops traversal and emits `DescriptorItemParseTruncated`; a
+partially decoded reference element is never emitted.
 
 ### BMFF (`HEIF` / `AVIF` / `CR3`)
 
@@ -303,8 +308,9 @@ What this means in practice:
 - full `JUMBF/C2PA` semantics and policy validation
 - deeper RAF model-specific native tables and X3F image-processing sections
   beyond the current bounded carrier/header/property lanes
-- bounded Photoshop descriptor references (`obj `), full action semantics,
-  and broader IRB interpretation beyond the current subset
+- full Photoshop action execution semantics, opaque alias/raw descriptor
+  payload interpretation, and broader IRB interpretation beyond the current
+  subset
 
 ## Related Docs
 
