@@ -231,8 +231,13 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
 - bounded `grid`, `iovl`, and `iden` derived-image construction rows with
   ordered `dimg` source IDs, descriptor/source/construction validity, grid
   rows, columns, tile coordinates and output size, overlay canvas/background
-  and signed source offsets, identity sources, primary aliases, and a
+  and signed source offsets, identity sources, primary aliases, bounded
+  method-2 item-offset descriptor chains, descriptor reference depth,
+  derived-graph cycle/missing-source/truncated-reference validation, and a
   source-bound `container_graph` concept for query/transfer diagnostics
+- `tili` tiled-image items are classified as image items; experimental
+  `tilC` configuration fields remain structural-only until their syntax is
+  stable enough for a public interpretation contract
 - graph summaries
 - `auxC`-typed auxiliary semantics
 - bounded primary-linked image-role fields, separate primary inbound
@@ -244,10 +249,12 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   ratio, pixel component bit depth, and clean aperture
 
 This is intentionally smaller than a full QuickTime/BMFF semantic model.
-Derived descriptors are interpreted only from complete self-contained
-method-0 file extents or method-1 `idat` extents. Method-2 item-offset chains,
-external data references, and incomplete extent inventories remain
-structural-only.
+Derived descriptors are interpreted from complete method-0 file extents,
+method-1 `idat` extents, and bounded method-2 item-offset chains. Method-2
+resolution follows ordered `iref` `iloc` references, rejects reserved or
+out-of-range indexes, detects recursion cycles, validates every source range,
+and never materializes a complete logical item. External data references and
+incomplete extent inventories remain structural-only.
 
 ### JXL
 

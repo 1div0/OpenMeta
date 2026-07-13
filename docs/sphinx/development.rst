@@ -41,7 +41,8 @@ model should stay compact:
        member item IDs, semantic composition, direction-correct relation
        endpoint roles and named item-id aliases, semantic item-group roles,
        typed relation counts, and bounded ``grid``/``iovl``/``iden``
-       construction semantics,
+       construction semantics with recursive item-offset descriptors and
+       graph-cycle/source validation, ``tili`` image-item recognition,
        ``container_graph``
        concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,

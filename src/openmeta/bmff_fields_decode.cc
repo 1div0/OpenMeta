@@ -1855,7 +1855,8 @@ namespace {
             }
             if (info.item_type == fourcc('h', 'v', 'c', '1')
                 || info.item_type == fourcc('a', 'v', '0', '1')
-                || info.item_type == fourcc('j', 'p', 'e', 'g')) {
+                || info.item_type == fourcc('j', 'p', 'e', 'g')
+                || info.item_type == fourcc('t', 'i', 'l', 'i')) {
                 return ItemSemantic::Image;
             }
         }
@@ -3012,12 +3013,22 @@ namespace {
 
     struct ItemDataCursor final {
         std::span<const std::byte> bytes;
-        const ItemLocation* location = nullptr;
-        uint64_t idat_payload_offset = 0U;
-        uint64_t idat_payload_end    = 0U;
-        uint32_t extent_index        = 0U;
-        uint64_t extent_offset       = 0U;
+        const PrimaryProps* props = nullptr;
+        uint32_t item_id          = 0U;
+        uint64_t logical_offset   = 0U;
+        uint64_t logical_size     = 0U;
+        uint32_t reference_depth  = 0U;
     };
+
+    struct ItemResolveContext final {
+        std::span<const std::byte> bytes;
+        const PrimaryProps* props = nullptr;
+        uint32_t* remaining_steps = nullptr;
+        std::array<uint32_t, 16> path {};
+        uint32_t path_count = 0U;
+    };
+
+    static constexpr uint32_t kMaxItemResolveSteps = 4096U;
 
     static bool checked_add_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
     {
@@ -3028,28 +3039,225 @@ namespace {
         return true;
     }
 
-    static bool item_extent_absolute_offset(const ItemDataCursor& cursor,
-                                            uint32_t extent_index,
-                                            uint64_t* out_offset) noexcept
+    static bool enter_item_resolve(ItemResolveContext* context,
+                                   uint32_t item_id,
+                                   uint32_t* io_max_depth) noexcept
     {
-        if (!out_offset || !cursor.location
-            || extent_index >= cursor.location->extent_record_count) {
+        if (!context || !context->remaining_steps
+            || *context->remaining_steps == 0U
+            || context->path_count >= context->path.size()) {
             return false;
         }
-        const ItemLocationExtent& extent
-            = cursor.location->extents[extent_index];
-        uint64_t relative = 0U;
-        if (!checked_add_u64(cursor.location->base_offset, extent.offset,
-                             &relative)) {
+        *context->remaining_steps -= 1U;
+        for (uint32_t i = 0U; i < context->path_count; ++i) {
+            if (context->path[i] == item_id) {
+                return false;
+            }
+        }
+        context->path[context->path_count] = item_id;
+        context->path_count += 1U;
+        if (io_max_depth && context->path_count > 1U) {
+            *io_max_depth = std::max(*io_max_depth, context->path_count - 1U);
+        }
+        return true;
+    }
+
+    static bool get_iloc_reference_item(const PrimaryProps& p,
+                                        uint32_t from_item_id,
+                                        uint64_t reference_index,
+                                        uint32_t* out_item_id) noexcept
+    {
+        if (!out_item_id || reference_index == 0U || p.iref_truncated) {
             return false;
         }
-        if (cursor.location->construction_method == 0U) {
-            *out_offset = relative;
+        uint64_t current = 0U;
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            if (p.iref_edges[i].ref_type != fourcc('i', 'l', 'o', 'c')
+                || p.iref_edges[i].from_item_id != from_item_id) {
+                continue;
+            }
+            current += 1U;
+            if (current == reference_index) {
+                *out_item_id = p.iref_edges[i].to_item_id;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool item_data_size(ItemResolveContext context, uint32_t item_id,
+                               uint64_t* out_size,
+                               uint32_t* io_max_depth) noexcept;
+
+    static bool item_extent_source_size(ItemResolveContext context,
+                                        const ItemLocation& location,
+                                        const ItemLocationExtent& extent,
+                                        uint32_t extent_ordinal,
+                                        uint64_t* out_source_size,
+                                        uint32_t* out_source_item_id,
+                                        uint32_t* io_max_depth) noexcept
+    {
+        if (!out_source_size || !context.props) {
+            return false;
+        }
+        if (location.construction_method == 0U) {
+            *out_source_size = context.bytes.size();
             return true;
         }
-        if (cursor.location->construction_method == 1U) {
-            return checked_add_u64(cursor.idat_payload_offset, relative,
-                                   out_offset);
+        if (location.construction_method == 1U) {
+            if (!context.props->have_idat
+                || context.props->idat_payload_offset
+                       > context.props->idat_payload_end
+                || context.props->idat_payload_end > context.bytes.size()) {
+                return false;
+            }
+            *out_source_size = context.props->idat_payload_end
+                               - context.props->idat_payload_offset;
+            return true;
+        }
+        if (location.construction_method != 2U) {
+            return false;
+        }
+        const uint64_t reference_index
+            = context.props->item_location_index_size == 0U
+                      && location.extent_record_count > 1U
+                  ? static_cast<uint64_t>(extent_ordinal) + 1U
+                  : (context.props->item_location_index_size == 0U
+                         ? 1U
+                         : extent.index);
+        uint32_t source_item_id = 0U;
+        if (!get_iloc_reference_item(*context.props, location.item_id,
+                                     reference_index, &source_item_id)
+            || !item_data_size(context, source_item_id, out_source_size,
+                               io_max_depth)) {
+            return false;
+        }
+        if (out_source_item_id) {
+            *out_source_item_id = source_item_id;
+        }
+        return true;
+    }
+
+    static bool item_data_size(ItemResolveContext context, uint32_t item_id,
+                               uint64_t* out_size,
+                               uint32_t* io_max_depth) noexcept
+    {
+        if (!out_size || !context.props
+            || !enter_item_resolve(&context, item_id, io_max_depth)) {
+            return false;
+        }
+        const ItemLocation* location = find_item_location(*context.props,
+                                                          item_id);
+        if (!location || location->data_reference_index != 0U
+            || location->extent_truncated || location->length_overflow
+            || location->extent_count == 0U
+            || location->extent_count != location->extent_record_count
+            || location->construction_method > 2U) {
+            return false;
+        }
+
+        uint64_t total = 0U;
+        for (uint32_t i = 0U; i < location->extent_record_count; ++i) {
+            const ItemLocationExtent& extent = location->extents[i];
+            uint64_t source_size             = 0U;
+            if (!item_extent_source_size(context, *location, extent, i,
+                                         &source_size, nullptr, io_max_depth)) {
+                return false;
+            }
+            uint64_t source_offset = 0U;
+            if (!checked_add_u64(location->base_offset, extent.offset,
+                                 &source_offset)
+                || source_offset > source_size) {
+                return false;
+            }
+            uint64_t extent_length = extent.length;
+            if (extent_length == 0U) {
+                if (location->extent_record_count != 1U) {
+                    return false;
+                }
+                extent_length = source_size - source_offset;
+            } else if (extent_length > source_size - source_offset) {
+                return false;
+            }
+            if (!checked_add_u64(total, extent_length, &total)) {
+                return false;
+            }
+        }
+        *out_size = total;
+        return true;
+    }
+
+    static bool read_item_data_byte_at(ItemResolveContext context,
+                                       uint32_t item_id,
+                                       uint64_t logical_offset, uint8_t* out,
+                                       uint32_t* io_max_depth) noexcept
+    {
+        if (!out || !context.props
+            || !enter_item_resolve(&context, item_id, io_max_depth)) {
+            return false;
+        }
+        const ItemLocation* location = find_item_location(*context.props,
+                                                          item_id);
+        if (!location || location->data_reference_index != 0U
+            || location->extent_truncated || location->length_overflow
+            || location->extent_count == 0U
+            || location->extent_count != location->extent_record_count
+            || location->construction_method > 2U) {
+            return false;
+        }
+
+        uint64_t remaining = logical_offset;
+        for (uint32_t i = 0U; i < location->extent_record_count; ++i) {
+            const ItemLocationExtent& extent = location->extents[i];
+            uint64_t source_size             = 0U;
+            uint32_t source_item_id          = 0U;
+            if (!item_extent_source_size(context, *location, extent, i,
+                                         &source_size, &source_item_id,
+                                         io_max_depth)) {
+                return false;
+            }
+            uint64_t source_offset = 0U;
+            if (!checked_add_u64(location->base_offset, extent.offset,
+                                 &source_offset)
+                || source_offset > source_size) {
+                return false;
+            }
+            uint64_t extent_length = extent.length;
+            if (extent_length == 0U) {
+                if (location->extent_record_count != 1U) {
+                    return false;
+                }
+                extent_length = source_size - source_offset;
+            } else if (extent_length > source_size - source_offset) {
+                return false;
+            }
+            if (remaining >= extent_length) {
+                remaining -= extent_length;
+                continue;
+            }
+            if (!checked_add_u64(source_offset, remaining, &source_offset)) {
+                return false;
+            }
+            if (location->construction_method == 0U) {
+                if (source_offset >= context.bytes.size()) {
+                    return false;
+                }
+                *out = u8(context.bytes[source_offset]);
+                return true;
+            }
+            if (location->construction_method == 1U) {
+                uint64_t absolute = 0U;
+                if (!checked_add_u64(context.props->idat_payload_offset,
+                                     source_offset, &absolute)
+                    || absolute >= context.props->idat_payload_end
+                    || absolute >= context.bytes.size()) {
+                    return false;
+                }
+                *out = u8(context.bytes[absolute]);
+                return true;
+            }
+            return read_item_data_byte_at(context, source_item_id,
+                                          source_offset, out, io_max_depth);
         }
         return false;
     }
@@ -3061,71 +3269,43 @@ namespace {
         if (!out) {
             return false;
         }
-        *out                         = ItemDataCursor {};
-        const ItemLocation* location = find_item_location(p, item_id);
-        if (!location || location->data_reference_index != 0U
-            || location->extent_truncated || location->length_overflow
-            || location->extent_count == 0U
-            || location->extent_count != location->extent_record_count
-            || location->construction_method > 1U) {
+        *out = ItemDataCursor {};
+        ItemResolveContext context;
+        uint32_t remaining_steps = kMaxItemResolveSteps;
+        context.bytes            = bytes;
+        context.props            = &p;
+        context.remaining_steps  = &remaining_steps;
+        uint64_t logical_size    = 0U;
+        uint32_t reference_depth = 0U;
+        if (!item_data_size(context, item_id, &logical_size, &reference_depth)) {
             return false;
         }
-        if (location->construction_method == 1U
-            && (!p.have_idat || p.idat_payload_offset > p.idat_payload_end
-                || p.idat_payload_end > bytes.size())) {
-            return false;
-        }
-
-        ItemDataCursor cursor;
-        cursor.bytes               = bytes;
-        cursor.location            = location;
-        cursor.idat_payload_offset = p.idat_payload_offset;
-        cursor.idat_payload_end    = p.idat_payload_end;
-        for (uint32_t i = 0U; i < location->extent_record_count; ++i) {
-            const ItemLocationExtent& extent = location->extents[i];
-            if (extent.index != 0U || extent.length == 0U) {
-                return false;
-            }
-            uint64_t absolute = 0U;
-            if (!item_extent_absolute_offset(cursor, i, &absolute)) {
-                return false;
-            }
-            const uint64_t limit = location->construction_method == 1U
-                                       ? p.idat_payload_end
-                                       : bytes.size();
-            if (absolute > limit || extent.length > limit - absolute) {
-                return false;
-            }
-        }
-        *out = cursor;
+        out->bytes           = bytes;
+        out->props           = &p;
+        out->item_id         = item_id;
+        out->logical_size    = logical_size;
+        out->reference_depth = reference_depth;
         return true;
     }
 
     static bool read_item_data_u8(ItemDataCursor* cursor, uint8_t* out) noexcept
     {
-        if (!cursor || !out || !cursor->location) {
+        if (!cursor || !out || !cursor->props
+            || cursor->logical_offset >= cursor->logical_size) {
             return false;
         }
-        while (cursor->extent_index < cursor->location->extent_record_count) {
-            const ItemLocationExtent& extent
-                = cursor->location->extents[cursor->extent_index];
-            if (cursor->extent_offset >= extent.length) {
-                cursor->extent_index += 1U;
-                cursor->extent_offset = 0U;
-                continue;
-            }
-            uint64_t absolute = 0U;
-            if (!item_extent_absolute_offset(*cursor, cursor->extent_index,
-                                             &absolute)
-                || !checked_add_u64(absolute, cursor->extent_offset, &absolute)
-                || absolute >= cursor->bytes.size()) {
-                return false;
-            }
-            *out = u8(cursor->bytes[absolute]);
-            cursor->extent_offset += 1U;
-            return true;
+        ItemResolveContext context;
+        uint32_t remaining_steps = kMaxItemResolveSteps;
+        context.bytes            = cursor->bytes;
+        context.props            = cursor->props;
+        context.remaining_steps  = &remaining_steps;
+        if (!read_item_data_byte_at(context, cursor->item_id,
+                                    cursor->logical_offset, out,
+                                    &cursor->reference_depth)) {
+            return false;
         }
-        return false;
+        cursor->logical_offset += 1U;
+        return true;
     }
 
     static bool read_item_data_u16(ItemDataCursor* cursor,
@@ -3231,16 +3411,106 @@ namespace {
         return false;
     }
 
+    struct DerivedGraphValidation final {
+        bool cycle                    = false;
+        bool self_reference           = false;
+        bool depth_exceeded           = false;
+        bool references_truncated     = false;
+        uint32_t missing_source_count = 0U;
+        uint32_t max_depth            = 0U;
+        std::array<uint32_t, 64> path {};
+        uint32_t path_count = 0U;
+        std::array<uint32_t, 256> visited {};
+        uint32_t visited_count = 0U;
+    };
+
+    static bool contains_item_id(std::span<const uint32_t> item_ids,
+                                 uint32_t item_id) noexcept
+    {
+        for (uint32_t i = 0U; i < item_ids.size(); ++i) {
+            if (item_ids[i] == item_id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void
+    validate_derived_graph_node(const PrimaryProps& p, uint32_t item_id,
+                                DerivedGraphValidation* out) noexcept
+    {
+        if (!out || out->cycle || out->depth_exceeded) {
+            return;
+        }
+        const std::span<const uint32_t> path(out->path.data(), out->path_count);
+        if (contains_item_id(path, item_id)) {
+            out->cycle = true;
+            return;
+        }
+        const std::span<const uint32_t> visited(out->visited.data(),
+                                                out->visited_count);
+        if (contains_item_id(visited, item_id)) {
+            return;
+        }
+        if (out->path_count >= out->path.size()
+            || out->visited_count >= out->visited.size()) {
+            out->depth_exceeded = true;
+            return;
+        }
+
+        out->path[out->path_count] = item_id;
+        out->path_count += 1U;
+        out->max_depth = std::max(out->max_depth, out->path_count - 1U);
+        for (uint32_t i = 0U; i < p.iref_edge_count; ++i) {
+            const ItemRefEdge& edge = p.iref_edges[i];
+            if (edge.ref_type != fourcc('d', 'i', 'm', 'g')
+                || edge.from_item_id != item_id) {
+                continue;
+            }
+            if (edge.to_item_id == item_id) {
+                out->self_reference = true;
+            }
+            if (!find_item_info(p, edge.to_item_id)) {
+                out->missing_source_count += 1U;
+                continue;
+            }
+            validate_derived_graph_node(p, edge.to_item_id, out);
+        }
+        out->path_count -= 1U;
+        if (out->visited_count < out->visited.size()) {
+            out->visited[out->visited_count] = item_id;
+            out->visited_count += 1U;
+        }
+    }
+
+    static DerivedGraphValidation
+    validate_derived_graph(const PrimaryProps& p, uint32_t item_id) noexcept
+    {
+        DerivedGraphValidation out;
+        out.references_truncated = p.iref_truncated;
+        validate_derived_graph_node(p, item_id, &out);
+        return out;
+    }
+
+    static bool
+    derived_graph_is_valid(const DerivedGraphValidation& graph) noexcept
+    {
+        return !graph.cycle && !graph.self_reference && !graph.depth_exceeded
+               && !graph.references_truncated
+               && graph.missing_source_count == 0U;
+    }
+
     struct GridDescriptor final {
-        bool available         = false;
-        bool have_header       = false;
-        bool valid             = false;
-        uint8_t version        = 0U;
-        uint8_t flags          = 0U;
-        uint16_t rows          = 0U;
-        uint16_t columns       = 0U;
-        uint32_t output_width  = 0U;
-        uint32_t output_height = 0U;
+        bool available           = false;
+        bool have_header         = false;
+        bool valid               = false;
+        uint32_t reference_depth = 0U;
+        uint8_t version          = 0U;
+        uint8_t flags            = 0U;
+        uint16_t rows            = 0U;
+        uint16_t columns         = 0U;
+        uint32_t output_width    = 0U;
+        uint32_t output_height   = 0U;
     };
 
     static GridDescriptor
@@ -3253,6 +3523,7 @@ namespace {
             return out;
         }
         out.available             = true;
+        out.reference_depth       = cursor.reference_depth;
         uint8_t rows_minus_one    = 0U;
         uint8_t columns_minus_one = 0U;
         if (!read_item_data_u8(&cursor, &out.version)
@@ -3286,11 +3557,12 @@ namespace {
     }
 
     struct OverlayDescriptor final {
-        bool available   = false;
-        bool have_header = false;
-        bool valid       = false;
-        uint8_t version  = 0U;
-        uint8_t flags    = 0U;
+        bool available           = false;
+        bool have_header         = false;
+        bool valid               = false;
+        uint32_t reference_depth = 0U;
+        uint8_t version          = 0U;
+        uint8_t flags            = 0U;
         std::array<uint16_t, 4> background {};
         uint32_t output_width  = 0U;
         uint32_t output_height = 0U;
@@ -3308,7 +3580,8 @@ namespace {
         if (!init_item_data_cursor(bytes, p, item_id, &cursor)) {
             return out;
         }
-        out.available = true;
+        out.available       = true;
+        out.reference_depth = cursor.reference_depth;
         if (source_count == 0U || source_count > out.offset_x.size()) {
             return out;
         }
@@ -3411,6 +3684,12 @@ namespace {
                                     "derived_image.identity_count",
                                     identity_count);
 
+        uint32_t graph_invalid_count             = 0U;
+        uint32_t graph_cycle_count               = 0U;
+        uint32_t graph_missing_source_count      = 0U;
+        uint32_t graph_self_reference_count      = 0U;
+        uint32_t graph_depth_exceeded_count      = 0U;
+        uint32_t graph_reference_truncated_count = 0U;
         for (uint32_t i = 0U; i < p.item_info_count; ++i) {
             const ItemInfo& info = p.item_infos[i];
             if (!info.have_type) {
@@ -3422,6 +3701,27 @@ namespace {
                 continue;
             }
             const uint32_t source_count = count_dimg_sources(p, info.item_id);
+            const DerivedGraphValidation graph
+                = validate_derived_graph(p, info.item_id);
+            const bool graph_valid = derived_graph_is_valid(graph);
+            if (!graph_valid) {
+                graph_invalid_count += 1U;
+            }
+            if (graph.cycle) {
+                graph_cycle_count += 1U;
+            }
+            if (graph.missing_source_count != 0U) {
+                graph_missing_source_count += graph.missing_source_count;
+            }
+            if (graph.self_reference) {
+                graph_self_reference_count += 1U;
+            }
+            if (graph.depth_exceeded) {
+                graph_depth_exceeded_count += 1U;
+            }
+            if (graph.references_truncated) {
+                graph_reference_truncated_count += 1U;
+            }
             emit_u32_field(store, block, (*io_order)++, "derived_image.item_id",
                            info.item_id);
             emit_u32_field(store, block, (*io_order)++, "derived_image.type",
@@ -3433,6 +3733,24 @@ namespace {
                             "derived_image.construction", construction);
             emit_u32_field(store, block, (*io_order)++,
                            "derived_image.source_count", source_count);
+            emit_u32_field(store, block, (*io_order)++,
+                           "derived_image.graph_max_depth", graph.max_depth);
+            emit_u32_field(store, block, (*io_order)++,
+                           "derived_image.graph_missing_source_count",
+                           graph.missing_source_count);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.graph_cycle", graph.cycle ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.graph_self_reference",
+                          graph.self_reference ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.graph_depth_exceeded",
+                          graph.depth_exceeded ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.graph_references_truncated",
+                          graph.references_truncated ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "derived_image.graph_valid", graph_valid ? 1U : 0U);
             for (uint32_t source_i = 0U; source_i < source_count; ++source_i) {
                 uint32_t source_id = 0U;
                 if (!get_dimg_source(p, info.item_id, source_i, &source_id)) {
@@ -3444,21 +3762,23 @@ namespace {
                                "derived_image.source_item_id", source_id);
             }
 
-            bool descriptor_required  = true;
-            bool descriptor_available = false;
-            bool descriptor_valid     = false;
-            bool source_count_valid   = false;
-            bool construction_valid   = false;
-            uint32_t output_width     = 0U;
-            uint32_t output_height    = 0U;
-            uint16_t grid_rows        = 0U;
-            uint16_t grid_columns     = 0U;
+            bool descriptor_required            = true;
+            bool descriptor_available           = false;
+            bool descriptor_valid               = false;
+            bool source_count_valid             = false;
+            bool construction_valid             = false;
+            uint32_t output_width               = 0U;
+            uint32_t output_height              = 0U;
+            uint16_t grid_rows                  = 0U;
+            uint16_t grid_columns               = 0U;
+            uint32_t descriptor_reference_depth = 0U;
 
             if (info.item_type == fourcc('g', 'r', 'i', 'd')) {
-                const GridDescriptor grid = parse_grid_descriptor(bytes, p,
-                                                                  info.item_id);
-                descriptor_available      = grid.available;
-                descriptor_valid          = grid.valid;
+                const GridDescriptor grid  = parse_grid_descriptor(bytes, p,
+                                                                   info.item_id);
+                descriptor_available       = grid.available;
+                descriptor_valid           = grid.valid;
+                descriptor_reference_depth = grid.reference_depth;
                 const uint32_t expected_sources
                     = static_cast<uint32_t>(grid.rows)
                       * static_cast<uint32_t>(grid.columns);
@@ -3528,12 +3848,13 @@ namespace {
                 const OverlayDescriptor overlay
                     = parse_overlay_descriptor(bytes, p, info.item_id,
                                                source_count);
-                descriptor_available = overlay.available;
-                descriptor_valid     = overlay.valid;
-                source_count_valid   = source_count > 0U;
-                construction_valid   = descriptor_valid && source_count_valid;
-                output_width         = overlay.output_width;
-                output_height        = overlay.output_height;
+                descriptor_available       = overlay.available;
+                descriptor_valid           = overlay.valid;
+                descriptor_reference_depth = overlay.reference_depth;
+                source_count_valid         = source_count > 0U;
+                construction_valid = descriptor_valid && source_count_valid;
+                output_width       = overlay.output_width;
+                output_height      = overlay.output_height;
                 emit_u32_field(store, block, (*io_order)++,
                                "derived_image.overlay.item_id", info.item_id);
                 if (overlay.have_header) {
@@ -3604,6 +3925,8 @@ namespace {
                 }
             }
 
+            construction_valid = construction_valid && graph_valid;
+
             emit_u8_field(store, block, (*io_order)++,
                           "derived_image.descriptor_required",
                           descriptor_required ? 1U : 0U);
@@ -3613,6 +3936,11 @@ namespace {
             emit_u8_field(store, block, (*io_order)++,
                           "derived_image.descriptor_valid",
                           descriptor_valid ? 1U : 0U);
+            if (descriptor_available) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "derived_image.descriptor_reference_depth",
+                               descriptor_reference_depth);
+            }
             emit_u8_field(store, block, (*io_order)++,
                           "derived_image.source_count_valid",
                           source_count_valid ? 1U : 0U);
@@ -3632,6 +3960,27 @@ namespace {
                 emit_u8_field(store, block, (*io_order)++,
                               "primary.derived_construction_valid",
                               construction_valid ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_graph_valid",
+                              graph_valid ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_graph_cycle",
+                              graph.cycle ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_graph_self_reference",
+                              graph.self_reference ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_graph_depth_exceeded",
+                              graph.depth_exceeded ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "primary.derived_graph_references_truncated",
+                              graph.references_truncated ? 1U : 0U);
+                emit_u32_field(store, block, (*io_order)++,
+                               "primary.derived_graph_max_depth",
+                               graph.max_depth);
+                emit_u32_field(store, block, (*io_order)++,
+                               "primary.derived_graph_missing_source_count",
+                               graph.missing_source_count);
                 if (descriptor_valid
                     && info.item_type != fourcc('i', 'd', 'e', 'n')) {
                     emit_u32_field(store, block, (*io_order)++,
@@ -3652,6 +4001,26 @@ namespace {
                 }
             }
         }
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "derived_image.graph_invalid_count",
+                                    graph_invalid_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "derived_image.graph_cycle_count",
+                                    graph_cycle_count);
+        emit_count_field_if_nonzero(
+            store, block, io_order,
+            "derived_image.graph_missing_source_count_total",
+            graph_missing_source_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "derived_image.graph_self_reference_count",
+                                    graph_self_reference_count);
+        emit_count_field_if_nonzero(store, block, io_order,
+                                    "derived_image.graph_depth_exceeded_count",
+                                    graph_depth_exceeded_count);
+        emit_count_field_if_nonzero(
+            store, block, io_order,
+            "derived_image.graph_references_truncated_count",
+            graph_reference_truncated_count);
     }
 
     static const AuxItemInfo* find_aux_item_info(const PrimaryProps& out,

@@ -108,6 +108,20 @@ namespace {
         append_iloc_v1_entry(out, item_id, 1U, offset, length);
     }
 
+    static void append_iloc_v1_indexed_entry(std::vector<std::byte>* out,
+                                             uint16_t item_id, uint16_t method,
+                                             uint32_t reference_index,
+                                             uint32_t offset, uint32_t length)
+    {
+        append_u16be(out, item_id);
+        append_u16be(out, method);
+        append_u16be(out, 0U);
+        append_u16be(out, 1U);
+        append_u32be(out, reference_index);
+        append_u32be(out, offset);
+        append_u32be(out, length);
+    }
+
     static void append_iloc_v1_split_file_entry(std::vector<std::byte>* out,
                                                 uint16_t item_id,
                                                 uint32_t offset,
@@ -136,6 +150,20 @@ namespace {
             append_u32be(&payload, entity_ids[i]);
         }
         append_bmff_box(out, group_type, payload);
+    }
+
+    static void decode_bmff_test_file(std::span<const std::byte> file,
+                                      MetaStore* store)
+    {
+        std::array<ContainerBlockRef, 16> blocks {};
+        std::array<ExifIfdRef, 8> ifds {};
+        std::array<std::byte, 4096> payload {};
+        std::array<uint32_t, 64> payload_scratch {};
+        ExifDecodeOptions exif_opts;
+        PayloadOptions payload_opts;
+        (void)simple_meta_read(file, *store, blocks, ifds, payload,
+                               payload_scratch, exif_opts, payload_opts);
+        store->finalize();
     }
 
     static void append_infe_v2(std::vector<std::byte>* out, uint16_t item_id,
@@ -1137,12 +1165,26 @@ TEST(BmffDerivedFieldsDecode, EmitsDerivedImageConstructionSemantics)
 
     std::vector<std::byte> iinf_payload;
     append_fullbox_header(&iinf_payload, 2U);
-    append_u32be(&iinf_payload, 3U);
+    append_u32be(&iinf_payload, 10U);
     append_infe_v2(&iinf_payload, 1U, 0U, fourcc('g', 'r', 'i', 'd'), "grid");
     append_infe_v2(&iinf_payload, 2U, 0U, fourcc('i', 'o', 'v', 'l'),
                    "overlay");
     append_infe_v2(&iinf_payload, 3U, 0U, fourcc('i', 'd', 'e', 'n'),
                    "identity");
+    append_infe_v2(&iinf_payload, 10U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "grid_0");
+    append_infe_v2(&iinf_payload, 11U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "grid_1");
+    append_infe_v2(&iinf_payload, 12U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "grid_2");
+    append_infe_v2(&iinf_payload, 13U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "grid_3");
+    append_infe_v2(&iinf_payload, 20U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "overlay_0");
+    append_infe_v2(&iinf_payload, 21U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "overlay_1");
+    append_infe_v2(&iinf_payload, 30U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "identity_source");
     std::vector<std::byte> iinf_box;
     append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
 
@@ -1318,9 +1360,11 @@ TEST(BmffDerivedFieldsDecode, ReadsDerivedDescriptorFromFileOffsetExtent)
 
     std::vector<std::byte> iinf_payload;
     append_fullbox_header(&iinf_payload, 2U);
-    append_u32be(&iinf_payload, 1U);
+    append_u32be(&iinf_payload, 2U);
     append_infe_v2(&iinf_payload, 1U, 0U, fourcc('g', 'r', 'i', 'd'),
                    "file_grid");
+    append_infe_v2(&iinf_payload, 10U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "grid_source");
     std::vector<std::byte> iinf_box;
     append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
 
@@ -1397,6 +1441,305 @@ TEST(BmffDerivedFieldsDecode, ReadsDerivedDescriptorFromFileOffsetExtent)
     ASSERT_EQ(height.size(), 1U);
     EXPECT_EQ(width[0], 320U);
     EXPECT_EQ(height[0], 240U);
+}
+
+TEST(BmffDerivedFieldsDecode, ReadsDerivedDescriptorThroughItemOffsets)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 4U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('g', 'r', 'i', 'd'),
+                   "item_grid");
+    append_infe_v2(&iinf_payload, 2U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "slice_1");
+    append_infe_v2(&iinf_payload, 3U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "slice_2");
+    append_infe_v2(&iinf_payload, 10U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "grid_source");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 10U);
+    append_iref_v0_edge(&iref_payload, fourcc('i', 'l', 'o', 'c'), 1U, 2U);
+    append_iref_v0_edge(&iref_payload, fourcc('i', 'l', 'o', 'c'), 2U, 3U);
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> idat_payload;
+    idat_payload.push_back(std::byte { 0xAAU });
+    idat_payload.push_back(std::byte { 0xBBU });
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 0U });
+    idat_payload.push_back(std::byte { 0U });
+    append_u16be(&idat_payload, 1024U);
+    append_u16be(&idat_payload, 768U);
+    std::vector<std::byte> idat_box;
+    append_bmff_box(&idat_box, fourcc('i', 'd', 'a', 't'), idat_payload);
+
+    std::vector<std::byte> iloc_payload;
+    append_fullbox_header(&iloc_payload, 1U);
+    iloc_payload.push_back(std::byte { 0x44U });
+    iloc_payload.push_back(std::byte { 0x04U });
+    append_u16be(&iloc_payload, 3U);
+    append_iloc_v1_indexed_entry(&iloc_payload, 1U, 2U, 1U, 1U, 8U);
+    append_iloc_v1_indexed_entry(&iloc_payload, 2U, 2U, 1U, 1U, 9U);
+    append_iloc_v1_indexed_entry(&iloc_payload, 3U, 1U, 0U, 0U, 10U);
+    std::vector<std::byte> iloc_box;
+    append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    meta_payload.insert(meta_payload.end(), idat_box.begin(), idat_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    const std::vector<uint8_t> construction_valid
+        = collect_u8_values(store, "derived_image.construction_valid");
+    ASSERT_EQ(construction_valid.size(), 1U);
+    EXPECT_EQ(construction_valid[0], 1U);
+    const std::vector<uint32_t> width
+        = collect_u32_values(store, "derived_image.grid.output_width");
+    const std::vector<uint32_t> height
+        = collect_u32_values(store, "derived_image.grid.output_height");
+    const std::vector<uint32_t> depth
+        = collect_u32_values(store, "derived_image.descriptor_reference_depth");
+    ASSERT_EQ(width.size(), 1U);
+    ASSERT_EQ(height.size(), 1U);
+    ASSERT_EQ(depth.size(), 1U);
+    EXPECT_EQ(width[0], 1024U);
+    EXPECT_EQ(height[0], 768U);
+    EXPECT_EQ(depth[0], 2U);
+}
+
+TEST(BmffDerivedFieldsDecode, RejectsInvalidItemOffsetIndexAndCycle)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 3U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('g', 'r', 'i', 'd'),
+                   "bad_index");
+    append_infe_v2(&iinf_payload, 2U, 0U, fourcc('g', 'r', 'i', 'd'), "cycle");
+    append_infe_v2(&iinf_payload, 10U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "source");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 10U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 2U, 10U);
+    append_iref_v0_edge(&iref_payload, fourcc('i', 'l', 'o', 'c'), 1U, 2U);
+    append_iref_v0_edge(&iref_payload, fourcc('i', 'l', 'o', 'c'), 2U, 2U);
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> iloc_payload;
+    append_fullbox_header(&iloc_payload, 1U);
+    iloc_payload.push_back(std::byte { 0x44U });
+    iloc_payload.push_back(std::byte { 0x04U });
+    append_u16be(&iloc_payload, 2U);
+    append_iloc_v1_indexed_entry(&iloc_payload, 1U, 2U, 2U, 0U, 8U);
+    append_iloc_v1_indexed_entry(&iloc_payload, 2U, 2U, 1U, 0U, 8U);
+    std::vector<std::byte> iloc_box;
+    append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    meta_payload.insert(meta_payload.end(), iloc_box.begin(), iloc_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    const std::vector<uint8_t> available
+        = collect_u8_values(store, "derived_image.descriptor_available");
+    const std::vector<uint8_t> valid
+        = collect_u8_values(store, "derived_image.construction_valid");
+    ASSERT_EQ(available.size(), 2U);
+    ASSERT_EQ(valid.size(), 2U);
+    EXPECT_EQ(available[0], 0U);
+    EXPECT_EQ(available[1], 0U);
+    EXPECT_EQ(valid[0], 0U);
+    EXPECT_EQ(valid[1], 0U);
+}
+
+TEST(BmffDerivedFieldsDecode, RejectsDerivedGraphCyclesAndMissingSources)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 3U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('i', 'd', 'e', 'n'),
+                   "cycle_a");
+    append_infe_v2(&iinf_payload, 2U, 0U, fourcc('i', 'd', 'e', 'n'),
+                   "cycle_b");
+    append_infe_v2(&iinf_payload, 3U, 0U, fourcc('i', 'd', 'e', 'n'),
+                   "missing");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 2U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 2U, 1U);
+    append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 3U, 99U);
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    const std::vector<uint8_t> graph_cycle
+        = collect_u8_values(store, "derived_image.graph_cycle");
+    const std::vector<uint8_t> graph_valid
+        = collect_u8_values(store, "derived_image.graph_valid");
+    const std::vector<uint32_t> missing
+        = collect_u32_values(store, "derived_image.graph_missing_source_count");
+    const std::vector<uint8_t> construction_valid
+        = collect_u8_values(store, "derived_image.construction_valid");
+    const std::vector<uint8_t> primary_cycle
+        = collect_u8_values(store, "primary.derived_graph_cycle");
+    const std::vector<uint32_t> primary_depth
+        = collect_u32_values(store, "primary.derived_graph_max_depth");
+    ASSERT_EQ(graph_cycle.size(), 3U);
+    ASSERT_EQ(graph_valid.size(), 3U);
+    ASSERT_EQ(missing.size(), 3U);
+    ASSERT_EQ(construction_valid.size(), 3U);
+    ASSERT_EQ(primary_cycle.size(), 1U);
+    ASSERT_EQ(primary_depth.size(), 1U);
+    EXPECT_EQ(graph_cycle[0], 1U);
+    EXPECT_EQ(graph_cycle[1], 1U);
+    EXPECT_EQ(graph_cycle[2], 0U);
+    EXPECT_EQ(graph_valid[0], 0U);
+    EXPECT_EQ(graph_valid[1], 0U);
+    EXPECT_EQ(graph_valid[2], 0U);
+    EXPECT_EQ(missing[0], 0U);
+    EXPECT_EQ(missing[1], 0U);
+    EXPECT_EQ(missing[2], 1U);
+    EXPECT_EQ(construction_valid[0], 0U);
+    EXPECT_EQ(construction_valid[1], 0U);
+    EXPECT_EQ(construction_valid[2], 0U);
+    EXPECT_EQ(primary_cycle[0], 1U);
+    EXPECT_EQ(primary_depth[0], 1U);
+}
+
+TEST(BmffDerivedFieldsDecode, RejectsTruncatedDerivedReferenceGraph)
+{
+    std::vector<std::byte> file;
+
+    std::vector<std::byte> ftyp_payload;
+    append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+    append_u32be(&ftyp_payload, 0U);
+    append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+    append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+    std::vector<std::byte> pitm_payload;
+    append_fullbox_header(&pitm_payload, 0U);
+    append_u16be(&pitm_payload, 1U);
+    std::vector<std::byte> pitm_box;
+    append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+    std::vector<std::byte> iinf_payload;
+    append_fullbox_header(&iinf_payload, 2U);
+    append_u32be(&iinf_payload, 2U);
+    append_infe_v2(&iinf_payload, 1U, 0U, fourcc('i', 'd', 'e', 'n'),
+                   "identity");
+    append_infe_v2(&iinf_payload, 10U, 0U, fourcc('h', 'v', 'c', '1'),
+                   "source");
+    std::vector<std::byte> iinf_box;
+    append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+    std::vector<std::byte> iref_payload;
+    append_fullbox_header(&iref_payload, 0U);
+    for (uint32_t i = 0U; i < 513U; ++i) {
+        append_iref_v0_edge(&iref_payload, fourcc('d', 'i', 'm', 'g'), 1U, 10U);
+    }
+    std::vector<std::byte> iref_box;
+    append_bmff_box(&iref_box, fourcc('i', 'r', 'e', 'f'), iref_payload);
+
+    std::vector<std::byte> meta_payload;
+    append_fullbox_header(&meta_payload, 0U);
+    meta_payload.insert(meta_payload.end(), pitm_box.begin(), pitm_box.end());
+    meta_payload.insert(meta_payload.end(), iinf_box.begin(), iinf_box.end());
+    meta_payload.insert(meta_payload.end(), iref_box.begin(), iref_box.end());
+    append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    const std::vector<uint8_t> truncated
+        = collect_u8_values(store, "derived_image.graph_references_truncated");
+    const std::vector<uint8_t> graph_valid
+        = collect_u8_values(store, "derived_image.graph_valid");
+    const std::vector<uint32_t> truncated_count
+        = collect_u32_values(store,
+                             "derived_image.graph_references_truncated_count");
+    ASSERT_EQ(truncated.size(), 1U);
+    ASSERT_EQ(graph_valid.size(), 1U);
+    ASSERT_EQ(truncated_count.size(), 1U);
+    EXPECT_EQ(truncated[0], 1U);
+    EXPECT_EQ(graph_valid[0], 0U);
+    EXPECT_EQ(truncated_count[0], 1U);
 }
 
 TEST(BmffDerivedFieldsDecode, RejectsInvalidDerivedImageConstructions)
@@ -4252,7 +4595,7 @@ TEST(BmffDerivedFieldsDecode, EmitsItemSemanticLabelsForMetadataCarrierItems)
 
         std::vector<std::byte> iinf_payload;
         append_fullbox_header(&iinf_payload, 2);
-        append_u32be(&iinf_payload, 5);
+        append_u32be(&iinf_payload, 6);
         append_infe_v2(&iinf_payload, 1, 0, fourcc('E', 'x', 'i', 'f'), "exif");
         append_infe_v2_mime(&iinf_payload, 2, 0, "xmp", "application/rdf+xml",
                             "");
@@ -4262,6 +4605,8 @@ TEST(BmffDerivedFieldsDecode, EmitsItemSemanticLabelsForMetadataCarrierItems)
                             "application/vnd.iccprofile", "");
         append_infe_v2(&iinf_payload, 5, 0, fourcc('j', 'u', 'm', 'b'),
                        "jumbf");
+        append_infe_v2(&iinf_payload, 6, 0, fourcc('t', 'i', 'l', 'i'),
+                       "tiled");
         std::vector<std::byte> iinf_box;
         append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
 
@@ -4288,30 +4633,36 @@ TEST(BmffDerivedFieldsDecode, EmitsItemSemanticLabelsForMetadataCarrierItems)
 
     const std::vector<std::string> item_type_names
         = collect_text_values(store, "item.type_name");
-    ASSERT_EQ(item_type_names.size(), 5U);
+    ASSERT_EQ(item_type_names.size(), 6U);
     EXPECT_EQ(item_type_names[0], "Exif");
     EXPECT_EQ(item_type_names[1], "mime");
     EXPECT_EQ(item_type_names[2], "mime");
     EXPECT_EQ(item_type_names[3], "mime");
     EXPECT_EQ(item_type_names[4], "jumb");
+    EXPECT_EQ(item_type_names[5], "tili");
 
     const std::vector<std::string> item_semantics
         = collect_text_values(store, "item.semantic");
-    ASSERT_EQ(item_semantics.size(), 5U);
+    ASSERT_EQ(item_semantics.size(), 6U);
     EXPECT_EQ(item_semantics[0], "exif");
     EXPECT_EQ(item_semantics[1], "xmp");
     EXPECT_EQ(item_semantics[2], "c2pa");
     EXPECT_EQ(item_semantics[3], "icc_profile");
     EXPECT_EQ(item_semantics[4], "jumbf");
+    EXPECT_EQ(item_semantics[5], "image");
 
     const std::vector<uint32_t> semantic_known_count
         = collect_u32_values(store, "item.semantic_known_count");
     ASSERT_EQ(semantic_known_count.size(), 1U);
-    EXPECT_EQ(semantic_known_count[0], 5U);
+    EXPECT_EQ(semantic_known_count[0], 6U);
     const std::vector<uint32_t> semantic_metadata_count
         = collect_u32_values(store, "item.semantic_metadata_count");
     ASSERT_EQ(semantic_metadata_count.size(), 1U);
     EXPECT_EQ(semantic_metadata_count[0], 5U);
+    const std::vector<uint32_t> semantic_image_count
+        = collect_u32_values(store, "item.semantic_image_count");
+    ASSERT_EQ(semantic_image_count.size(), 1U);
+    EXPECT_EQ(semantic_image_count[0], 1U);
     const std::vector<uint32_t> semantic_exif_count
         = collect_u32_values(store, "item.semantic_exif_count");
     ASSERT_EQ(semantic_exif_count.size(), 1U);

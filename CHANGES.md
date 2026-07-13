@@ -1,5 +1,30 @@
 # OpenMeta Changes
 
+## 0.4.70 - 2026-07-13
+
+Changes compared with `0.4.69`.
+
+### Added
+
+- Added bounded zero-copy BMFF construction-method-2 descriptor reads through
+  ordered `iref` `iloc` item references, including recursive logical-item
+  offsets, implicit single-source indexes, and compatibility mapping for
+  multi-extent no-index layouts.
+- Added fail-closed item-reference depth, cycle, overflow, source-range, and
+  extent-index validation, plus descriptor reference-depth fields.
+- Added derived-image graph cycle, self-reference, missing-source, depth,
+  truncated-reference, and aggregate validity fields with primary-item
+  aliases.
+- Added `tili` tiled-image item classification while keeping experimental
+  `tilC` configuration structural-only.
+
+### Changed
+
+- Derived construction validity now also requires a valid, declared source
+  graph instead of accepting missing or cyclic `dimg` source items.
+- Updated public BMFF support, interpretation, RAW parity, development, and
+  compatibility-dump documentation for item-offset and graph validation.
+
 ## 0.4.69 - 2026-07-10
 
 Changes compared with `0.4.68`.

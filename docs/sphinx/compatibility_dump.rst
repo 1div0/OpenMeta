@@ -56,9 +56,11 @@ such as
 ``bmff:scene.component.metadata_policy``, and
 ``bmff:scene.component.multi_image_policy``, plus
 ``bmff:derived_image.construction`` and
-``bmff:derived_image.construction_valid``, are emitted as normal ``bmff_field``
-entries, so host baselines can verify container-graph evidence without a
-separate decoder-specific dump format.
+``bmff:derived_image.construction_valid``,
+``bmff:derived_image.graph_valid``, and
+``bmff:derived_image.descriptor_reference_depth``, are emitted as normal
+``bmff_field`` entries, so host baselines can verify container-graph evidence
+without a separate decoder-specific dump format.
 
 Metadata entry lines include:
 

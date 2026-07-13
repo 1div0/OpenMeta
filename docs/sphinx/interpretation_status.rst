@@ -245,16 +245,19 @@ Coverage matrix
        memberships, bounded ``iloc``/``idat`` item-data layout summaries,
        bounded ``grid``/``iovl``/``iden`` construction descriptors with
        ordered source IDs, grid coordinates, overlay offsets/background,
-       identity sources, and fail-closed validity fields, primary item-location
-       and derived-construction aliases, primary-linked roles with linked-item
+       identity sources, recursive method-2 item-offset descriptor reads,
+       descriptor-reference depth, and fail-closed graph cycle/missing-source/
+       truncated-reference validity fields, plus ``tili`` image-item
+       recognition, primary
+       item-location and derived-construction aliases, primary-linked roles with linked-item
        semantic aggregate counters, aux semantics, primary color/profile
        property summaries, primary display dimensions and transform summary,
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - High, about 94-96%.
-     - Item-offset derived descriptors, newer derived/tiled constructions,
-       graph-cycle validation, and full C2PA manifest/policy semantics.
+     - High, about 96-98%.
+     - Experimental tiled-image configuration, newer stable derived
+       constructions, and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
@@ -360,10 +363,9 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Extend remaining BMFF/CR3/HEIF/AVIF derived-image interpretation to
-   item-offset descriptor chains, newer tiled/derived item types, and bounded
-   graph-cycle/source validation without weakening current fail-closed extent
-   rules.
+1. Extend remaining BMFF/CR3/HEIF/AVIF interpretation to stable newer derived
+   item types and experimental tiled-image configuration once those contracts
+   can be exposed without weakening current fail-closed extent rules.
 2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
    layouts, bounded descriptor traversal, and embedded metadata carriers.
 3. Broaden transfer diagnostic policy coverage now that stable message tokens
