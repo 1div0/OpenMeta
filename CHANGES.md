@@ -1,5 +1,26 @@
 # OpenMeta Changes
 
+## 0.4.71 - 2026-07-13
+
+Changes compared with `0.4.70`.
+
+### Added
+
+- Added bounded Photoshop action-descriptor value decoding for signed 64-bit
+  `comp` integers, `type` and `GlbC` class values, and opaque `alis` byte
+  counts.
+- Added descriptor type names/codes and parsed per-type counters for large
+  integers, local/global classes, and aliases.
+- Added focused valid and truncated-payload regressions for the expanded
+  descriptor grammar.
+
+### Changed
+
+- Updated public interpretation, support, API stability, and development
+  documentation for the expanded Photoshop IRB descriptor subset.
+- Recorded experimental tiled-image configuration as the remaining BMFF
+  derived-image tail instead of claiming a stable field contract.
+
 ## 0.4.70 - 2026-07-13
 
 Changes compared with `0.4.69`.

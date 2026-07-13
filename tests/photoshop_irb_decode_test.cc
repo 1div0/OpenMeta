@@ -279,6 +279,31 @@ namespace {
         return out;
     }
 
+    static std::vector<int64_t> collect_photoshop_irb_i64_fields(
+        const MetaStore& store, uint16_t resource_id, std::string_view field)
+    {
+        std::vector<int64_t> out;
+        for (size_t i = 0; i < store.entries().size(); ++i) {
+            const Entry& e = store.entry(static_cast<EntryId>(i));
+            if (e.key.kind != MetaKeyKind::PhotoshopIrbField) {
+                continue;
+            }
+            if (e.key.data.photoshop_irb_field.resource_id != resource_id) {
+                continue;
+            }
+            if (arena_string(store, e.key.data.photoshop_irb_field.field)
+                != field) {
+                continue;
+            }
+            if (e.value.kind != MetaValueKind::Scalar
+                || e.value.elem_type != MetaElementType::I64) {
+                continue;
+            }
+            out.push_back(e.value.data.i64);
+        }
+        return out;
+    }
+
     static std::vector<uint16_t> collect_photoshop_irb_u16_fields(
         const MetaStore& store, uint16_t resource_id, std::string_view field)
     {
@@ -1231,6 +1256,166 @@ TEST(PhotoshopIrbDecodeTest, SummarizesDescriptorRawDataItems)
     EXPECT_EQ(item_type_names[0], "raw_data");
     EXPECT_EQ(item_type_codes[0], "tdta");
     EXPECT_EQ(raw_data_bytes[0], 3U);
+}
+
+TEST(PhotoshopIrbDecodeTest, DecodesExtendedDescriptorValueTypes)
+{
+    std::vector<std::byte> descriptor;
+    append_u32be(16U, &descriptor);
+    append_utf16be_string32("ExtendedDescriptor", &descriptor);
+    append_descriptor_key4('E', 'x', 't', 'D', &descriptor);
+    append_u32be(4U, &descriptor);
+
+    append_descriptor_key4('b', 'i', 'g', 'i', &descriptor);
+    append_descriptor_type('c', 'o', 'm', 'p', &descriptor);
+    append_u64be(0xFFFFFFFFFFFFFFD6ULL, &descriptor);
+
+    append_descriptor_key4('c', 'l', 'a', 's', &descriptor);
+    append_descriptor_type('t', 'y', 'p', 'e', &descriptor);
+    append_utf16be_string32("Layer", &descriptor);
+    append_descriptor_key4('L', 'y', 'r', ' ', &descriptor);
+
+    append_descriptor_key4('g', 'l', 'o', 'b', &descriptor);
+    append_descriptor_type('G', 'l', 'b', 'C', &descriptor);
+    append_utf16be_string32("Document", &descriptor);
+    append_descriptor_key4('D', 'c', 'm', 'n', &descriptor);
+
+    append_descriptor_key4('a', 'l', 'i', 'a', &descriptor);
+    append_descriptor_type('a', 'l', 'i', 's', &descriptor);
+    append_u32be(3U, &descriptor);
+    descriptor.push_back(std::byte { 0x11U });
+    descriptor.push_back(std::byte { 0x22U });
+    descriptor.push_back(std::byte { 0x33U });
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x0429U, descriptor, &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 1U);
+
+    const std::vector<std::string_view> type_names
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemTypeName");
+    const std::vector<std::string_view> type_codes
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemTypeCode");
+    const std::vector<int64_t> large_integers
+        = collect_photoshop_irb_i64_fields(store, 0x0429U,
+                                           "DescriptorItemLargeInteger");
+    const std::vector<std::string_view> class_names
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemClassName");
+    const std::vector<std::string_view> class_ids
+        = collect_photoshop_irb_text_fields(store, 0x0429U,
+                                            "DescriptorItemClassID");
+    const std::vector<uint32_t> alias_bytes
+        = collect_photoshop_irb_u32_fields(store, 0x0429U,
+                                           "DescriptorItemAliasBytes");
+    const Entry* large_integer_count
+        = find_photoshop_irb_field(store, 0x0429U,
+                                   "DescriptorParsedLargeIntegerCount");
+    const Entry* class_count
+        = find_photoshop_irb_field(store, 0x0429U,
+                                   "DescriptorParsedClassCount");
+    const Entry* global_class_count
+        = find_photoshop_irb_field(store, 0x0429U,
+                                   "DescriptorParsedGlobalClassCount");
+    const Entry* alias_count
+        = find_photoshop_irb_field(store, 0x0429U,
+                                   "DescriptorParsedAliasCount");
+
+    ASSERT_EQ(type_names.size(), 4U);
+    ASSERT_EQ(type_codes.size(), 4U);
+    ASSERT_EQ(large_integers.size(), 1U);
+    ASSERT_EQ(class_names.size(), 2U);
+    ASSERT_EQ(class_ids.size(), 2U);
+    ASSERT_EQ(alias_bytes.size(), 1U);
+    ASSERT_NE(large_integer_count, nullptr);
+    ASSERT_NE(class_count, nullptr);
+    ASSERT_NE(global_class_count, nullptr);
+    ASSERT_NE(alias_count, nullptr);
+    EXPECT_EQ(type_names[0], "large_integer");
+    EXPECT_EQ(type_names[1], "class");
+    EXPECT_EQ(type_names[2], "global_class");
+    EXPECT_EQ(type_names[3], "alias");
+    EXPECT_EQ(type_codes[0], "comp");
+    EXPECT_EQ(type_codes[1], "type");
+    EXPECT_EQ(type_codes[2], "GlbC");
+    EXPECT_EQ(type_codes[3], "alis");
+    EXPECT_EQ(large_integers[0], -42);
+    EXPECT_EQ(class_names[0], "Layer");
+    EXPECT_EQ(class_names[1], "Document");
+    EXPECT_EQ(class_ids[0], "Lyr ");
+    EXPECT_EQ(class_ids[1], "Dcmn");
+    EXPECT_EQ(alias_bytes[0], 3U);
+    EXPECT_EQ(large_integer_count->value.data.u64, 1U);
+    EXPECT_EQ(class_count->value.data.u64, 1U);
+    EXPECT_EQ(global_class_count->value.data.u64, 1U);
+    EXPECT_EQ(alias_count->value.data.u64, 1U);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0429U,
+                                       "DescriptorItemParseTruncated"),
+              nullptr);
+}
+
+TEST(PhotoshopIrbDecodeTest, RejectsTruncatedExtendedDescriptorValues)
+{
+    std::vector<std::byte> short_large_integer;
+    append_u32be(16U, &short_large_integer);
+    append_utf16be_string32("", &short_large_integer);
+    append_descriptor_key4('T', 'e', 's', 't', &short_large_integer);
+    append_u32be(1U, &short_large_integer);
+    append_descriptor_key4('b', 'i', 'g', 'i', &short_large_integer);
+    append_descriptor_type('c', 'o', 'm', 'p', &short_large_integer);
+    append_u32be(1U, &short_large_integer);
+
+    std::vector<std::byte> short_class;
+    append_u32be(16U, &short_class);
+    append_utf16be_string32("", &short_class);
+    append_descriptor_key4('T', 'e', 's', 't', &short_class);
+    append_u32be(1U, &short_class);
+    append_descriptor_key4('c', 'l', 'a', 's', &short_class);
+    append_descriptor_type('t', 'y', 'p', 'e', &short_class);
+    append_utf16be_string32("Layer", &short_class);
+    append_u32be(0U, &short_class);
+
+    std::vector<std::byte> short_alias;
+    append_u32be(16U, &short_alias);
+    append_utf16be_string32("", &short_alias);
+    append_descriptor_key4('T', 'e', 's', 't', &short_alias);
+    append_u32be(1U, &short_alias);
+    append_descriptor_key4('a', 'l', 'i', 'a', &short_alias);
+    append_descriptor_type('a', 'l', 'i', 's', &short_alias);
+    append_u32be(8U, &short_alias);
+    short_alias.push_back(std::byte { 0x01U });
+
+    std::vector<std::byte> irb;
+    append_irb_resource(0x0429U, short_large_integer, &irb);
+    append_irb_resource(0x0432U, short_class, &irb);
+    append_irb_resource(0x0433U, short_alias, &irb);
+
+    MetaStore store;
+    const PhotoshopIrbDecodeResult r = decode_photoshop_irb(irb, store);
+    EXPECT_EQ(r.status, PhotoshopIrbDecodeStatus::Ok);
+    EXPECT_EQ(r.resources_decoded, 3U);
+    EXPECT_NE(find_photoshop_irb_field(store, 0x0429U,
+                                       "DescriptorItemParseTruncated"),
+              nullptr);
+    EXPECT_NE(find_photoshop_irb_field(store, 0x0432U,
+                                       "DescriptorItemParseTruncated"),
+              nullptr);
+    EXPECT_NE(find_photoshop_irb_field(store, 0x0433U,
+                                       "DescriptorItemParseTruncated"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0429U,
+                                       "DescriptorItemLargeInteger"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0432U, "DescriptorItemClassID"),
+              nullptr);
+    EXPECT_EQ(find_photoshop_irb_field(store, 0x0433U,
+                                       "DescriptorItemAliasBytes"),
+              nullptr);
 }
 
 TEST(PhotoshopIrbDecodeTest, DecodesLegacyFixedHeaderAndPathResources)

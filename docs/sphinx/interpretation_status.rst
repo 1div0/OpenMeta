@@ -256,8 +256,9 @@ Coverage matrix
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
      - High, about 96-98%.
-     - Experimental tiled-image configuration, newer stable derived
-       constructions, and full C2PA manifest/policy semantics.
+     - Experimental tiled-image configuration and full C2PA manifest/policy
+       semantics; no additional stable derived-construction payload is
+       currently claimed.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
@@ -265,8 +266,9 @@ Coverage matrix
        border/background/effective-BW data, display info, grid/guide info,
        color sampler headers/records, descriptor-header summaries plus safe
        descriptor class-name/class-ID/item-count fields, bounded descriptor
-       item bodies (``bool``, ``long``, ``doub``, ``UntF``, ``TEXT``,
-       ``enum``, ``tdta`` raw-data byte counts) with type-name/type-code
+       item bodies (``bool``, ``long``, ``comp``, ``doub``, ``UntF``,
+       ``TEXT``, ``enum``, ``type``, ``GlbC``, opaque ``alis`` and ``tdta``
+       byte counts) with type-name/type-code
        fields, parsed maximum depth, and parsed per-type counters, empty and
        non-empty
        nested object/list summaries with item
@@ -284,9 +286,10 @@ Coverage matrix
        halftone/transfer/duotone/EPS byte
        summaries, embedded IPTC/ICC/XMP/EXIF resource byte counts, and
        embedded IPTC/XMP/ICC payload decode where enabled.
-     - Medium, about 88-92%.
-     - Full Photoshop action semantics, raw descriptor-data payload content
-       interpretation, and long-tail resource interpretation.
+     - Medium, about 89-93%.
+     - Bounded descriptor references (``obj`` reference type), full Photoshop
+       action semantics, opaque alias/raw payload interpretation, and
+       long-tail resource interpretation.
    * - Semantic query/search and records
      - Query helpers expose raw matches, confidence, provenance, value shapes,
        normalized candidates, canonical crop/active-area rectangles, Fujifilm
@@ -363,11 +366,12 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Extend remaining BMFF/CR3/HEIF/AVIF interpretation to stable newer derived
-   item types and experimental tiled-image configuration once those contracts
-   can be exposed without weakening current fail-closed extent rules.
-2. Expand Photoshop IRB resource-specific interpretation beyond current fixed
-   layouts, bounded descriptor traversal, and embedded metadata carriers.
+1. Add bounded Photoshop descriptor-reference (``obj`` reference type)
+   traversal and reference item summaries without exposing platform-specific
+   alias payload contents.
+2. Keep experimental BMFF tiled-image configuration structural-only until a
+   stable field contract can be exposed without weakening current fail-closed
+   extent rules.
 3. Broaden transfer diagnostic policy coverage now that stable message tokens
    and localizable argument tokens are available for GUI workflows.
 4. Expand GPS/date policy beyond current coordinate tolerance,

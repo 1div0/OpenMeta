@@ -105,6 +105,22 @@ namespace {
     }
 
 
+    static bool read_i64be(std::span<const std::byte> bytes, uint64_t offset,
+                           int64_t* out) noexcept
+    {
+        uint64_t raw = 0;
+        if (!out || !read_u64be(bytes, offset, &raw)) {
+            return false;
+        }
+        if (raw <= 0x7FFFFFFFFFFFFFFFULL) {
+            *out = static_cast<int64_t>(raw);
+        } else {
+            *out = -1 - static_cast<int64_t>(~raw);
+        }
+        return true;
+    }
+
+
     static bool read_f32be_bits(std::span<const std::byte> bytes,
                                 uint64_t offset, uint32_t* out) noexcept
     {
@@ -661,6 +677,10 @@ namespace {
         case descriptor_fourcc('U', 'n', 't', 'F'): return "unit_float";
         case descriptor_fourcc('T', 'E', 'X', 'T'): return "text";
         case descriptor_fourcc('e', 'n', 'u', 'm'): return "enum";
+        case descriptor_fourcc('c', 'o', 'm', 'p'): return "large_integer";
+        case descriptor_fourcc('t', 'y', 'p', 'e'): return "class";
+        case descriptor_fourcc('G', 'l', 'b', 'C'): return "global_class";
+        case descriptor_fourcc('a', 'l', 'i', 's'): return "alias";
         case descriptor_fourcc('O', 'b', 'j', 'c'): return "object";
         case descriptor_fourcc('G', 'l', 'b', 'O'): return "global_object";
         case descriptor_fourcc('V', 'l', 'L', 's'): return "list";
@@ -1410,6 +1430,10 @@ namespace {
         uint32_t unit_float_count        = 0U;
         uint32_t text_count              = 0U;
         uint32_t enum_count              = 0U;
+        uint32_t large_integer_count     = 0U;
+        uint32_t class_count             = 0U;
+        uint32_t global_class_count      = 0U;
+        uint32_t alias_count             = 0U;
         uint32_t object_count            = 0U;
         uint32_t global_object_count     = 0U;
         uint32_t list_count              = 0U;
@@ -1486,6 +1510,18 @@ namespace {
             break;
         case descriptor_fourcc('e', 'n', 'u', 'm'):
             state->enum_count += 1U;
+            break;
+        case descriptor_fourcc('c', 'o', 'm', 'p'):
+            state->large_integer_count += 1U;
+            break;
+        case descriptor_fourcc('t', 'y', 'p', 'e'):
+            state->class_count += 1U;
+            break;
+        case descriptor_fourcc('G', 'l', 'b', 'C'):
+            state->global_class_count += 1U;
+            break;
+        case descriptor_fourcc('a', 'l', 'i', 's'):
+            state->alias_count += 1U;
             break;
         case descriptor_fourcc('O', 'b', 'j', 'c'):
             state->object_count += 1U;
@@ -1706,6 +1742,10 @@ namespace {
         std::string text_value;
         std::string enum_type;
         std::string enum_value;
+        int64_t large_integer_value = 0;
+        std::string class_name;
+        std::string class_id;
+        uint32_t alias_bytes = 0U;
         std::string object_class_name;
         std::string object_class_id;
         uint32_t object_item_count = 0U;
@@ -1750,6 +1790,31 @@ namespace {
                 || !read_descriptor_class_id(payload, io_offset, &enum_value)) {
                 return false;
             }
+            break;
+        case descriptor_fourcc('c', 'o', 'm', 'p'):
+            if (!read_i64be(payload, *io_offset, &large_integer_value)) {
+                return false;
+            }
+            *io_offset += 8U;
+            break;
+        case descriptor_fourcc('t', 'y', 'p', 'e'):
+        case descriptor_fourcc('G', 'l', 'b', 'C'):
+            if (!read_var_ustr32_utf8(payload, io_offset, &class_name)
+                || !read_descriptor_class_id(payload, io_offset, &class_id)) {
+                return false;
+            }
+            trim_trailing_nul(&class_name);
+            break;
+        case descriptor_fourcc('a', 'l', 'i', 's'):
+            if (!read_u32be(payload, *io_offset, &alias_bytes)) {
+                return false;
+            }
+            *io_offset += 4U;
+            if (*io_offset > payload.size()
+                || alias_bytes > payload.size() - *io_offset) {
+                return false;
+            }
+            *io_offset += alias_bytes;
             break;
         case descriptor_fourcc('O', 'b', 'j', 'c'):
         case descriptor_fourcc('G', 'l', 'b', 'O'):
@@ -1833,6 +1898,34 @@ namespace {
                                make_text(store.arena(), enum_value,
                                          TextEncoding::Ascii),
                                state->result);
+            break;
+        case descriptor_fourcc('c', 'o', 'm', 'p'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemLargeInteger",
+                               make_i64(large_integer_value), state->result);
+            break;
+        case descriptor_fourcc('t', 'y', 'p', 'e'):
+        case descriptor_fourcc('G', 'l', 'b', 'C'):
+            if (!class_name.empty()) {
+                emit_derived_field(store, state->block, state->order,
+                                   state->resource_id,
+                                   "DescriptorItemClassName",
+                                   make_text(store.arena(), class_name,
+                                             TextEncoding::Utf8),
+                                   state->result);
+            }
+            if (!class_id.empty()) {
+                emit_derived_field(store, state->block, state->order,
+                                   state->resource_id, "DescriptorItemClassID",
+                                   make_text(store.arena(), class_id,
+                                             TextEncoding::Ascii),
+                                   state->result);
+            }
+            break;
+        case descriptor_fourcc('a', 'l', 'i', 's'):
+            emit_derived_field(store, state->block, state->order,
+                               state->resource_id, "DescriptorItemAliasBytes",
+                               make_u32(alias_bytes), state->result);
             break;
         case descriptor_fourcc('O', 'b', 'j', 'c'):
         case descriptor_fourcc('G', 'l', 'b', 'O'):
@@ -1990,6 +2083,20 @@ namespace {
             emit_descriptor_count_if_nonzero(store, block, order, resource_id,
                                              "DescriptorParsedEnumCount",
                                              parse_state.enum_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedLargeIntegerCount",
+                                             parse_state.large_integer_count,
+                                             result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedClassCount",
+                                             parse_state.class_count, result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedGlobalClassCount",
+                                             parse_state.global_class_count,
+                                             result);
+            emit_descriptor_count_if_nonzero(store, block, order, resource_id,
+                                             "DescriptorParsedAliasCount",
+                                             parse_state.alias_count, result);
             emit_descriptor_count_if_nonzero(store, block, order, resource_id,
                                              "DescriptorParsedObjectCount",
                                              parse_state.object_count, result);
