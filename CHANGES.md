@@ -1,5 +1,27 @@
 # OpenMeta Changes
 
+## 0.4.73 - 2026-07-13
+
+Changes compared with `0.4.72`.
+
+### Added
+
+- Added bounded BMFF `tilC` version-0 configuration decoding for tile width,
+  tile height, up to eight extra dimensions, and conditional payload byte
+  counts without copying conditional data.
+- Added `tili` property-relationship, tile-grid, expected-tile-count, overflow,
+  and aggregate validity fields with fail-closed malformed-input handling.
+- Added the source-bound `TiledImageConfiguration` container-graph concept,
+  rendered-transfer diagnostic text/token, thin Python enum exposure, and
+  focused decoder/concept/transfer regressions.
+
+### Changed
+
+- `tilC` is now a known BMFF item property in `ipco`/`ipma` summaries.
+- Updated public BMFF support, interpretation, API stability, RAW parity,
+  transfer-policy, and development documentation for the bounded tiled-image
+  contract.
+
 ## 0.4.72 - 2026-07-13
 
 Changes compared with `0.4.71`.

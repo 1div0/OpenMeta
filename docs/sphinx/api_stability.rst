@@ -46,8 +46,9 @@ Host-facing API map
      - ``openmeta/compatibility_dump.h``
      - Stable
      - Stable v1 line-oriented compatibility dump contract, including
-       generic BMFF component membership, role, relation-summary, policy, and
-       derived-image construction fields as normal ``bmff_field`` entries.
+       generic BMFF component membership, role, relation-summary, policy,
+       derived-image construction, and tiled-image configuration fields as
+       normal ``bmff_field`` entries.
        See
        :doc:`compatibility_dump`.
    * - XMP sync and writeback policy enums: ``XmpConflictPolicy``,
@@ -241,7 +242,8 @@ Host-facing API map
        computational, thermal, and stitch/panorama RAW-processing roles are
        marked source-bound, and BMFF whole-scene, primary-component, and
        per-component content-bound metadata / multi-image policy plus
-       derived-image construction fields are marked source-bound.
+       derived-image construction and tiled-image configuration fields are
+       marked source-bound.
        RAW curve/LUT-like concept roles are conservatively marked
        ``conditional_on_raw_encoding`` until a raw data descriptor can confirm
        whether they affect the stored samples. Descriptor-aware overloads
@@ -290,9 +292,9 @@ Host-facing API map
        Rendered-transfer drop messages distinguish source color transforms,
        white balance, lens-correction records, source RAW curves/linearity
        metadata that still require storage-context confirmation, and BMFF
-       content-bound/multi-image scene/derived-image construction policy, plus
-       computational/thermal/stitch source-processing drops from generic
-       source-processing metadata.
+       content-bound/multi-image scene/derived-image construction/tiled-image
+       configuration policy, plus computational/thermal/stitch
+       source-processing drops from generic source-processing metadata.
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``token``, ``message_token``,
@@ -388,6 +390,13 @@ Host-facing API map
      - Internal
      - These fields may be useful for tests and diagnostics, but they are not a
        compatibility contract for downstream integrations.
+
+The bounded BMFF tiled-image field contract covers ``tilC`` version 0 tile
+dimensions, up to eight extra dimensions, association and layout validity, and
+overflow-checked expected tile counts. ``TiledImageConfiguration`` is an
+experimental source-bound concept role exposed unchanged by the thin Python
+enum. Conditional ``tile_item_type``/``tipa``, external-tile ``dref`` state,
+and tile-offset tables are not part of this contract yet.
 
 Practical guidance
 ------------------

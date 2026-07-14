@@ -247,18 +247,20 @@ Coverage matrix
        ordered source IDs, grid coordinates, overlay offsets/background,
        identity sources, recursive method-2 item-offset descriptor reads,
        descriptor-reference depth, and fail-closed graph cycle/missing-source/
-       truncated-reference validity fields, plus ``tili`` image-item
-       recognition, primary
+       truncated-reference validity fields. ``tili`` image items expose a
+       bounded ``tilC`` version-0 core with tile dimensions, up to eight extra
+       dimensions, single-property relationship checks, ceil-divided tile
+       grids, overflow-checked expected tile counts, aggregate validity, and a
+       source-bound container-graph concept. Primary
        item-location and derived-construction aliases, primary-linked roles with linked-item
        semantic aggregate counters, aux semantics, primary color/profile
        property summaries, primary display dimensions and transform summary,
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - High, about 96-98%.
-     - Experimental tiled-image configuration and full C2PA manifest/policy
-       semantics; no additional stable derived-construction payload is
-       currently claimed.
+     - High, about 97-98%.
+     - Conditional ``tile_item_type``/``tipa``, external-tile ``dref`` state,
+       tile-offset tables, and full C2PA manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
@@ -308,7 +310,8 @@ Coverage matrix
        source-processing aliases including Canon AF micro-adjustment and
        ambience-selection fields, source-processing buckets, explicit
        ``container_graph`` concepts for BMFF content-bound metadata,
-       derived-image construction, and whole-scene/primary-component/
+       derived-image construction, tiled-image configuration, and
+       whole-scene/primary-component/
        per-component multi-image policy,
        optional
        RapidFuzz near-miss matching,
@@ -332,14 +335,15 @@ Coverage matrix
      - Compatible-file versus rendered-image safety policies classify
        source-specific image geometry, color/profile, RAW curves/linearity
        metadata, RAW-processing, MakerNote, BMFF content-bound/multi-image/
-       derived-construction policy, JUMBF/C2PA, and vendor-private data, with
+       derived-construction/tiled-image policy, JUMBF/C2PA, and vendor-private
+       data, with
        concept-level diagnostics that report
        keep/drop/requires-target-image-spec actions, severity, stable summary
        and message tokens, localizable argument tokens, RAW applicability, and
        role-specific default message text before prepare. BMFF
-       content-bound/multi-image scene and derived-image construction fields
-       now resolve to source-bound container-graph diagnostics for
-       rendered-image transfers.
+       content-bound/multi-image scene, derived-image construction, and
+       tiled-image configuration fields resolve to source-bound
+       container-graph diagnostics for rendered-image transfers.
        Source-processing
        diagnostics distinguish computational, thermal, and stitch/panorama
        message tokens.
@@ -367,9 +371,10 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Keep experimental BMFF tiled-image configuration structural-only until a
-   stable field contract can be exposed without weakening current fail-closed
-   extent rules.
+1. Extend the stable bounded BMFF tiled-image core with conditional
+   ``tile_item_type``/``tipa``, external-tile ``dref`` state, and tile-offset
+   tables without weakening current fail-closed relationship and overflow
+   rules.
 2. Broaden transfer diagnostic policy coverage now that stable message tokens
    and localizable argument tokens are available for GUI workflows.
 3. Expand GPS/date policy beyond current coordinate tolerance,

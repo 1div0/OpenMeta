@@ -42,8 +42,8 @@ model should stay compact:
        endpoint roles and named item-id aliases, semantic item-group roles,
        typed relation counts, and bounded ``grid``/``iovl``/``iden``
        construction semantics with recursive item-offset descriptors and
-       graph-cycle/source validation, ``tili`` image-item recognition,
-       ``container_graph``
+       graph-cycle/source validation, bounded ``tili``/``tilC`` tile-layout
+       interpretation, ``container_graph``
        concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,
        and display-transform summaries, JUMBF labels, Photoshop
@@ -69,8 +69,8 @@ model should stay compact:
        flags for crop/border/active-area, exposure/gain,
        color/WB/profile/source-color-transform, orientation, date/time, GPS,
        lens-correction, computational/thermal/stitch, and
-       RAW/source-processing fields plus BMFF derived-image construction
-       evidence across standard and vendor metadata.
+       RAW/source-processing fields plus BMFF derived-image construction and
+       tiled-image configuration evidence across standard and vendor metadata.
      - Medium-high, about 88-93%.
    * - Creation
      - Build fresh metadata entries from host-provided values.

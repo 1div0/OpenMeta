@@ -199,6 +199,111 @@ namespace {
         append_bmff_box(out, fourcc('i', 'n', 'f', 'e'), payload);
     }
 
+    static std::vector<std::byte> make_tiled_image_configuration_file(
+        uint8_t version, uint32_t flags, uint32_t output_width,
+        uint32_t output_height, uint32_t tile_width, uint32_t tile_height,
+        std::span<const uint32_t> dimensions, bool truncate_last_dimension,
+        uint8_t ispe_association_count, uint8_t tilc_association_count,
+        uint32_t conditional_payload_bytes)
+    {
+        std::vector<std::byte> file;
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0U);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0U);
+        append_u16be(&pitm_payload, 1U);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> infe_box;
+        append_infe_v2(&infe_box, 1U, 0U, fourcc('t', 'i', 'l', 'i'), "tiled");
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2U);
+        append_u32be(&iinf_payload, 1U);
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> ispe_payload;
+        append_fullbox_header(&ispe_payload, 0U);
+        append_u32be(&ispe_payload, output_width);
+        append_u32be(&ispe_payload, output_height);
+        std::vector<std::byte> ispe_box;
+        append_bmff_box(&ispe_box, fourcc('i', 's', 'p', 'e'), ispe_payload);
+
+        std::vector<std::byte> tilc_payload;
+        tilc_payload.push_back(std::byte { version });
+        tilc_payload.push_back(
+            std::byte { static_cast<uint8_t>((flags >> 16U) & 0xFFU) });
+        tilc_payload.push_back(
+            std::byte { static_cast<uint8_t>((flags >> 8U) & 0xFFU) });
+        tilc_payload.push_back(
+            std::byte { static_cast<uint8_t>(flags & 0xFFU) });
+        append_u32be(&tilc_payload, tile_width);
+        append_u32be(&tilc_payload, tile_height);
+        tilc_payload.push_back(
+            std::byte { static_cast<uint8_t>(dimensions.size()) });
+        size_t dimension_count = dimensions.size();
+        if (truncate_last_dimension && dimension_count != 0U) {
+            dimension_count -= 1U;
+        }
+        for (size_t i = 0U; i < dimension_count; ++i) {
+            append_u32be(&tilc_payload, dimensions[i]);
+        }
+        for (uint32_t i = 0U; i < conditional_payload_bytes; ++i) {
+            tilc_payload.push_back(std::byte { 0x5aU });
+        }
+        std::vector<std::byte> tilc_box;
+        append_bmff_box(&tilc_box, fourcc('t', 'i', 'l', 'C'), tilc_payload);
+
+        std::vector<std::byte> ipco_payload;
+        ipco_payload.insert(ipco_payload.end(), ispe_box.begin(),
+                            ispe_box.end());
+        ipco_payload.insert(ipco_payload.end(), tilc_box.begin(),
+                            tilc_box.end());
+        std::vector<std::byte> ipco_box;
+        append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
+
+        std::vector<std::byte> ipma_payload;
+        append_fullbox_header(&ipma_payload, 0U);
+        append_u32be(&ipma_payload, 1U);
+        append_u16be(&ipma_payload, 1U);
+        ipma_payload.push_back(std::byte { static_cast<uint8_t>(
+            ispe_association_count + tilc_association_count) });
+        for (uint8_t i = 0U; i < ispe_association_count; ++i) {
+            ipma_payload.push_back(std::byte { 1U });
+        }
+        for (uint8_t i = 0U; i < tilc_association_count; ++i) {
+            ipma_payload.push_back(std::byte { 0x82U });
+        }
+        std::vector<std::byte> ipma_box;
+        append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
+
+        std::vector<std::byte> iprp_payload;
+        iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                            ipco_box.end());
+        iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                            ipma_box.end());
+        std::vector<std::byte> iprp_box;
+        append_bmff_box(&iprp_box, fourcc('i', 'p', 'r', 'p'), iprp_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0U);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iprp_box.begin(),
+                            iprp_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+        return file;
+    }
+
     static MetaKeyView bmff_key(std::string_view field)
     {
         MetaKeyView key;
@@ -4965,6 +5070,159 @@ TEST(BmffDerivedFieldsDecode, EmitsPrimaryUriItemInfoFromInfeV2)
     EXPECT_EQ(primary_uri_type[0], "https://ns.example/item");
 
     EXPECT_TRUE(collect_text_values(store, "primary.content_type").empty());
+}
+
+TEST(BmffDerivedFieldsDecode, InterpretsBoundedTiledImageConfiguration)
+{
+    const std::array<uint32_t, 2> dimensions { 3U, 5U };
+    const std::vector<std::byte> file
+        = make_tiled_image_configuration_file(0U, 0U, 1000U, 700U, 256U, 256U,
+                                              dimensions, false, 1U, 1U, 7U);
+
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    EXPECT_EQ(collect_u32_values(store, "ipco.tilC_count"),
+              std::vector<uint32_t>({ 1U }));
+    EXPECT_EQ(collect_u32_values(store, "ipco.known_property_count"),
+              std::vector<uint32_t>({ 2U }));
+    EXPECT_EQ(collect_u32_values(store, "ipma.tilC.association_count"),
+              std::vector<uint32_t>({ 1U }));
+    EXPECT_EQ(collect_text_values(store, "ipma.property_type_name"),
+              std::vector<std::string>({ "ispe", "tilC" }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.count"),
+              std::vector<uint32_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.configuration_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.layout_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_text_values(store, "tiled_image.configuration"),
+              std::vector<std::string>({ "tiled" }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tile_width"),
+              std::vector<uint32_t>({ 256U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tile_height"),
+              std::vector<uint32_t>({ 256U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.extra_dimension_count"),
+              std::vector<uint8_t>({ 2U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.dimension_size"),
+              std::vector<uint32_t>({ 3U, 5U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.conditional_payload_bytes"),
+              std::vector<uint32_t>({ 7U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tile_columns"),
+              std::vector<uint32_t>({ 4U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tile_rows"),
+              std::vector<uint32_t>({ 3U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.expected_tile_count"),
+              std::vector<uint64_t>({ 180U }));
+}
+
+TEST(BmffDerivedFieldsDecode, RejectsMalformedTiledImageConfigurationCores)
+{
+    const std::array<uint32_t, 1> dimension { 2U };
+    const std::array<uint32_t, 1> zero_dimension { 0U };
+    const std::array<uint32_t, 9> too_many_dimensions { 2U, 2U, 2U, 2U, 2U,
+                                                        2U, 2U, 2U, 2U };
+
+    const std::vector<std::vector<std::byte>> files {
+        make_tiled_image_configuration_file(1U, 0U, 640U, 480U, 64U, 64U,
+                                            dimension, false, 1U, 1U, 0U),
+        make_tiled_image_configuration_file(0U, 1U, 640U, 480U, 64U, 64U,
+                                            dimension, false, 1U, 1U, 0U),
+        make_tiled_image_configuration_file(0U, 0U, 640U, 480U, 0U, 64U,
+                                            dimension, false, 1U, 1U, 0U),
+        make_tiled_image_configuration_file(0U, 0U, 640U, 480U, 64U, 64U,
+                                            dimension, true, 1U, 1U, 0U),
+        make_tiled_image_configuration_file(0U, 0U, 640U, 480U, 64U, 64U,
+                                            zero_dimension, false, 1U, 1U, 0U),
+        make_tiled_image_configuration_file(0U, 0U, 640U, 480U, 64U, 64U,
+                                            too_many_dimensions, false, 1U, 1U,
+                                            0U),
+    };
+
+    for (size_t i = 0U; i < files.size(); ++i) {
+        MetaStore store;
+        decode_bmff_test_file(files[i], &store);
+        EXPECT_EQ(collect_u8_values(store, "tiled_image.configuration_valid"),
+                  std::vector<uint8_t>({ 0U }));
+        EXPECT_EQ(collect_u8_values(store, "tiled_image.layout_valid"),
+                  std::vector<uint8_t>({ 0U }));
+    }
+
+    MetaStore truncated_store;
+    decode_bmff_test_file(files[3], &truncated_store);
+    EXPECT_EQ(collect_u8_values(truncated_store,
+                                "tiled_image.dimensions_truncated"),
+              std::vector<uint8_t>({ 1U }));
+
+    MetaStore capped_store;
+    decode_bmff_test_file(files[5], &capped_store);
+    EXPECT_EQ(collect_u8_values(capped_store,
+                                "tiled_image.dimensions_truncated"),
+              std::vector<uint8_t>({ 1U }));
+}
+
+TEST(BmffDerivedFieldsDecode, ValidatesTiledImagePropertyRelationships)
+{
+    const std::array<uint32_t, 0> dimensions {};
+    const std::vector<std::byte> duplicate_file
+        = make_tiled_image_configuration_file(0U, 0U, 640U, 480U, 64U, 64U,
+                                              dimensions, false, 1U, 2U, 0U);
+    MetaStore duplicate_store;
+    decode_bmff_test_file(duplicate_file, &duplicate_store);
+    EXPECT_EQ(collect_u32_values(duplicate_store,
+                                 "tiled_image.configuration_count"),
+              std::vector<uint32_t>({ 2U }));
+    EXPECT_EQ(collect_u8_values(duplicate_store,
+                                "tiled_image.configuration_unique"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_EQ(collect_u8_values(duplicate_store,
+                                "tiled_image.configuration_valid"),
+              std::vector<uint8_t>({ 0U }));
+
+    const std::vector<std::byte> missing_ispe_file
+        = make_tiled_image_configuration_file(0U, 0U, 640U, 480U, 64U, 64U,
+                                              dimensions, false, 0U, 1U, 0U);
+    MetaStore missing_ispe_store;
+    decode_bmff_test_file(missing_ispe_file, &missing_ispe_store);
+    EXPECT_EQ(collect_u8_values(missing_ispe_store,
+                                "tiled_image.configuration_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(missing_ispe_store, "tiled_image.ispe_present"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_EQ(collect_u8_values(missing_ispe_store, "tiled_image.layout_valid"),
+              std::vector<uint8_t>({ 0U }));
+
+    const std::vector<std::byte> missing_tilc_file
+        = make_tiled_image_configuration_file(0U, 0U, 640U, 480U, 64U, 64U,
+                                              dimensions, false, 1U, 0U, 0U);
+    MetaStore missing_tilc_store;
+    decode_bmff_test_file(missing_tilc_file, &missing_tilc_store);
+    EXPECT_EQ(collect_u8_values(missing_tilc_store,
+                                "tiled_image.configuration_present"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_EQ(collect_u8_values(missing_tilc_store,
+                                "tiled_image.configuration_valid"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_EQ(collect_u8_values(missing_tilc_store, "tiled_image.layout_valid"),
+              std::vector<uint8_t>({ 0U }));
+}
+
+TEST(BmffDerivedFieldsDecode, RejectsTiledImageTileCountOverflow)
+{
+    const std::array<uint32_t, 1> dimensions { 2U };
+    const std::vector<std::byte> file = make_tiled_image_configuration_file(
+        0U, 0U, UINT32_MAX, UINT32_MAX, 1U, 1U, dimensions, false, 1U, 1U, 0U);
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.configuration_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.tile_count_overflow"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.layout_valid"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_TRUE(
+        collect_u64_values(store, "tiled_image.expected_tile_count").empty());
 }
 
 }  // namespace openmeta

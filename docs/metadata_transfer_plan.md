@@ -217,6 +217,11 @@ Implemented:
   camera raw settings XMP, source ICC profiles, MakerNotes, and non-C2PA JUMBF
   data. It is intended for RAW-to-rendered or otherwise pixel-changing exports
   where host code must provide target-correct color/profile data.
+- concept-level BMFF diagnostics treat `tiled_image.configuration` as
+  source-container-bound: compatible-file mode can keep the evidence, while
+  rendered-image mode reports `drop.tiled_image_configuration`. This diagnostic
+  does not authorize copying source `tilC` bytes into a rewritten destination
+  item graph.
 - safety regression coverage now checks both sides of that boundary:
   compatible-file mode keeps serializable source RAW/camera-specific metadata,
   while rendered-image mode drops the same source-specific data and injects

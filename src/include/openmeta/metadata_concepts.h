@@ -83,6 +83,7 @@ enum class MetadataConceptRole : uint8_t {
     ContentBoundMetadata,
     MultiImageScene,
     DerivedImageConstruction,
+    TiledImageConfiguration,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {

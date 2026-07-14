@@ -6311,7 +6311,9 @@ NB_MODULE(_openmeta, m)
                MetadataConceptRole::ContentBoundMetadata)
         .value("MultiImageScene", MetadataConceptRole::MultiImageScene)
         .value("DerivedImageConstruction",
-               MetadataConceptRole::DerivedImageConstruction);
+               MetadataConceptRole::DerivedImageConstruction)
+        .value("TiledImageConfiguration",
+               MetadataConceptRole::TiledImageConfiguration);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

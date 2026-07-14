@@ -22043,6 +22043,8 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
                         "requires_target_rewrite");
     const openmeta::EntryId derived_construction
         = add_bmff_text(&store, "derived_image.construction", "overlay");
+    const openmeta::EntryId tiled_configuration
+        = add_bmff_text(&store, "tiled_image.configuration", "tiled");
     store.finalize();
 
     const openmeta::TransferConceptDiagnostics rendered
@@ -22107,6 +22109,24 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
                  "derived-image construction metadata is bound to the source "
                  "container graph and will be dropped for this transfer mode");
 
+    const openmeta::TransferConceptDiagnostic* tiled_diag
+        = find_transfer_concept_diagnostic(
+            rendered, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::TiledImageConfiguration,
+            openmeta::TransferConceptDiagnosticAction::Drop);
+    ASSERT_NE(tiled_diag, nullptr);
+    EXPECT_EQ(tiled_diag->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    EXPECT_TRUE(tiled_diag->source_bound);
+    EXPECT_TRUE(
+        contains_entry_id(tiled_diag->source_entries, tiled_configuration));
+    EXPECT_EQ(openmeta::transfer_concept_diagnostic_message_token(*tiled_diag),
+              "drop.tiled_image_configuration");
+    EXPECT_STREQ(openmeta::transfer_concept_diagnostic_message(*tiled_diag),
+                 "tiled-image configuration metadata is bound to the source "
+                 "container layout and will be dropped for this transfer "
+                 "mode");
+
     const openmeta::TransferConceptDiagnostics compatible
         = openmeta::transfer_concept_diagnostics_from_store(
             store, openmeta::TransferSafetyMode::CompatibleFile);
@@ -22117,6 +22137,14 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsReportContainerGraphPolicy)
             openmeta::TransferConceptDiagnosticAction::Keep);
     ASSERT_NE(compatible_content_bound, nullptr);
     EXPECT_EQ(compatible_content_bound->reason,
+              openmeta::TransferConceptDiagnosticReason::SourceBound);
+    const openmeta::TransferConceptDiagnostic* compatible_tiled
+        = find_transfer_concept_diagnostic(
+            compatible, openmeta::MetadataConceptKind::ContainerGraph,
+            openmeta::MetadataConceptRole::TiledImageConfiguration,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+    ASSERT_NE(compatible_tiled, nullptr);
+    EXPECT_EQ(compatible_tiled->reason,
               openmeta::TransferConceptDiagnosticReason::SourceBound);
 }
 

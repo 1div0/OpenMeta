@@ -1874,6 +1874,8 @@ namespace {
                             "requires_target_rewrite");
         const EntryId derived_construction
             = add_bmff_text(&store, "derived_image.construction", "grid");
+        const EntryId tiled_configuration
+            = add_bmff_text(&store, "tiled_image.configuration", "tiled");
         store.finalize();
 
         const MetadataConceptResolution graph
@@ -1928,6 +1930,18 @@ namespace {
         EXPECT_EQ(derived_candidate->text, "grid");
         EXPECT_TRUE(contains_entry(derived_candidate->source_entries,
                                    derived_construction));
+
+        const MetadataConceptCandidate* tiled_candidate
+            = find_role(graph, MetadataConceptRole::TiledImageConfiguration);
+        ASSERT_NE(tiled_candidate, nullptr);
+        EXPECT_EQ(tiled_candidate->transfer_hint,
+                  MetadataConceptTransferHint::SourceBound);
+        EXPECT_TRUE(tiled_candidate->compatible_file_safe);
+        EXPECT_FALSE(tiled_candidate->rendered_image_safe);
+        EXPECT_TRUE(tiled_candidate->source_bound);
+        EXPECT_EQ(tiled_candidate->text, "tiled");
+        EXPECT_TRUE(contains_entry(tiled_candidate->source_entries,
+                                   tiled_configuration));
 
         const MetadataConceptResult all = resolve_metadata_concepts(store);
         const MetadataConceptResolution* graph_in_all

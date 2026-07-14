@@ -13702,6 +13702,13 @@ transfer_concept_diagnostic_message(
                        "source container graph and will be dropped for this "
                        "transfer mode";
             }
+            if (diagnostic.kind == MetadataConceptKind::ContainerGraph
+                && diagnostic.role
+                       == MetadataConceptRole::TiledImageConfiguration) {
+                return "tiled-image configuration metadata is bound to the "
+                       "source container layout and will be dropped for this "
+                       "transfer mode";
+            }
             if (diagnostic.kind == MetadataConceptKind::RawProcessing
                 && diagnostic.role
                        == MetadataConceptRole::ComputationalProcessing) {
@@ -13821,6 +13828,11 @@ transfer_concept_diagnostic_message_token(
                 && diagnostic.role
                        == MetadataConceptRole::DerivedImageConstruction) {
                 return "drop.derived_image_construction";
+            }
+            if (diagnostic.kind == MetadataConceptKind::ContainerGraph
+                && diagnostic.role
+                       == MetadataConceptRole::TiledImageConfiguration) {
+                return "drop.tiled_image_configuration";
             }
             if (diagnostic.kind == MetadataConceptKind::RawProcessing
                 && diagnostic.role

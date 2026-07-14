@@ -61,9 +61,10 @@ Family Gap Matrix
        item/property associations, direction-aware item relations, semantic
        item groups, component membership, semantic composition, and typed
        relation counts, plus bounded ``grid``/``iovl``/``iden`` constructions,
-       recursive item-offset descriptor resolution, and graph-cycle/source
-       validation
-     - Experimental tiled-image configuration and CR3-specific private records
+       recursive item-offset descriptor resolution, graph-cycle/source
+       validation, and bounded ``tili``/``tilC`` tile-layout interpretation
+     - Conditional tiled-image property/reference/offset data and CR3-specific
+       private records
      - Continue bounded BMFF metadata graph interpretation before broad CR3
        private-table work
    * - Canon CRW/CIFF

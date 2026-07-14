@@ -17,7 +17,7 @@ different status.
 | API surface | Header | Stability | Notes |
 | --- | --- | --- | --- |
 | Runtime capability query: `metadata_capability(...)` | `openmeta/metadata_capabilities.h` | Stable | v1 query contract for read, structured decode, transfer preparation, target edit, and raw-preservation status by format/family. |
-| Compatibility dumps: `dump_metadata_compatibility(...)`, `dump_transfer_compatibility(...)` | `openmeta/compatibility_dump.h` | Stable | Stable v1 line-oriented compatibility dump contract, including generic BMFF component membership, role, relation-summary, policy, and derived-image construction fields as normal `bmff_field` entries. See [compatibility_dump.md](compatibility_dump.md). |
+| Compatibility dumps: `dump_metadata_compatibility(...)`, `dump_transfer_compatibility(...)` | `openmeta/compatibility_dump.h` | Stable | Stable v1 line-oriented compatibility dump contract, including generic BMFF component membership, role, relation-summary, policy, derived-image construction, and tiled-image configuration fields as normal `bmff_field` entries. See [compatibility_dump.md](compatibility_dump.md). |
 | XMP sync and writeback policy enums: `XmpConflictPolicy`, existing-carrier precedence enums, `XmpWritebackMode`, destination carrier modes | `openmeta/xmp_dump.h`, `openmeta/metadata_transfer.h` | Stable | Stable bounded writer policy for generated portable XMP. See [xmp_sync_policy.md](xmp_sync_policy.md). |
 | Generic metadata traversal: `visit_metadata(...)`, `MetadataSink`, `ExportOptions`, `ExportItem` | `openmeta/interop_export.h` | Stable | v1 traversal contract. Borrowed names are valid only during `MetadataSink::on_item(...)`. |
 | `ExportNameStyle::Canonical` and `ExportNameStyle::XmpPortable` | `openmeta/interop_export.h` | Stable | Stable naming modes for key-space-aware and portable exports. |
@@ -38,6 +38,13 @@ different status.
 | Bundle execution: `execute_prepared_transfer_bundle(...)` | `openmeta/metadata_transfer.h` | Experimental | Intended for hosts that already own a prepared bundle and destination bytes. Treat bundles as immutable except through documented patch helpers. |
 | Adapter-view execution: `build_prepared_transfer_adapter_view(...)`, `emit_prepared_transfer_adapter_view(...)` | `openmeta/metadata_transfer.h` | Experimental | Target-neutral operation view for host-owned encoders and writers. Route and dispatch details may still evolve. |
 | Generated transfer payload internals, route strings, low-level package chunks, and diagnostic counters not documented by a stable API page | `openmeta/metadata_transfer.h` | Internal | These fields may be useful for tests and diagnostics, but they are not a compatibility contract for downstream integrations. |
+
+The bounded BMFF tiled-image field contract covers `tilC` version 0 tile
+dimensions, up to eight extra dimensions, association and layout validity, and
+overflow-checked expected tile counts. `TiledImageConfiguration` is an
+experimental source-bound concept role exposed unchanged by the thin Python
+enum. Conditional `tile_item_type`/`tipa`, external-tile `dref` state, and
+tile-offset tables are not part of this contract yet.
 
 ## Practical Guidance
 

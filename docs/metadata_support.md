@@ -240,9 +240,11 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   method-2 item-offset descriptor chains, descriptor reference depth,
   derived-graph cycle/missing-source/truncated-reference validation, and a
   source-bound `container_graph` concept for query/transfer diagnostics
-- `tili` tiled-image items are classified as image items; experimental
-  `tilC` configuration fields remain structural-only until their syntax is
-  stable enough for a public interpretation contract
+- `tili` tiled-image items and bounded `tilC` version-0 configuration fields,
+  including tile width/height, up to eight extra dimensions, conditional
+  payload byte counts, required single-`ispe`/single-`tilC` association checks,
+  ceil-divided tile rows/columns, overflow-checked expected tile counts, and
+  source-bound query/transfer diagnostics
 - graph summaries
 - `auxC`-typed auxiliary semantics
 - bounded primary-linked image-role fields, separate primary inbound
@@ -302,8 +304,8 @@ What this means in practice:
 
 ## Main Current Gaps
 
-- experimental BMFF tiled-image configuration; stable `grid`, `iovl`, and
-  `iden` derived constructions are already interpreted
+- conditional BMFF tiled-image `tile_item_type`/`tipa`, external-tile `dref`
+  state, and tile-offset tables beyond the stable bounded `tilC` core
 - additional `JXL brob` realtypes beyond `Exif`, `xml `, `jumb`, and `c2pa`
 - full `JUMBF/C2PA` semantics and policy validation
 - deeper RAF model-specific native tables and X3F image-processing sections

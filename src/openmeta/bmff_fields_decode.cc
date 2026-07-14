@@ -637,6 +637,24 @@ namespace {
         uint32_t height = 0;
     };
 
+    static constexpr uint8_t kMaxTiledImageExtraDimensions = 8U;
+
+    struct TilCProp final {
+        uint32_t index                     = 0;  // 1-based ipco index
+        uint32_t flags                     = 0;
+        uint32_t tile_width                = 0;
+        uint32_t tile_height               = 0;
+        uint32_t conditional_payload_bytes = 0;
+        std::array<uint32_t, kMaxTiledImageExtraDimensions> dimension_sizes {};
+        uint8_t version                = 0;
+        uint8_t extra_dimension_count  = 0;
+        uint8_t stored_dimension_count = 0;
+        bool have_header               = false;
+        bool have_core                 = false;
+        bool core_valid                = false;
+        bool dimensions_truncated      = false;
+    };
+
     struct U8Prop final {
         uint32_t index = 0;  // 1-based ipco index
         uint8_t value  = 0;
@@ -822,6 +840,7 @@ namespace {
         uint32_t pasp_count           = 0;
         uint32_t pixi_count           = 0;
         uint32_t clap_count           = 0;
+        uint32_t tilc_count           = 0;
         bool property_truncated       = false;
     };
 
@@ -902,6 +921,11 @@ namespace {
 
         bool have_ipco_summary = false;
         IpcoSummary ipco_summary {};
+
+        std::array<IspeProp, 64> ipco_ispe {};
+        uint32_t ipco_ispe_count = 0;
+        std::array<TilCProp, 64> ipco_tilc {};
+        uint32_t ipco_tilc_count = 0;
 
         std::array<ItemInfo, 256> item_infos {};
         uint32_t item_info_count = 0;
@@ -1317,6 +1341,8 @@ namespace {
                                     s.pixi_count);
         emit_count_field_if_nonzero(store, block, io_order, "ipco.clap_count",
                                     s.clap_count);
+        emit_count_field_if_nonzero(store, block, io_order, "ipco.tilC_count",
+                                    s.tilc_count);
     }
 
     static void append_ipma_summary_count_field(MetaStore& store, BlockId block,
@@ -1355,6 +1381,7 @@ namespace {
             { fourcc('p', 'a', 's', 'p'), "pasp", 0U, 0U, 0U, false },
             { fourcc('p', 'i', 'x', 'i'), "pixi", 0U, 0U, 0U, false },
             { fourcc('c', 'l', 'a', 'p'), "clap", 0U, 0U, 0U, false },
+            { fourcc('t', 'i', 'l', 'C'), "tilC", 0U, 0U, 0U, false },
         };
 
         for (uint32_t i = 0U; i < p.ipma_association_count; ++i) {
@@ -3039,6 +3066,15 @@ namespace {
         return true;
     }
 
+    static bool checked_mul_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
+    {
+        if (!out || (a != 0U && b > UINT64_MAX / a)) {
+            return false;
+        }
+        *out = a * b;
+        return true;
+    }
+
     static bool enter_item_resolve(ItemResolveContext* context,
                                    uint32_t item_id,
                                    uint32_t* io_max_depth) noexcept
@@ -4658,6 +4694,7 @@ namespace {
         case fourcc('p', 'a', 's', 'p'): summary->pasp_count += 1U; break;
         case fourcc('p', 'i', 'x', 'i'): summary->pixi_count += 1U; break;
         case fourcc('c', 'l', 'a', 'p'): summary->clap_count += 1U; break;
+        case fourcc('t', 'i', 'l', 'C'): summary->tilc_count += 1U; break;
         default: return false;
         }
         summary->known_property_count += 1U;
@@ -4675,12 +4712,14 @@ namespace {
         std::array<PaspProp, 64>* out_pasp, uint32_t* out_pasp_count,
         std::array<PixiProp, 64>* out_pixi, uint32_t* out_pixi_count,
         std::array<ClapProp, 64>* out_clap, uint32_t* out_clap_count,
+        std::array<TilCProp, 64>* out_tilc, uint32_t* out_tilc_count,
         IpcoSummary* out_summary) noexcept
     {
         if (!out_ispe || !out_ispe_count || !out_irot || !out_irot_count
             || !out_imir || !out_imir_count || !out_colr || !out_colr_count
             || !out_auxc || !out_auxc_count || !out_pasp || !out_pasp_count
-            || !out_pixi || !out_pixi_count || !out_clap || !out_clap_count) {
+            || !out_pixi || !out_pixi_count || !out_clap || !out_clap_count
+            || !out_tilc || !out_tilc_count) {
             return;
         }
 
@@ -4692,6 +4731,7 @@ namespace {
         *out_pasp_count = 0;
         *out_pixi_count = 0;
         *out_clap_count = 0;
+        *out_tilc_count = 0;
         if (out_summary) {
             *out_summary = IpcoSummary {};
         }
@@ -4942,6 +4982,83 @@ namespace {
                             *out_clap_count += 1;
                         }
                     }
+                } else if (child.type == fourcc('t', 'i', 'l', 'C')
+                           && *out_tilc_count < out_tilc->size()) {
+                    TilCProp prop {};
+                    prop.index = prop_index;
+                    if (child_payload_size >= 4U) {
+                        prop.have_header = true;
+                        prop.version     = u8(bytes[child_payload_off]);
+                        prop.flags       = (static_cast<uint32_t>(
+                                          u8(bytes[child_payload_off + 1U]))
+                                      << 16U)
+                                     | (static_cast<uint32_t>(
+                                            u8(bytes[child_payload_off + 2U]))
+                                        << 8U)
+                                     | static_cast<uint32_t>(
+                                         u8(bytes[child_payload_off + 3U]));
+                    }
+                    if (child_payload_size >= 13U
+                        && read_u32be(bytes, child_payload_off + 4U,
+                                      &prop.tile_width)
+                        && read_u32be(bytes, child_payload_off + 8U,
+                                      &prop.tile_height)) {
+                        prop.extra_dimension_count = u8(
+                            bytes[child_payload_off + 12U]);
+                        const uint64_t dimension_bytes
+                            = static_cast<uint64_t>(prop.extra_dimension_count)
+                              * 4U;
+                        const uint64_t core_bytes = 13U + dimension_bytes;
+                        prop.dimensions_truncated
+                            = prop.extra_dimension_count
+                              > kMaxTiledImageExtraDimensions;
+                        if (core_bytes <= child_payload_size) {
+                            prop.have_core = true;
+                            const uint8_t store_count
+                                = std::min(prop.extra_dimension_count,
+                                           kMaxTiledImageExtraDimensions);
+                            prop.stored_dimension_count = store_count;
+                            bool dimensions_nonzero     = true;
+                            for (uint8_t i = 0U; i < prop.extra_dimension_count;
+                                 ++i) {
+                                uint32_t dimension_size = 0U;
+                                if (!read_u32be(bytes,
+                                                child_payload_off + 13U
+                                                    + static_cast<uint64_t>(i)
+                                                          * 4U,
+                                                &dimension_size)) {
+                                    prop.have_core     = false;
+                                    dimensions_nonzero = false;
+                                    break;
+                                }
+                                if (dimension_size == 0U) {
+                                    dimensions_nonzero = false;
+                                }
+                                if (i < store_count) {
+                                    prop.dimension_sizes[i] = dimension_size;
+                                }
+                            }
+                            if (prop.have_core) {
+                                const uint64_t trailing_bytes
+                                    = child_payload_size - core_bytes;
+                                prop.conditional_payload_bytes
+                                    = trailing_bytes > UINT32_MAX
+                                          ? UINT32_MAX
+                                          : static_cast<uint32_t>(
+                                                trailing_bytes);
+                                prop.core_valid = prop.version == 0U
+                                                  && prop.flags == 0U
+                                                  && prop.tile_width != 0U
+                                                  && prop.tile_height != 0U
+                                                  && dimensions_nonzero
+                                                  && !prop.dimensions_truncated;
+                            }
+                        } else {
+                            prop.dimensions_truncated = true;
+                        }
+                    }
+                    (*out_tilc)[*out_tilc_count] = prop;
+                    *out_tilc_count += 1U;
                 }
             }
 
@@ -5034,12 +5151,24 @@ namespace {
         return nullptr;
     }
 
+    static const TilCProp* find_tilc(std::span<const TilCProp> props,
+                                     uint32_t index) noexcept
+    {
+        for (size_t i = 0U; i < props.size(); ++i) {
+            if (props[i].index == index) {
+                return &props[i];
+            }
+        }
+        return nullptr;
+    }
+
     static bool bmff_property_type_for_index(
         uint32_t index, std::span<const IspeProp> ispe,
         std::span<const U8Prop> irot, std::span<const U8Prop> imir,
         std::span<const ColrProp> colr, std::span<const AuxCProp> auxc,
         std::span<const PaspProp> pasp, std::span<const PixiProp> pixi,
-        std::span<const ClapProp> clap, uint32_t* out_type) noexcept
+        std::span<const ClapProp> clap, std::span<const TilCProp> tilc,
+        uint32_t* out_type) noexcept
     {
         if (!out_type) {
             return false;
@@ -5074,6 +5203,10 @@ namespace {
         }
         if (find_clap(clap, index)) {
             *out_type = fourcc('c', 'l', 'a', 'p');
+            return true;
+        }
+        if (find_tilc(tilc, index)) {
+            *out_type = fourcc('t', 'i', 'l', 'C');
             return true;
         }
         return false;
@@ -5171,7 +5304,8 @@ namespace {
         std::span<const U8Prop> irot, std::span<const U8Prop> imir,
         std::span<const ColrProp> colr, std::span<const AuxCProp> auxc,
         std::span<const PaspProp> pasp, std::span<const PixiProp> pixi,
-        std::span<const ClapProp> clap, PrimaryProps* out) noexcept
+        std::span<const ClapProp> clap, std::span<const TilCProp> tilc,
+        PrimaryProps* out) noexcept
     {
         if (!out) {
             return;
@@ -5244,7 +5378,7 @@ namespace {
                         uint32_t prop_type   = 0;
                         const bool have_type = bmff_property_type_for_index(
                             prop_index, ispe, irot, imir, colr, auxc, pasp,
-                            pixi, clap, &prop_type);
+                            pixi, clap, tilc, &prop_type);
                         append_ipma_association(out, item_id, prop_index,
                                                 essential, have_type,
                                                 prop_type);
@@ -5344,7 +5478,7 @@ namespace {
                         uint32_t prop_type   = 0;
                         const bool have_type = bmff_property_type_for_index(
                             prop_index, ispe, irot, imir, colr, auxc, pasp,
-                            pixi, clap, &prop_type);
+                            pixi, clap, tilc, &prop_type);
                         append_ipma_association(out, item_id, prop_index,
                                                 essential, have_type,
                                                 prop_type);
@@ -5426,6 +5560,233 @@ namespace {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    struct TiledImageState final {
+        uint32_t item_id                = 0U;
+        uint32_t configuration_count    = 0U;
+        uint32_t ispe_count             = 0U;
+        uint32_t tile_columns           = 0U;
+        uint32_t tile_rows              = 0U;
+        uint64_t expected_tile_count    = 0U;
+        const TilCProp* configuration   = nullptr;
+        const IspeProp* ispe            = nullptr;
+        uint8_t configuration_essential = 0U;
+        bool configuration_valid        = false;
+        bool tile_count_overflow        = false;
+        bool have_tile_grid             = false;
+        bool layout_valid               = false;
+    };
+
+    static TiledImageState tiled_image_state(const PrimaryProps& p,
+                                             uint32_t item_id) noexcept
+    {
+        TiledImageState out;
+        out.item_id = item_id;
+        const std::span<const TilCProp> tilc(p.ipco_tilc.data(),
+                                             p.ipco_tilc_count);
+        const std::span<const IspeProp> ispe(p.ipco_ispe.data(),
+                                             p.ipco_ispe_count);
+
+        for (uint32_t i = 0U; i < p.ipma_association_count; ++i) {
+            const ItemPropertyAssociation& assoc = p.ipma_associations[i];
+            if (assoc.item_id != item_id || !assoc.have_property_type) {
+                continue;
+            }
+            if (assoc.property_type == fourcc('t', 'i', 'l', 'C')) {
+                out.configuration_count += 1U;
+                if (!out.configuration) {
+                    out.configuration = find_tilc(tilc, assoc.property_index);
+                    out.configuration_essential = assoc.essential;
+                }
+            } else if (assoc.property_type == fourcc('i', 's', 'p', 'e')) {
+                out.ispe_count += 1U;
+                if (!out.ispe) {
+                    out.ispe = find_ispe(ispe, assoc.property_index);
+                }
+            }
+        }
+
+        out.configuration_valid = out.configuration_count == 1U
+                                  && out.configuration
+                                  && out.configuration->core_valid;
+        if (!out.configuration_valid || out.ispe_count != 1U || !out.ispe
+            || out.ispe->width == 0U || out.ispe->height == 0U) {
+            return out;
+        }
+
+        const TilCProp& config = *out.configuration;
+        out.tile_columns       = out.ispe->width / config.tile_width
+                           + (out.ispe->width % config.tile_width != 0U ? 1U
+                                                                        : 0U);
+        out.tile_rows = out.ispe->height / config.tile_height
+                        + (out.ispe->height % config.tile_height != 0U ? 1U
+                                                                       : 0U);
+        uint64_t tile_count = 0U;
+        if (!checked_mul_u64(out.tile_columns, out.tile_rows, &tile_count)) {
+            out.tile_count_overflow = true;
+            return out;
+        }
+        for (uint8_t i = 0U; i < config.stored_dimension_count; ++i) {
+            if (!checked_mul_u64(tile_count, config.dimension_sizes[i],
+                                 &tile_count)) {
+                out.tile_count_overflow = true;
+                return out;
+            }
+        }
+        out.expected_tile_count = tile_count;
+        out.have_tile_grid      = true;
+        out.layout_valid        = true;
+        return out;
+    }
+
+    static void emit_tiled_image_fields(MetaStore& store, BlockId block,
+                                        uint32_t* io_order,
+                                        const PrimaryProps& p) noexcept
+    {
+        if (!io_order || p.item_info_count == 0U) {
+            return;
+        }
+
+        std::array<TiledImageState, 256> states {};
+        uint32_t state_count               = 0U;
+        uint32_t configuration_valid_count = 0U;
+        uint32_t layout_valid_count        = 0U;
+        for (uint32_t i = 0U; i < p.item_info_count; ++i) {
+            const ItemInfo& item = p.item_infos[i];
+            if (!item.have_type
+                || item.item_type != fourcc('t', 'i', 'l', 'i')) {
+                continue;
+            }
+            if (state_count >= states.size()) {
+                break;
+            }
+            states[state_count] = tiled_image_state(p, item.item_id);
+            if (states[state_count].configuration_valid) {
+                configuration_valid_count += 1U;
+            }
+            if (states[state_count].layout_valid) {
+                layout_valid_count += 1U;
+            }
+            state_count += 1U;
+        }
+        if (state_count == 0U) {
+            return;
+        }
+
+        emit_u32_field(store, block, (*io_order)++, "tiled_image.count",
+                       state_count);
+        emit_u32_field(store, block, (*io_order)++,
+                       "tiled_image.configuration_valid_count",
+                       configuration_valid_count);
+        emit_u32_field(store, block, (*io_order)++,
+                       "tiled_image.configuration_invalid_count",
+                       state_count - configuration_valid_count);
+        emit_u32_field(store, block, (*io_order)++,
+                       "tiled_image.layout_valid_count", layout_valid_count);
+        emit_u32_field(store, block, (*io_order)++,
+                       "tiled_image.layout_invalid_count",
+                       state_count - layout_valid_count);
+
+        for (uint32_t i = 0U; i < state_count; ++i) {
+            const TiledImageState& state = states[i];
+            emit_u32_field(store, block, (*io_order)++, "tiled_image.item_id",
+                           state.item_id);
+            emit_u32_field(store, block, (*io_order)++,
+                           "tiled_image.configuration_count",
+                           state.configuration_count);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.configuration_present",
+                          state.configuration_count != 0U ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.configuration_unique",
+                          state.configuration_count == 1U ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.configuration_valid",
+                          state.configuration_valid ? 1U : 0U);
+            emit_u32_field(store, block, (*io_order)++,
+                           "tiled_image.ispe_count", state.ispe_count);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.ispe_present",
+                          state.ispe_count != 0U ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.ispe_unique",
+                          state.ispe_count == 1U ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.layout_valid",
+                          state.layout_valid ? 1U : 0U);
+            if (state.configuration_count != 0U) {
+                emit_text_field(store, block, (*io_order)++,
+                                "tiled_image.configuration", "tiled");
+            }
+
+            if (state.configuration) {
+                const TilCProp& config = *state.configuration;
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.property_index", config.index);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.property_essential",
+                              state.configuration_essential);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.configuration_header_present",
+                              config.have_header ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.configuration_core_present",
+                              config.have_core ? 1U : 0U);
+                if (config.have_header) {
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "tiled_image.configuration_version",
+                                  config.version);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "tiled_image.configuration_flags",
+                                   config.flags);
+                }
+                if (config.have_core) {
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "tiled_image.tile_width", config.tile_width);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "tiled_image.tile_height",
+                                   config.tile_height);
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "tiled_image.extra_dimension_count",
+                                  config.extra_dimension_count);
+                    for (uint8_t j = 0U; j < config.stored_dimension_count;
+                         ++j) {
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "tiled_image.dimension_index", j);
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "tiled_image.dimension_size",
+                                       config.dimension_sizes[j]);
+                    }
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "tiled_image.conditional_payload_bytes",
+                                   config.conditional_payload_bytes);
+                }
+                if (config.dimensions_truncated) {
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "tiled_image.dimensions_truncated", 1U);
+                }
+            }
+            if (state.ispe) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.output_width", state.ispe->width);
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.output_height", state.ispe->height);
+            }
+            if (state.have_tile_grid) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.tile_columns", state.tile_columns);
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.tile_rows", state.tile_rows);
+                emit_u64_field(store, block, (*io_order)++,
+                               "tiled_image.expected_tile_count",
+                               state.expected_tile_count);
+            }
+            if (state.tile_count_overflow) {
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.tile_count_overflow", 1U);
             }
         }
     }
@@ -6025,6 +6386,7 @@ namespace {
         std::array<PaspProp, 64> pasp {};
         std::array<PixiProp, 64> pixi {};
         std::array<ClapProp, 64> clap {};
+        std::array<TilCProp, 64> tilc {};
         uint32_t ispe_count = 0;
         uint32_t irot_count = 0;
         uint32_t imir_count = 0;
@@ -6033,13 +6395,19 @@ namespace {
         uint32_t pasp_count = 0;
         uint32_t pixi_count = 0;
         uint32_t clap_count = 0;
+        uint32_t tilc_count = 0;
         if (has_ipco) {
             bmff_collect_ipco_props(bytes, ipco, &ispe, &ispe_count, &irot,
                                     &irot_count, &imir, &imir_count, &colr,
                                     &colr_count, &auxc, &auxc_count, &pasp,
                                     &pasp_count, &pixi, &pixi_count, &clap,
-                                    &clap_count, &out->ipco_summary);
+                                    &clap_count, &tilc, &tilc_count,
+                                    &out->ipco_summary);
             out->have_ipco_summary = true;
+            out->ipco_ispe         = ispe;
+            out->ipco_ispe_count   = ispe_count;
+            out->ipco_tilc         = tilc;
+            out->ipco_tilc_count   = tilc_count;
         }
 
         if (!has_ipma) {
@@ -6055,7 +6423,8 @@ namespace {
             std::span<const AuxCProp>(auxc.data(), auxc_count),
             std::span<const PaspProp>(pasp.data(), pasp_count),
             std::span<const PixiProp>(pixi.data(), pixi_count),
-            std::span<const ClapProp>(clap.data(), clap_count), out);
+            std::span<const ClapProp>(clap.data(), clap_count),
+            std::span<const TilCProp>(tilc.data(), tilc_count), out);
         return true;
     }
 
@@ -6211,6 +6580,8 @@ namespace {
                                            p);
                     emit_item_location_fields(*ctx->store, ctx->block,
                                               ctx->order, p);
+                    emit_tiled_image_fields(*ctx->store, ctx->block, ctx->order,
+                                            p);
                     emit_derived_image_fields(*ctx->store, ctx->block,
                                               ctx->order, bytes, p);
                     if (p.have_item_id) {
