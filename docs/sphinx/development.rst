@@ -58,7 +58,9 @@ model should stay compact:
        white-balance naming, Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/
        Sanyo scalar MakerNote labels, current Canon RF/Nikon Z lens labels,
        an ambiguous Pentax Sigma/Samsung/Tokina lens-family label,
-       EXIF/XMP GPS timestamp composites,
+       EXIF/XMP GPS timestamp composites, EXIF ``OffsetTime*``/
+       ``SubSecTime*`` date composition with normalized-instant conflict
+       checks, camera-GPS isolation from structured IPTC locations,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
      - High, about 97-98%.

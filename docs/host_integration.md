@@ -64,14 +64,20 @@ vectors for grouped matrix/vector/table records when the source payloads
 satisfy conservative numeric shape checks. Malformed or text-only source
 records remain visible as individual metadata, but they are not promoted into
 normalized grouped color, white-balance, or lens-correction candidates.
-Date/time candidates
-include parsed date/time fields when the source value is recognizable, plus
-precision and timezone-kind fields. IPTC created date/time, IPTC
+Date/time candidates include parsed date/time fields when the source value is
+recognizable, plus precision and timezone-kind fields. Matching EXIF
+`OffsetTime*` and `SubSecTime*` companions are assembled with their
+`DateTime*` values; normalized subseconds are bounded to nine decimal digits.
+Offset-aware candidates are compared as UTC instants, so equivalent timestamps
+with different written offsets do not conflict. IPTC created date/time, IPTC
 digital-creation date/time, XMP digitized timestamps, and GPS timestamps are
 assembled where the source fields provide enough pieces. GPS timestamps
-combine `GPSDateStamp` with
-`GPSTimeStamp` when both are present, and GPS altitude candidates report
-whether `GPSAltitudeRef` marked the height as below sea level; use
+combine `GPSDateStamp` with `GPSTimeStamp` only within the same XMP property
+scope, and GPS altitude candidates report whether `GPSAltitudeRef` marked the
+height as below sea level. The camera-GPS concept accepts XMP coordinates from
+the EXIF XMP schema; IPTC Extension `LocationShown` and `LocationCreated`
+coordinates remain decoded/queryable but are not conflated with camera
+position. Use
 `metadata_concept_gps_altitude_reference_name(...)` for a stable display token.
 Treat this as an inspection and policy input rather than an automatic metadata
 rewrite decision; source-bound color, lens, and RAW-processing values still need

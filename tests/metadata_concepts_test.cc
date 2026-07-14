@@ -1007,6 +1007,138 @@ namespace {
         EXPECT_EQ(digitized->date_time_second, 1U);
     }
 
+    TEST(MetadataConcepts, ComposesExifDateTimeCompanionsAcrossTimeZones)
+    {
+        MetaStore store;
+        const EntryId created_id   = add_exif_text(&store, "exififd", 0x9003U,
+                                                   "2024:04:19 12:34:56");
+        const EntryId offset_id    = add_exif_text(&store, "exififd", 0x9011U,
+                                                   "+09:00");
+        const EntryId subsecond_id = add_exif_text(&store, "exififd", 0x9291U,
+                                                   "125");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/",
+                           "xmp:CreateDate", "2024-04-19T03:34:56.125Z");
+        store.finalize();
+
+        const MetadataConceptResolution datetime
+            = resolve_metadata_concept(store, MetadataConceptKind::DateTime);
+
+        EXPECT_TRUE(datetime.found);
+        EXPECT_FALSE(datetime.conflict);
+        const MetadataConceptCandidate* created
+            = find_role_family(datetime, MetadataConceptRole::Created,
+                               MetadataConceptSourceFamily::Exif);
+        ASSERT_NE(created, nullptr);
+        EXPECT_EQ(created->entry_id, created_id);
+        EXPECT_TRUE(contains_entry(created->source_entries, offset_id));
+        EXPECT_TRUE(contains_entry(created->source_entries, subsecond_id));
+        EXPECT_TRUE(created->date_time_has_subsecond);
+        EXPECT_EQ(created->date_time_subsecond, "125");
+        EXPECT_TRUE(created->date_time_has_utc_offset);
+        EXPECT_EQ(created->date_time_utc_offset_min, 540);
+        EXPECT_EQ(created->date_time_zone, MetadataConceptTimeZoneKind::Offset);
+        EXPECT_EQ(created->date_time_precision,
+                  MetadataConceptDateTimePrecision::DateTimeSubsecond);
+        EXPECT_EQ(created->text, "2024:04:19 12:34:56.125+09:00");
+
+        const MetadataConceptCandidate* xmp_created
+            = find_role_family(datetime, MetadataConceptRole::Created,
+                               MetadataConceptSourceFamily::Xmp);
+        ASSERT_NE(xmp_created, nullptr);
+        EXPECT_TRUE(xmp_created->date_time_has_subsecond);
+        EXPECT_EQ(xmp_created->date_time_subsecond, "125");
+        EXPECT_EQ(xmp_created->date_time_precision,
+                  MetadataConceptDateTimePrecision::DateTimeSubsecond);
+    }
+
+    TEST(MetadataConcepts, FlagsKnownSubsecondConflicts)
+    {
+        MetaStore store;
+        (void)add_exif_text(&store, "exififd", 0x9003U, "2024:04:19 12:34:56");
+        (void)add_exif_text(&store, "exififd", 0x9011U, "+09:00");
+        (void)add_exif_text(&store, "exififd", 0x9291U, "1250");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/",
+                           "xmp:CreateDate", "2024-04-19T03:34:56.126Z");
+        store.finalize();
+
+        const MetadataConceptResolution datetime
+            = resolve_metadata_concept(store, MetadataConceptKind::DateTime);
+
+        EXPECT_TRUE(datetime.found);
+        EXPECT_TRUE(datetime.conflict);
+        const MetadataConceptCandidate* created
+            = find_role(datetime, MetadataConceptRole::Created);
+        ASSERT_NE(created, nullptr);
+        EXPECT_TRUE(created->conflict);
+    }
+
+    TEST(MetadataConcepts, MapsModifiedAndDigitizedExifCompanions)
+    {
+        MetaStore store;
+        const EntryId modified_id     = add_exif_text(&store, "ifd0", 0x0132U,
+                                                      "2024:04:20 10:20:30");
+        const EntryId modified_offset = add_exif_text(&store, "exififd",
+                                                      0x9010U, "+01:30");
+        const EntryId modified_subsecond = add_exif_text(&store, "exififd",
+                                                         0x9290U, "25");
+        const EntryId digitized_id = add_exif_text(&store, "exififd", 0x9004U,
+                                                   "2024:04:19 12:35:01");
+        const EntryId digitized_offset    = add_exif_text(&store, "exififd",
+                                                          0x9012U, "-05:00");
+        const EntryId digitized_subsecond = add_exif_text(&store, "exififd",
+                                                          0x9292U, "500");
+        store.finalize();
+
+        const MetadataConceptResolution datetime
+            = resolve_metadata_concept(store, MetadataConceptKind::DateTime);
+        const MetadataConceptCandidate* modified
+            = find_role(datetime, MetadataConceptRole::Modified);
+        const MetadataConceptCandidate* digitized
+            = find_role(datetime, MetadataConceptRole::Digitized);
+
+        ASSERT_NE(modified, nullptr);
+        EXPECT_EQ(modified->entry_id, modified_id);
+        EXPECT_TRUE(contains_entry(modified->source_entries, modified_offset));
+        EXPECT_TRUE(
+            contains_entry(modified->source_entries, modified_subsecond));
+        EXPECT_EQ(modified->date_time_utc_offset_min, 90);
+        EXPECT_EQ(modified->date_time_subsecond, "25");
+
+        ASSERT_NE(digitized, nullptr);
+        EXPECT_EQ(digitized->entry_id, digitized_id);
+        EXPECT_TRUE(
+            contains_entry(digitized->source_entries, digitized_offset));
+        EXPECT_TRUE(
+            contains_entry(digitized->source_entries, digitized_subsecond));
+        EXPECT_EQ(digitized->date_time_utc_offset_min, -300);
+        EXPECT_EQ(digitized->date_time_subsecond, "500");
+    }
+
+    TEST(MetadataConcepts, IgnoresInvalidExifDateTimeCompanions)
+    {
+        MetaStore store;
+        const EntryId created_id     = add_exif_text(&store, "exififd", 0x9003U,
+                                                     "2024:04:19 12:34:56");
+        const EntryId invalid_offset = add_exif_text(&store, "exififd", 0x9011U,
+                                                     "+25:00");
+        const EntryId excessive_subsecond
+            = add_exif_text(&store, "exififd", 0x9291U, "1234567890");
+        store.finalize();
+
+        const MetadataConceptResolution datetime
+            = resolve_metadata_concept(store, MetadataConceptKind::DateTime);
+        const MetadataConceptCandidate* created
+            = find_role(datetime, MetadataConceptRole::Created);
+
+        ASSERT_NE(created, nullptr);
+        EXPECT_EQ(created->entry_id, created_id);
+        EXPECT_FALSE(created->date_time_has_utc_offset);
+        EXPECT_FALSE(created->date_time_has_subsecond);
+        EXPECT_FALSE(contains_entry(created->source_entries, invalid_offset));
+        EXPECT_FALSE(
+            contains_entry(created->source_entries, excessive_subsecond));
+    }
+
     TEST(MetadataConcepts, UsesToleranceForGpsCoordinateConflicts)
     {
         {
@@ -1056,6 +1188,39 @@ namespace {
             ASSERT_NE(lat_candidate, nullptr);
             EXPECT_TRUE(lat_candidate->conflict);
         }
+    }
+
+    TEST(MetadataConcepts, KeepsStructuredXmpLocationsOutOfCameraGps)
+    {
+        MetaStore store;
+        (void)add_exif_text(&store, "gpsifd", 0x0001U, "N");
+        const std::array<URational, 3> lat = {
+            URational { 41U, 1U },
+            URational { 24U, 1U },
+            URational { 30U, 1U },
+        };
+        (void)add_exif_urational_array(&store, "gpsifd", 0x0002U,
+                                       std::span<const URational>(lat.data(),
+                                                                  lat.size()));
+        (void)add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
+                           "exif:GPSLatitude", "41,24.500N");
+        const EntryId shown_location
+            = add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/GPSLatitude", "48,51.507N");
+        const EntryId created_location
+            = add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationCreated/GPSLongitude", "2,9E");
+        store.finalize();
+
+        const MetadataConceptResolution gps
+            = resolve_metadata_concept(store, MetadataConceptKind::Gps);
+
+        EXPECT_TRUE(gps.found);
+        EXPECT_FALSE(gps.conflict);
+        EXPECT_FALSE(contains_entry(gps.source_entries, shown_location));
+        EXPECT_FALSE(contains_entry(gps.source_entries, created_location));
     }
 
     TEST(MetadataConcepts, CombinesXmpGpsDateAndTimeStamp)

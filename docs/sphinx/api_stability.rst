@@ -213,8 +213,9 @@ Host-facing API map
        scope reports candidates, candidate source entries, source families,
        preferred entries, normalized numeric/text keys, full normalized value
        vectors, transfer hints, RAW applicability states, normalized date/time
-       fields, date/time precision, timezone kind, normalized geometry fields,
-       normalized exposure values, and same-role conflicts for orientation,
+       fields, date/time precision including bounded subsecond digits,
+       timezone kind, normalized geometry fields, normalized exposure values,
+       and same-role conflicts for orientation,
        date/time, exposure/gain, color/profile/source-color-transform, GPS,
        geometry, lens-correction, RAW-processing, and container-graph evidence
        across EXIF, XMP, IPTC, ICC, PNG text, BMFF fields, and query-backed
@@ -253,18 +254,24 @@ Host-facing API map
        descriptors to not-applicable when the supplied storage encoding is
        uncompressed or packed, and primary-plane-only descriptors to
        not-applicable when the supplied plane index is non-primary.
-       EXIF and XMP GPS date/time are combined from ``GPSDateStamp`` plus
-       ``GPSTimeStamp`` when both entries exist, IPTC digital-creation
-       date/time and XMP ``DateTimeDigitized`` map to the ``Digitized``
-       date/time role, and GPS altitude candidates expose
-       altitude-reference code plus below-sea-level state when reference
-       metadata is present; ``metadata_concept_gps_altitude_reference_name(...)``
-       provides a stable display token for the reference code. It is intended
-       for inspection UI and host policy decisions; it does not rewrite
-       metadata or hide ambiguity. Python ``Document`` and
-       ``TransferSourceSnapshot`` expose matching dictionary wrappers,
-       including the thin ``MetadataRawDataDescriptor`` object with storage,
-       compression, and plane-binding fields.
+       Matching EXIF ``OffsetTime*`` and ``SubSecTime*`` entries are assembled
+       with ``DateTime*`` candidates. Offset-aware conflicts compare
+       normalized UTC instants, while missing timezone or subsecond fields
+       remain lower-precision evidence. EXIF and XMP GPS date/time are
+       combined from same-scope ``GPSDateStamp`` plus ``GPSTimeStamp``
+       entries, IPTC digital-creation date/time and XMP
+       ``DateTimeDigitized`` map to the ``Digitized`` date/time role, and GPS
+       altitude candidates expose altitude-reference code plus
+       below-sea-level state when reference metadata is present. Camera-GPS
+       XMP candidates are limited to the EXIF XMP schema, so IPTC Extension
+       structured locations are not conflated with camera position;
+       ``metadata_concept_gps_altitude_reference_name(...)`` provides a stable
+       display token for the reference code. It is intended for inspection UI
+       and host policy decisions; it does not rewrite metadata or hide
+       ambiguity. Python ``Document`` and ``TransferSourceSnapshot`` expose
+       matching dictionary wrappers, including subsecond fields and the thin
+       ``MetadataRawDataDescriptor`` object with storage, compression, and
+       plane-binding fields.
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
        ``transfer_concept_diagnostic_message(...)``,

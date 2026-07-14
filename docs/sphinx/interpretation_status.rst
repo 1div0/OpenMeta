@@ -321,17 +321,20 @@ Coverage matrix
        resolution for orientation, date/time, exposure/gain,
        color/profile, GPS, geometry, lens-correction, RAW-processing, and
        container graph policy with
-       parsed date/time fields, IPTC created and digital-creation date/time
-       plus XMP ``DateTimeDigitized`` promoted into cross-family date
-       candidates, timezone/precision
-       classification, combined EXIF and XMP GPS timestamps, GPS
+       parsed date/time fields, matching EXIF ``OffsetTime*``/
+       ``SubSecTime*`` provenance, bounded subsecond precision,
+       normalized-instant conflict checks, IPTC created and digital-creation
+       date/time plus XMP ``DateTimeDigitized`` promoted into cross-family
+       date candidates, same-scope EXIF/XMP GPS timestamp assembly,
+       EXIF-schema camera-GPS isolation from IPTC structured locations, GPS
        altitude-reference state and display token, canonical geometry
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, RAW applicability states,
        rendered/compatible safety booleans, and tolerance-aware
        GPS/exposure/color/geometry conflicts.
      - Medium-high, about 89-94%.
-     - More long-tail per-model concept aliases and richer localized policy
+     - Explicit roles for structured subject/location coordinates, more
+       long-tail per-model concept aliases, and richer localized policy
        wording.
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
@@ -377,9 +380,9 @@ Next interpretation priorities
    independently authored conformance files as they become available.
 2. Broaden transfer diagnostic policy coverage now that stable message tokens
    and localizable argument tokens are available for GUI workflows.
-3. Expand GPS/date policy beyond current coordinate tolerance,
-   altitude-reference display, EXIF/XMP timestamp assembly, and bounded
-   digitized-date aliases into broader cross-family reconciliation.
+3. Add explicit, non-camera roles for IPTC Extension ``LocationShown`` and
+   ``LocationCreated`` coordinates plus EXIF destination coordinates without
+   conflating them with camera position.
 4. Expand the remaining unambiguous MakerNote long tail: encrypted/custom
    settings, per-model firmware formulas outside currently supported
    formatter contexts, remaining live-vendor scalar/string-coded fields, and

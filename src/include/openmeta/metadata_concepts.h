@@ -90,6 +90,7 @@ enum class MetadataConceptDateTimePrecision : uint8_t {
     Unknown,
     Date,
     DateTime,
+    DateTimeSubsecond,
 };
 
 enum class MetadataConceptTimeZoneKind : uint8_t {
@@ -196,12 +197,15 @@ struct MetadataConceptCandidate final {
         = MetadataConceptDateTimePrecision::Unknown;
     MetadataConceptTimeZoneKind date_time_zone
         = MetadataConceptTimeZoneKind::Unknown;
-    int16_t date_time_year           = 0;
-    uint8_t date_time_month          = 0U;
-    uint8_t date_time_day            = 0U;
-    uint8_t date_time_hour           = 0U;
-    uint8_t date_time_minute         = 0U;
-    uint8_t date_time_second         = 0U;
+    int16_t date_time_year       = 0;
+    uint8_t date_time_month      = 0U;
+    uint8_t date_time_day        = 0U;
+    uint8_t date_time_hour       = 0U;
+    uint8_t date_time_minute     = 0U;
+    uint8_t date_time_second     = 0U;
+    bool date_time_has_subsecond = false;
+    /// Normalized decimal digits, bounded to nanosecond precision.
+    std::string date_time_subsecond;
     int16_t date_time_utc_offset_min = 0;
 
     bool has_gps_altitude_reference     = false;

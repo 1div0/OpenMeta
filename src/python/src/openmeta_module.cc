@@ -1165,6 +1165,12 @@ namespace {
             out["minute"] = nb::none();
             out["second"] = nb::none();
         }
+        out["has_subsecond"] = nb::bool_(candidate.date_time_has_subsecond);
+        if (candidate.date_time_has_subsecond) {
+            out["subsecond"] = sv_to_py(candidate.date_time_subsecond);
+        } else {
+            out["subsecond"] = nb::none();
+        }
         out["has_utc_offset"] = nb::bool_(candidate.date_time_has_utc_offset);
         if (candidate.date_time_has_utc_offset) {
             out["utc_offset_minutes"] = nb::int_(
@@ -6319,7 +6325,9 @@ NB_MODULE(_openmeta, m)
         m, "MetadataConceptDateTimePrecision")
         .value("Unknown", MetadataConceptDateTimePrecision::Unknown)
         .value("Date", MetadataConceptDateTimePrecision::Date)
-        .value("DateTime", MetadataConceptDateTimePrecision::DateTime);
+        .value("DateTime", MetadataConceptDateTimePrecision::DateTime)
+        .value("DateTimeSubsecond",
+               MetadataConceptDateTimePrecision::DateTimeSubsecond);
 
     nb::enum_<MetadataConceptTimeZoneKind>(m, "MetadataConceptTimeZoneKind")
         .value("Unknown", MetadataConceptTimeZoneKind::Unknown)

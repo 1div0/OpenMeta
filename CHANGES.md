@@ -1,5 +1,25 @@
 # OpenMeta Changes
 
+## 0.4.75 - 2026-07-14
+
+Changes compared with `0.4.74`.
+
+### Added
+
+- Added bounded EXIF `DateTime*` composition with matching `OffsetTime*` and
+  `SubSecTime*` entries, including source-entry provenance and normalized
+  subsecond precision through the C++ and thin Python concept APIs.
+
+### Changed
+
+- Offset-aware date/time conflicts now compare normalized UTC instants, while
+  missing timezone or subsecond fields remain lower-precision evidence rather
+  than automatic conflicts.
+- Camera-GPS concept resolution now accepts XMP GPS properties only from the
+  EXIF XMP schema and pairs split fields within the same property scope, so
+  IPTC Extension `LocationShown` and `LocationCreated` coordinates are not
+  conflated with camera position.
+
 ## 0.4.74 - 2026-07-14
 
 Changes compared with `0.4.73`.
