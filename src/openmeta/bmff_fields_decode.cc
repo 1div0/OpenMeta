@@ -369,6 +369,21 @@ namespace {
         (void)store.add_entry(e);
     }
 
+    static void emit_utf8_field(MetaStore& store, BlockId block, uint32_t order,
+                                std::string_view field,
+                                std::string_view value) noexcept
+    {
+        Entry e;
+        e.key          = make_bmff_field_key(store.arena(), field);
+        e.value        = make_text(store.arena(), value, TextEncoding::Utf8);
+        e.origin.block = block;
+        e.origin.order_in_block = order;
+        e.origin.wire_type      = WireType { WireFamily::Other, 0 };
+        e.origin.wire_count     = 1;
+        e.flags                 = EntryFlags::Derived;
+        (void)store.add_entry(e);
+    }
+
     static bool bmff_fourcc_field_token(uint32_t type,
                                         std::array<char, 5>* out) noexcept
     {
@@ -637,14 +652,27 @@ namespace {
         uint32_t height = 0;
     };
 
-    static constexpr uint8_t kMaxTiledImageExtraDimensions = 8U;
+    static constexpr uint8_t kMaxTiledImageExtraDimensions    = 8U;
+    static constexpr uint8_t kMaxTilePropertyAssociations     = 64U;
+    static constexpr uint8_t kMaxTiledImageOffsetRows         = 64U;
+    static constexpr uint32_t kMaxTiledImageUrlBytes          = 512U;
+    static constexpr uint64_t kMaxTiledImageOffsetsToValidate = 1U << 18U;
+
+    struct TilePropertyAssociation final {
+        uint32_t property_index = 0U;
+        uint32_t property_type  = 0U;
+        uint8_t essential       = 0U;
+        bool have_property_type = false;
+    };
 
     struct TilCProp final {
-        uint32_t index                     = 0;  // 1-based ipco index
-        uint32_t flags                     = 0;
-        uint32_t tile_width                = 0;
-        uint32_t tile_height               = 0;
-        uint32_t conditional_payload_bytes = 0;
+        uint32_t index                      = 0;  // 1-based ipco index
+        uint32_t flags                      = 0;
+        uint32_t tile_width                 = 0;
+        uint32_t tile_height                = 0;
+        uint32_t conditional_payload_bytes  = 0;
+        uint64_t conditional_payload_offset = 0U;
+        uint64_t conditional_payload_end    = 0U;
         std::array<uint32_t, kMaxTiledImageExtraDimensions> dimension_sizes {};
         uint8_t version                = 0;
         uint8_t extra_dimension_count  = 0;
@@ -653,6 +681,42 @@ namespace {
         bool have_core                 = false;
         bool core_valid                = false;
         bool dimensions_truncated      = false;
+    };
+
+    struct IpcoProperty final {
+        uint32_t index = 0U;
+        uint32_t type  = 0U;
+    };
+
+    struct TiledImageUrl final {
+        std::array<char, kMaxTiledImageUrlBytes> bytes {};
+        uint32_t stored_bytes = 0U;
+        uint32_t total_bytes  = 0U;
+        bool truncated        = false;
+    };
+
+    struct DataReferenceEntry final {
+        uint32_t index                       = 0U;  // 1-based dref index
+        uint32_t type                        = 0U;
+        uint32_t flags                       = 0U;
+        uint64_t input_item_count            = 0U;
+        uint64_t tile_offset_table_start     = 0U;
+        uint32_t tile_offset_table_size      = 0U;
+        uint64_t tile_id_start               = 0U;
+        uint16_t directory_id_start          = 0U;
+        uint16_t directory_id_end            = 0U;
+        uint8_t version                      = 0U;
+        uint8_t offset_field_bytes           = 0U;
+        uint8_t size_field_bytes             = 0U;
+        uint8_t input_item_count_field_bytes = 0U;
+        bool have_header                     = false;
+        bool syntax_valid                    = false;
+        bool sequential_order                = false;
+        bool external_tiles_urls             = false;
+        bool directory_id_present            = false;
+        TiledImageUrl base_url {};
+        TiledImageUrl url_extension {};
+        TiledImageUrl tile_request_template {};
     };
 
     struct U8Prop final {
@@ -914,6 +978,13 @@ namespace {
         uint64_t idat_payload_offset           = 0;
         uint64_t idat_payload_end              = 0;
 
+        std::array<DataReferenceEntry, 128> data_references {};
+        uint32_t data_reference_count  = 0U;
+        uint32_t data_reference_total  = 0U;
+        bool have_data_references      = false;
+        bool data_references_valid     = false;
+        bool data_references_truncated = false;
+
         std::array<ItemPropertyAssociation, 512> ipma_associations {};
         uint32_t ipma_association_count = 0;
         uint32_t ipma_association_total = 0;
@@ -926,6 +997,9 @@ namespace {
         uint32_t ipco_ispe_count = 0;
         std::array<TilCProp, 64> ipco_tilc {};
         uint32_t ipco_tilc_count = 0;
+        std::array<IpcoProperty, 256> ipco_properties {};
+        uint32_t ipco_property_count   = 0U;
+        bool ipco_properties_truncated = false;
 
         std::array<ItemInfo, 256> item_infos {};
         uint32_t item_info_count = 0;
@@ -3040,22 +3114,36 @@ namespace {
 
     struct ItemDataCursor final {
         std::span<const std::byte> bytes;
-        const PrimaryProps* props = nullptr;
-        uint32_t item_id          = 0U;
-        uint64_t logical_offset   = 0U;
-        uint64_t logical_size     = 0U;
-        uint32_t reference_depth  = 0U;
+        const PrimaryProps* props                  = nullptr;
+        uint32_t item_id                           = 0U;
+        uint16_t allowed_root_data_reference_index = 0U;
+        uint64_t logical_offset                    = 0U;
+        uint64_t logical_size                      = 0U;
+        uint32_t reference_depth                   = 0U;
     };
 
     struct ItemResolveContext final {
         std::span<const std::byte> bytes;
-        const PrimaryProps* props = nullptr;
-        uint32_t* remaining_steps = nullptr;
+        const PrimaryProps* props                  = nullptr;
+        uint32_t* remaining_steps                  = nullptr;
+        uint32_t root_item_id                      = 0U;
+        uint16_t allowed_root_data_reference_index = 0U;
         std::array<uint32_t, 16> path {};
         uint32_t path_count = 0U;
     };
 
     static constexpr uint32_t kMaxItemResolveSteps = 4096U;
+
+    static bool item_data_reference_allowed(const ItemResolveContext& context,
+                                            const ItemLocation& location,
+                                            uint32_t item_id) noexcept
+    {
+        return location.data_reference_index == 0U
+               || (item_id == context.root_item_id
+                   && context.allowed_root_data_reference_index != 0U
+                   && location.data_reference_index
+                          == context.allowed_root_data_reference_index);
+    }
 
     static bool checked_add_u64(uint64_t a, uint64_t b, uint64_t* out) noexcept
     {
@@ -3184,7 +3272,8 @@ namespace {
         }
         const ItemLocation* location = find_item_location(*context.props,
                                                           item_id);
-        if (!location || location->data_reference_index != 0U
+        if (!location
+            || !item_data_reference_allowed(context, *location, item_id)
             || location->extent_truncated || location->length_overflow
             || location->extent_count == 0U
             || location->extent_count != location->extent_record_count
@@ -3234,7 +3323,8 @@ namespace {
         }
         const ItemLocation* location = find_item_location(*context.props,
                                                           item_id);
-        if (!location || location->data_reference_index != 0U
+        if (!location
+            || !item_data_reference_allowed(context, *location, item_id)
             || location->extent_truncated || location->length_overflow
             || location->extent_count == 0U
             || location->extent_count != location->extent_record_count
@@ -3298,9 +3388,10 @@ namespace {
         return false;
     }
 
-    static bool init_item_data_cursor(std::span<const std::byte> bytes,
-                                      const PrimaryProps& p, uint32_t item_id,
-                                      ItemDataCursor* out) noexcept
+    static bool init_item_data_cursor_with_reference(
+        std::span<const std::byte> bytes, const PrimaryProps& p,
+        uint32_t item_id, uint16_t allowed_data_reference_index,
+        ItemDataCursor* out) noexcept
     {
         if (!out) {
             return false;
@@ -3311,17 +3402,27 @@ namespace {
         context.bytes            = bytes;
         context.props            = &p;
         context.remaining_steps  = &remaining_steps;
+        context.root_item_id     = item_id;
+        context.allowed_root_data_reference_index = allowed_data_reference_index;
         uint64_t logical_size    = 0U;
         uint32_t reference_depth = 0U;
         if (!item_data_size(context, item_id, &logical_size, &reference_depth)) {
             return false;
         }
-        out->bytes           = bytes;
-        out->props           = &p;
-        out->item_id         = item_id;
-        out->logical_size    = logical_size;
-        out->reference_depth = reference_depth;
+        out->bytes                             = bytes;
+        out->props                             = &p;
+        out->item_id                           = item_id;
+        out->allowed_root_data_reference_index = allowed_data_reference_index;
+        out->logical_size                      = logical_size;
+        out->reference_depth                   = reference_depth;
         return true;
+    }
+
+    static bool init_item_data_cursor(std::span<const std::byte> bytes,
+                                      const PrimaryProps& p, uint32_t item_id,
+                                      ItemDataCursor* out) noexcept
+    {
+        return init_item_data_cursor_with_reference(bytes, p, item_id, 0U, out);
     }
 
     static bool read_item_data_u8(ItemDataCursor* cursor, uint8_t* out) noexcept
@@ -3335,6 +3436,9 @@ namespace {
         context.bytes            = cursor->bytes;
         context.props            = cursor->props;
         context.remaining_steps  = &remaining_steps;
+        context.root_item_id     = cursor->item_id;
+        context.allowed_root_data_reference_index
+            = cursor->allowed_root_data_reference_index;
         if (!read_item_data_byte_at(context, cursor->item_id,
                                     cursor->logical_offset, out,
                                     &cursor->reference_depth)) {
@@ -3376,6 +3480,25 @@ namespace {
                | (static_cast<uint32_t>(value[1]) << 16U)
                | (static_cast<uint32_t>(value[2]) << 8U)
                | static_cast<uint32_t>(value[3]);
+        return true;
+    }
+
+    static bool read_item_data_uint_n(ItemDataCursor* cursor,
+                                      uint8_t byte_count,
+                                      uint64_t* out) noexcept
+    {
+        if (!out || byte_count > 8U) {
+            return false;
+        }
+        uint64_t value = 0U;
+        for (uint8_t i = 0U; i < byte_count; ++i) {
+            uint8_t byte = 0U;
+            if (!read_item_data_u8(cursor, &byte)) {
+                return false;
+            }
+            value = (value << 8U) | static_cast<uint64_t>(byte);
+        }
+        *out = value;
         return true;
     }
 
@@ -4713,25 +4836,30 @@ namespace {
         std::array<PixiProp, 64>* out_pixi, uint32_t* out_pixi_count,
         std::array<ClapProp, 64>* out_clap, uint32_t* out_clap_count,
         std::array<TilCProp, 64>* out_tilc, uint32_t* out_tilc_count,
+        std::array<IpcoProperty, 256>* out_properties,
+        uint32_t* out_property_count, bool* out_properties_truncated,
         IpcoSummary* out_summary) noexcept
     {
         if (!out_ispe || !out_ispe_count || !out_irot || !out_irot_count
             || !out_imir || !out_imir_count || !out_colr || !out_colr_count
             || !out_auxc || !out_auxc_count || !out_pasp || !out_pasp_count
             || !out_pixi || !out_pixi_count || !out_clap || !out_clap_count
-            || !out_tilc || !out_tilc_count) {
+            || !out_tilc || !out_tilc_count || !out_properties
+            || !out_property_count || !out_properties_truncated) {
             return;
         }
 
-        *out_ispe_count = 0;
-        *out_irot_count = 0;
-        *out_imir_count = 0;
-        *out_colr_count = 0;
-        *out_auxc_count = 0;
-        *out_pasp_count = 0;
-        *out_pixi_count = 0;
-        *out_clap_count = 0;
-        *out_tilc_count = 0;
+        *out_ispe_count           = 0;
+        *out_irot_count           = 0;
+        *out_imir_count           = 0;
+        *out_colr_count           = 0;
+        *out_auxc_count           = 0;
+        *out_pasp_count           = 0;
+        *out_pixi_count           = 0;
+        *out_clap_count           = 0;
+        *out_tilc_count           = 0;
+        *out_property_count       = 0U;
+        *out_properties_truncated = false;
         if (out_summary) {
             *out_summary = IpcoSummary {};
         }
@@ -4763,6 +4891,13 @@ namespace {
                     out_summary->property_truncated = true;
                 }
                 (void)bmff_count_ipco_property_type(child.type, out_summary);
+            }
+            if (*out_property_count < out_properties->size()) {
+                (*out_properties)[*out_property_count]
+                    = IpcoProperty { prop_index, child.type };
+                *out_property_count += 1U;
+            } else {
+                *out_properties_truncated = true;
             }
 
             const uint64_t child_payload_off = child.offset + child.header_size;
@@ -5046,6 +5181,10 @@ namespace {
                                           ? UINT32_MAX
                                           : static_cast<uint32_t>(
                                                 trailing_bytes);
+                                prop.conditional_payload_offset
+                                    = child_payload_off + core_bytes;
+                                prop.conditional_payload_end
+                                    = child_payload_off + child_payload_size;
                                 prop.core_valid = prop.version == 0U
                                                   && prop.flags == 0U
                                                   && prop.tile_width != 0U
@@ -5564,24 +5703,289 @@ namespace {
         }
     }
 
-    struct TiledImageState final {
-        uint32_t item_id                = 0U;
-        uint32_t configuration_count    = 0U;
-        uint32_t ispe_count             = 0U;
-        uint32_t tile_columns           = 0U;
-        uint32_t tile_rows              = 0U;
-        uint64_t expected_tile_count    = 0U;
-        const TilCProp* configuration   = nullptr;
-        const IspeProp* ispe            = nullptr;
-        uint8_t configuration_essential = 0U;
-        bool configuration_valid        = false;
-        bool tile_count_overflow        = false;
-        bool have_tile_grid             = false;
-        bool layout_valid               = false;
+    static const DataReferenceEntry*
+    find_data_reference(const PrimaryProps& p, uint16_t index) noexcept;
+
+    struct TiledImageOffsetRow final {
+        uint64_t tile_index   = 0U;
+        uint64_t start_offset = 0U;
+        uint64_t size         = 0U;
+        bool have_size        = false;
+        bool empty            = false;
     };
 
-    static TiledImageState tiled_image_state(const PrimaryProps& p,
-                                             uint32_t item_id) noexcept
+    struct TiledImageState final {
+        uint32_t item_id                                = 0U;
+        uint32_t configuration_count                    = 0U;
+        uint32_t ispe_count                             = 0U;
+        uint32_t tile_columns                           = 0U;
+        uint32_t tile_rows                              = 0U;
+        uint64_t expected_tile_count                    = 0U;
+        const TilCProp* configuration                   = nullptr;
+        const IspeProp* ispe                            = nullptr;
+        const ItemLocation* location                    = nullptr;
+        const DataReferenceEntry* data_reference        = nullptr;
+        uint8_t configuration_essential                 = 0U;
+        uint32_t tile_item_type                         = 0U;
+        uint32_t tipa_flags                             = 0U;
+        uint32_t tile_property_association_count        = 0U;
+        uint32_t stored_tile_property_association_count = 0U;
+        uint64_t logical_item_data_size                 = 0U;
+        uint64_t expected_offset_table_size             = 0U;
+        uint64_t empty_tile_count                       = 0U;
+        uint32_t stored_offset_row_count                = 0U;
+        uint8_t tipa_version                            = 0U;
+        std::array<TilePropertyAssociation, kMaxTilePropertyAssociations>
+            tile_property_associations {};
+        std::array<TiledImageOffsetRow, kMaxTiledImageOffsetRows> offset_rows {};
+        bool configuration_valid                  = false;
+        bool tile_count_overflow                  = false;
+        bool have_tile_grid                       = false;
+        bool layout_valid                         = false;
+        bool data_reference_present               = false;
+        bool data_reference_valid                 = false;
+        bool input_item_count_matches             = false;
+        bool conditional_payload_valid            = false;
+        bool tipa_present                         = false;
+        bool tipa_valid                           = false;
+        bool tile_property_associations_truncated = false;
+        bool offset_table_present                 = false;
+        bool offset_table_valid                   = false;
+        bool offset_table_validation_truncated    = false;
+        bool tile_offsets_valid                   = false;
+        bool tile_sizes_validated                 = false;
+        bool complete_configuration_valid         = false;
+    };
+
+    static const IpcoProperty* find_ipco_property(const PrimaryProps& p,
+                                                  uint32_t index) noexcept
+    {
+        for (uint32_t i = 0U; i < p.ipco_property_count; ++i) {
+            if (p.ipco_properties[i].index == index) {
+                return &p.ipco_properties[i];
+            }
+        }
+        return nullptr;
+    }
+
+    static bool parse_tiled_image_conditional(std::span<const std::byte> bytes,
+                                              const PrimaryProps& p,
+                                              TiledImageState* state) noexcept
+    {
+        if (!state || !state->configuration || !state->data_reference) {
+            return false;
+        }
+        const TilCProp& config             = *state->configuration;
+        const DataReferenceEntry& data_ref = *state->data_reference;
+        if (config.conditional_payload_offset > config.conditional_payload_end
+            || config.conditional_payload_end > bytes.size()) {
+            return false;
+        }
+        if (data_ref.external_tiles_urls) {
+            state->conditional_payload_valid = config.conditional_payload_offset
+                                               == config.conditional_payload_end;
+            return state->conditional_payload_valid;
+        }
+
+        uint64_t p_offset = config.conditional_payload_offset;
+        if (!read_u32be(bytes, p_offset, &state->tile_item_type)) {
+            return false;
+        }
+        p_offset += 4U;
+        BmffBox tipa {};
+        if (!parse_bmff_box(bytes, p_offset, config.conditional_payload_end,
+                            &tipa)
+            || tipa.type != fourcc('t', 'i', 'p', 'a')
+            || tipa.offset + tipa.size != config.conditional_payload_end) {
+            return false;
+        }
+        state->tipa_present        = true;
+        const uint64_t payload_off = tipa.offset + tipa.header_size;
+        const uint64_t payload_end = tipa.offset + tipa.size;
+        if (payload_off + 5U > payload_end) {
+            return false;
+        }
+        state->tipa_version = u8(bytes[payload_off]);
+        state->tipa_flags
+            = (static_cast<uint32_t>(u8(bytes[payload_off + 1U])) << 16U)
+              | (static_cast<uint32_t>(u8(bytes[payload_off + 2U])) << 8U)
+              | static_cast<uint32_t>(u8(bytes[payload_off + 3U]));
+        if (state->tipa_version != 0U || state->tipa_flags > 1U) {
+            return false;
+        }
+        state->tile_property_association_count = u8(bytes[payload_off + 4U]);
+        const uint8_t association_bytes = state->tipa_flags == 0U ? 1U : 2U;
+        uint64_t expected_payload_size  = 0U;
+        if (!checked_mul_u64(state->tile_property_association_count,
+                             association_bytes, &expected_payload_size)
+            || !checked_add_u64(expected_payload_size, 5U,
+                                &expected_payload_size)
+            || expected_payload_size != payload_end - payload_off) {
+            return false;
+        }
+
+        uint64_t association_offset = payload_off + 5U;
+        bool associations_valid     = true;
+        for (uint32_t i = 0U; i < state->tile_property_association_count; ++i) {
+            uint16_t raw = 0U;
+            if (association_bytes == 1U) {
+                raw = u8(bytes[association_offset]);
+            } else if (!read_u16be(bytes, association_offset, &raw)) {
+                return false;
+            }
+            association_offset += association_bytes;
+            const uint16_t essential_mask = association_bytes == 1U ? 0x80U
+                                                                    : 0x8000U;
+            const uint16_t index_mask     = association_bytes == 1U ? 0x7FU
+                                                                    : 0x7FFFU;
+            TilePropertyAssociation association {};
+            association.essential      = (raw & essential_mask) != 0U ? 1U : 0U;
+            association.property_index = raw & index_mask;
+            if ((association.property_index == 0U && association.essential != 0U)
+                || association.property_index > p.ipco_summary.property_count) {
+                associations_valid = false;
+            }
+            if (const IpcoProperty* property
+                = find_ipco_property(p, association.property_index)) {
+                association.property_type      = property->type;
+                association.have_property_type = true;
+            }
+            if (state->stored_tile_property_association_count
+                < state->tile_property_associations.size()) {
+                state->tile_property_associations
+                    [state->stored_tile_property_association_count]
+                    = association;
+                state->stored_tile_property_association_count += 1U;
+            } else {
+                state->tile_property_associations_truncated = true;
+            }
+        }
+        state->tipa_valid                = associations_valid;
+        state->conditional_payload_valid = state->tipa_valid;
+        return state->conditional_payload_valid;
+    }
+
+    static bool
+    validate_tiled_image_offset_table(std::span<const std::byte> bytes,
+                                      const PrimaryProps& p,
+                                      TiledImageState* state) noexcept
+    {
+        if (!state || !state->location || !state->data_reference
+            || state->data_reference->external_tiles_urls) {
+            return false;
+        }
+        const DataReferenceEntry& data_ref = *state->data_reference;
+        state->offset_table_present        = true;
+        if (state->location->construction_method != 0U) {
+            return false;
+        }
+        uint64_t record_bytes = 0U;
+        if (!checked_add_u64(data_ref.offset_field_bytes,
+                             data_ref.size_field_bytes, &record_bytes)
+            || !checked_mul_u64(state->expected_tile_count, record_bytes,
+                                &state->expected_offset_table_size)
+            || state->expected_offset_table_size
+                   != data_ref.tile_offset_table_size) {
+            return false;
+        }
+        if (state->expected_tile_count > kMaxTiledImageOffsetsToValidate) {
+            state->offset_table_validation_truncated = true;
+            return false;
+        }
+
+        ItemDataCursor cursor {};
+        if (!init_item_data_cursor_with_reference(
+                bytes, p, state->item_id, state->location->data_reference_index,
+                &cursor)) {
+            return false;
+        }
+        state->logical_item_data_size = cursor.logical_size;
+        uint64_t table_end            = 0U;
+        if (!checked_add_u64(data_ref.tile_offset_table_start,
+                             data_ref.tile_offset_table_size, &table_end)
+            || table_end > cursor.logical_size) {
+            return false;
+        }
+        cursor.logical_offset = data_ref.tile_offset_table_start;
+
+        bool offsets_valid           = true;
+        bool have_previous_offset    = false;
+        uint64_t previous_offset     = 0U;
+        uint32_t previous_stored_row = UINT32_MAX;
+        for (uint64_t i = 0U; i < state->expected_tile_count; ++i) {
+            uint64_t start_offset = 0U;
+            uint64_t tile_size    = 0U;
+            if (!read_item_data_uint_n(&cursor, data_ref.offset_field_bytes,
+                                       &start_offset)
+                || (data_ref.size_field_bytes != 0U
+                    && !read_item_data_uint_n(&cursor, data_ref.size_field_bytes,
+                                              &tile_size))) {
+                return false;
+            }
+            const bool empty           = start_offset == UINT32_MAX;
+            const bool offset_in_range = !empty
+                                         && start_offset <= cursor.logical_size;
+            if (empty) {
+                state->empty_tile_count += 1U;
+            } else if (start_offset > cursor.logical_size) {
+                offsets_valid = false;
+            } else if (data_ref.size_field_bytes != 0U) {
+                if (tile_size > cursor.logical_size - start_offset) {
+                    offsets_valid = false;
+                }
+            } else if (data_ref.sequential_order) {
+                if (have_previous_offset && start_offset <= previous_offset) {
+                    offsets_valid = false;
+                }
+                if (have_previous_offset && previous_stored_row != UINT32_MAX) {
+                    TiledImageOffsetRow& previous
+                        = state->offset_rows[previous_stored_row];
+                    if (start_offset > previous_offset) {
+                        previous.size      = start_offset - previous_offset;
+                        previous.have_size = true;
+                    }
+                }
+                have_previous_offset = true;
+                previous_offset      = start_offset;
+            }
+
+            if (state->stored_offset_row_count < state->offset_rows.size()) {
+                TiledImageOffsetRow& row
+                    = state->offset_rows[state->stored_offset_row_count];
+                row.tile_index   = i;
+                row.start_offset = start_offset;
+                row.size         = tile_size;
+                row.have_size    = data_ref.size_field_bytes != 0U;
+                row.empty        = empty;
+                if (data_ref.size_field_bytes == 0U && data_ref.sequential_order
+                    && offset_in_range) {
+                    previous_stored_row = state->stored_offset_row_count;
+                }
+                state->stored_offset_row_count += 1U;
+            } else if (data_ref.size_field_bytes == 0U
+                       && data_ref.sequential_order && offset_in_range) {
+                previous_stored_row = UINT32_MAX;
+            }
+        }
+        if (data_ref.size_field_bytes == 0U && data_ref.sequential_order
+            && have_previous_offset && previous_stored_row != UINT32_MAX) {
+            TiledImageOffsetRow& last = state->offset_rows[previous_stored_row];
+            last.size                 = cursor.logical_size - previous_offset;
+            last.have_size            = true;
+        }
+        state->tile_offsets_valid   = offsets_valid;
+        state->tile_sizes_validated = offsets_valid
+                                      && (data_ref.size_field_bytes != 0U
+                                          || data_ref.sequential_order);
+        state->offset_table_valid = offsets_valid
+                                    && cursor.logical_offset == table_end;
+        return state->offset_table_valid;
+    }
+
+    static TiledImageState tiled_image_state(std::span<const std::byte> bytes,
+                                             const PrimaryProps& p,
+                                             uint32_t item_id,
+                                             bool validate_complete) noexcept
     {
         TiledImageState out;
         out.item_id = item_id;
@@ -5612,6 +6016,17 @@ namespace {
         out.configuration_valid = out.configuration_count == 1U
                                   && out.configuration
                                   && out.configuration->core_valid;
+        out.location = find_item_location(p, item_id);
+        if (out.location && out.location->data_reference_index != 0U) {
+            out.data_reference_present = true;
+            out.data_reference
+                = find_data_reference(p, out.location->data_reference_index);
+            out.data_reference_valid = p.data_references_valid
+                                       && out.data_reference
+                                       && out.data_reference->type
+                                              == fourcc('d', 'e', 't', 'i')
+                                       && out.data_reference->syntax_valid;
+        }
         if (!out.configuration_valid || out.ispe_count != 1U || !out.ispe
             || out.ispe->width == 0U || out.ispe->height == 0U) {
             return out;
@@ -5639,35 +6054,53 @@ namespace {
         out.expected_tile_count = tile_count;
         out.have_tile_grid      = true;
         out.layout_valid        = true;
+
+        if (!validate_complete) {
+            return out;
+        }
+        if (!out.data_reference_valid) {
+            return out;
+        }
+        out.input_item_count_matches = out.data_reference->input_item_count
+                                       == out.expected_tile_count;
+        if (!out.input_item_count_matches
+            || !parse_tiled_image_conditional(bytes, p, &out)) {
+            return out;
+        }
+        if (out.data_reference->external_tiles_urls) {
+            out.complete_configuration_valid = true;
+            return out;
+        }
+        out.complete_configuration_valid
+            = validate_tiled_image_offset_table(bytes, p, &out);
         return out;
     }
 
     static void emit_tiled_image_fields(MetaStore& store, BlockId block,
                                         uint32_t* io_order,
+                                        std::span<const std::byte> bytes,
                                         const PrimaryProps& p) noexcept
     {
         if (!io_order || p.item_info_count == 0U) {
             return;
         }
 
-        std::array<TiledImageState, 256> states {};
         uint32_t state_count               = 0U;
         uint32_t configuration_valid_count = 0U;
         uint32_t layout_valid_count        = 0U;
+        uint32_t complete_valid_count      = 0U;
         for (uint32_t i = 0U; i < p.item_info_count; ++i) {
             const ItemInfo& item = p.item_infos[i];
             if (!item.have_type
                 || item.item_type != fourcc('t', 'i', 'l', 'i')) {
                 continue;
             }
-            if (state_count >= states.size()) {
-                break;
-            }
-            states[state_count] = tiled_image_state(p, item.item_id);
-            if (states[state_count].configuration_valid) {
+            const TiledImageState state
+                = tiled_image_state(bytes, p, item.item_id, false);
+            if (state.configuration_valid) {
                 configuration_valid_count += 1U;
             }
-            if (states[state_count].layout_valid) {
+            if (state.layout_valid) {
                 layout_valid_count += 1U;
             }
             state_count += 1U;
@@ -5689,9 +6122,17 @@ namespace {
         emit_u32_field(store, block, (*io_order)++,
                        "tiled_image.layout_invalid_count",
                        state_count - layout_valid_count);
-
-        for (uint32_t i = 0U; i < state_count; ++i) {
-            const TiledImageState& state = states[i];
+        for (uint32_t i = 0U; i < p.item_info_count; ++i) {
+            const ItemInfo& item = p.item_infos[i];
+            if (!item.have_type
+                || item.item_type != fourcc('t', 'i', 'l', 'i')) {
+                continue;
+            }
+            const TiledImageState state = tiled_image_state(bytes, p,
+                                                            item.item_id, true);
+            if (state.complete_configuration_valid) {
+                complete_valid_count += 1U;
+            }
             emit_u32_field(store, block, (*io_order)++, "tiled_image.item_id",
                            state.item_id);
             emit_u32_field(store, block, (*io_order)++,
@@ -5717,6 +6158,9 @@ namespace {
             emit_u8_field(store, block, (*io_order)++,
                           "tiled_image.layout_valid",
                           state.layout_valid ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.complete_configuration_valid",
+                          state.complete_configuration_valid ? 1U : 0U);
             if (state.configuration_count != 0U) {
                 emit_text_field(store, block, (*io_order)++,
                                 "tiled_image.configuration", "tiled");
@@ -5788,7 +6232,206 @@ namespace {
                 emit_u8_field(store, block, (*io_order)++,
                               "tiled_image.tile_count_overflow", 1U);
             }
+            if (state.location) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.data_reference_index",
+                               state.location->data_reference_index);
+            }
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.data_reference_present",
+                          state.data_reference_present ? 1U : 0U);
+            emit_u8_field(store, block, (*io_order)++,
+                          "tiled_image.data_reference_valid",
+                          state.data_reference_valid ? 1U : 0U);
+            if (state.data_reference) {
+                const DataReferenceEntry& data_ref = *state.data_reference;
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.data_reference_type",
+                               data_ref.type);
+                emit_text_field(store, block, (*io_order)++,
+                                "tiled_image.data_reference_type_name",
+                                bmff_fourcc_display_name(data_ref.type));
+                if (data_ref.have_header) {
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "tiled_image.data_reference_version",
+                                  data_ref.version);
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "tiled_image.data_reference_flags",
+                                   data_ref.flags);
+                }
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.external_tiles",
+                              data_ref.external_tiles_urls ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.sequential_order",
+                              data_ref.sequential_order ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.offset_field_bytes",
+                              data_ref.offset_field_bytes);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.size_field_bytes",
+                              data_ref.size_field_bytes);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.input_item_count_field_bytes",
+                              data_ref.input_item_count_field_bytes);
+                emit_u64_field(store, block, (*io_order)++,
+                               "tiled_image.input_item_count",
+                               data_ref.input_item_count);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.input_item_count_matches",
+                              state.input_item_count_matches ? 1U : 0U);
+
+                if (data_ref.external_tiles_urls) {
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "tiled_image.directory_id_present",
+                                  data_ref.directory_id_present ? 1U : 0U);
+                    if (data_ref.directory_id_present) {
+                        emit_u16_field(store, block, (*io_order)++,
+                                       "tiled_image.directory_id_start",
+                                       data_ref.directory_id_start);
+                        emit_u16_field(store, block, (*io_order)++,
+                                       "tiled_image.directory_id_end",
+                                       data_ref.directory_id_end);
+                    }
+                    emit_u64_field(store, block, (*io_order)++,
+                                   "tiled_image.tile_id_start",
+                                   data_ref.tile_id_start);
+                    const TiledImageUrl* urls[3] {
+                        &data_ref.base_url, &data_ref.url_extension,
+                        &data_ref.tile_request_template
+                    };
+                    const char* byte_fields[3] {
+                        "tiled_image.base_url_bytes",
+                        "tiled_image.url_extension_bytes",
+                        "tiled_image.tile_request_template_bytes"
+                    };
+                    const char* text_fields[3] {
+                        "tiled_image.base_url", "tiled_image.url_extension",
+                        "tiled_image.tile_request_template"
+                    };
+                    const char* truncated_fields[3] {
+                        "tiled_image.base_url_truncated",
+                        "tiled_image.url_extension_truncated",
+                        "tiled_image.tile_request_template_truncated"
+                    };
+                    for (uint32_t j = 0U; j < 3U; ++j) {
+                        emit_u32_field(store, block, (*io_order)++,
+                                       byte_fields[j], urls[j]->total_bytes);
+                        if (!urls[j]->truncated) {
+                            emit_utf8_field(
+                                store, block, (*io_order)++, text_fields[j],
+                                std::string_view(urls[j]->bytes.data(),
+                                                 urls[j]->stored_bytes));
+                        } else {
+                            emit_u8_field(store, block, (*io_order)++,
+                                          truncated_fields[j], 1U);
+                        }
+                    }
+                }
+            }
+            if (state.data_reference_valid) {
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.conditional_payload_valid",
+                              state.conditional_payload_valid ? 1U : 0U);
+            }
+            if (state.tipa_present) {
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.tile_item_type",
+                               state.tile_item_type);
+                emit_text_field(store, block, (*io_order)++,
+                                "tiled_image.tile_item_type_name",
+                                bmff_fourcc_display_name(state.tile_item_type));
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.tipa_version", state.tipa_version);
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.tipa_flags", state.tipa_flags);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.tipa_valid",
+                              state.tipa_valid ? 1U : 0U);
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.tile_property_association_count",
+                               state.tile_property_association_count);
+                for (uint32_t j = 0U;
+                     j < state.stored_tile_property_association_count; ++j) {
+                    const TilePropertyAssociation& association
+                        = state.tile_property_associations[j];
+                    emit_u32_field(store, block, (*io_order)++,
+                                   "tiled_image.tile_property_index",
+                                   association.property_index);
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "tiled_image.tile_property_essential",
+                                  association.essential);
+                    if (association.have_property_type) {
+                        emit_u32_field(store, block, (*io_order)++,
+                                       "tiled_image.tile_property_type",
+                                       association.property_type);
+                        emit_text_field(store, block, (*io_order)++,
+                                        "tiled_image.tile_property_type_name",
+                                        bmff_fourcc_display_name(
+                                            association.property_type));
+                    }
+                }
+                if (state.tile_property_associations_truncated) {
+                    emit_u8_field(
+                        store, block, (*io_order)++,
+                        "tiled_image.tile_property_associations_truncated", 1U);
+                }
+            }
+            if (state.offset_table_present && state.data_reference) {
+                const DataReferenceEntry& data_ref = *state.data_reference;
+                emit_u64_field(store, block, (*io_order)++,
+                               "tiled_image.offset_table_start",
+                               data_ref.tile_offset_table_start);
+                emit_u32_field(store, block, (*io_order)++,
+                               "tiled_image.offset_table_size",
+                               data_ref.tile_offset_table_size);
+                emit_u64_field(store, block, (*io_order)++,
+                               "tiled_image.expected_offset_table_size",
+                               state.expected_offset_table_size);
+                emit_u64_field(store, block, (*io_order)++,
+                               "tiled_image.logical_item_data_size",
+                               state.logical_item_data_size);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.offset_table_valid",
+                              state.offset_table_valid ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.tile_offsets_valid",
+                              state.tile_offsets_valid ? 1U : 0U);
+                emit_u8_field(store, block, (*io_order)++,
+                              "tiled_image.tile_sizes_validated",
+                              state.tile_sizes_validated ? 1U : 0U);
+                emit_u64_field(store, block, (*io_order)++,
+                               "tiled_image.empty_tile_count",
+                               state.empty_tile_count);
+                for (uint32_t j = 0U; j < state.stored_offset_row_count; ++j) {
+                    const TiledImageOffsetRow& row = state.offset_rows[j];
+                    emit_u64_field(store, block, (*io_order)++,
+                                   "tiled_image.offset.tile_index",
+                                   row.tile_index);
+                    emit_u64_field(store, block, (*io_order)++,
+                                   "tiled_image.offset.start",
+                                   row.start_offset);
+                    emit_u8_field(store, block, (*io_order)++,
+                                  "tiled_image.offset.empty",
+                                  row.empty ? 1U : 0U);
+                    if (row.have_size) {
+                        emit_u64_field(store, block, (*io_order)++,
+                                       "tiled_image.offset.size", row.size);
+                    }
+                }
+                if (state.offset_table_validation_truncated) {
+                    emit_u8_field(
+                        store, block, (*io_order)++,
+                        "tiled_image.offset_table_validation_truncated", 1U);
+                }
+            }
         }
+        emit_u32_field(store, block, (*io_order)++,
+                       "tiled_image.complete_configuration_valid_count",
+                       complete_valid_count);
+        emit_u32_field(store, block, (*io_order)++,
+                       "tiled_image.complete_configuration_invalid_count",
+                       state_count - complete_valid_count);
     }
 
     static bool bmff_collect_iref_edges(std::span<const std::byte> bytes,
@@ -5999,6 +6642,270 @@ namespace {
         }
 
         return true;
+    }
+
+    static bool bmff_bytes_valid_utf8(std::span<const std::byte> bytes) noexcept
+    {
+        size_t i = 0U;
+        while (i < bytes.size()) {
+            const uint8_t c0 = u8(bytes[i]);
+            if ((c0 & 0x80U) == 0U) {
+                i += 1U;
+                continue;
+            }
+
+            uint32_t needed = 0U;
+            uint32_t min_cp = 0U;
+            uint32_t cp     = 0U;
+            if ((c0 & 0xE0U) == 0xC0U) {
+                needed = 1U;
+                min_cp = 0x80U;
+                cp     = c0 & 0x1FU;
+            } else if ((c0 & 0xF0U) == 0xE0U) {
+                needed = 2U;
+                min_cp = 0x800U;
+                cp     = c0 & 0x0FU;
+            } else if ((c0 & 0xF8U) == 0xF0U) {
+                needed = 3U;
+                min_cp = 0x10000U;
+                cp     = c0 & 0x07U;
+            } else {
+                return false;
+            }
+            if (i + needed >= bytes.size()) {
+                return false;
+            }
+            for (uint32_t j = 0U; j < needed; ++j) {
+                const uint8_t cx = u8(bytes[i + 1U + j]);
+                if ((cx & 0xC0U) != 0x80U) {
+                    return false;
+                }
+                cp = (cp << 6U) | static_cast<uint32_t>(cx & 0x3FU);
+            }
+            if (cp < min_cp || cp > 0x10FFFFU
+                || (cp >= 0xD800U && cp <= 0xDFFFU)) {
+                return false;
+            }
+            i += 1U + needed;
+        }
+        return true;
+    }
+
+    static bool read_tiled_image_utf8_string(std::span<const std::byte> bytes,
+                                             uint64_t* io_offset, uint64_t end,
+                                             TiledImageUrl* out) noexcept
+    {
+        static constexpr uint64_t kMaxStringScanBytes = 1U << 20U;
+        if (!io_offset || !out || *io_offset > end || end > bytes.size()) {
+            return false;
+        }
+        *out                 = TiledImageUrl {};
+        const uint64_t start = *io_offset;
+        uint64_t p           = start;
+        while (p < end && bytes[p] != std::byte { 0U }) {
+            if (p - start >= kMaxStringScanBytes) {
+                return false;
+            }
+            p += 1U;
+        }
+        if (p >= end || p - start > UINT32_MAX) {
+            return false;
+        }
+        const uint32_t length = static_cast<uint32_t>(p - start);
+        const std::span<const std::byte> text(bytes.data() + start, length);
+        if (!bmff_bytes_valid_utf8(text)) {
+            return false;
+        }
+        out->total_bytes  = length;
+        out->stored_bytes = std::min(length, kMaxTiledImageUrlBytes);
+        out->truncated    = out->stored_bytes != length;
+        for (uint32_t i = 0U; i < out->stored_bytes; ++i) {
+            out->bytes[i] = static_cast<char>(u8(text[i]));
+        }
+        *io_offset = p + 1U;
+        return true;
+    }
+
+    static bool bmff_parse_deti(std::span<const std::byte> bytes,
+                                const BmffBox& box,
+                                DataReferenceEntry* out) noexcept
+    {
+        if (!out || box.type != fourcc('d', 'e', 't', 'i')) {
+            return false;
+        }
+        const uint64_t payload_off = box.offset + box.header_size;
+        const uint64_t payload_end = box.offset + box.size;
+        if (payload_off + 4U > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        out->have_header = true;
+        out->version     = u8(bytes[payload_off]);
+        out->flags = (static_cast<uint32_t>(u8(bytes[payload_off + 1U])) << 16U)
+                     | (static_cast<uint32_t>(u8(bytes[payload_off + 2U]))
+                        << 8U)
+                     | static_cast<uint32_t>(u8(bytes[payload_off + 3U]));
+        if (out->version != 0U || (out->flags & 0xFFFF00U) != 0U) {
+            return false;
+        }
+
+        const uint8_t offset_code = static_cast<uint8_t>(out->flags & 0x03U);
+        const uint8_t size_code   = static_cast<uint8_t>((out->flags >> 2U)
+                                                         & 0x03U);
+        const uint8_t count_code  = static_cast<uint8_t>((out->flags >> 5U)
+                                                         & 0x03U);
+        static constexpr uint8_t kOffsetBytes[4] { 4U, 5U, 6U, 8U };
+        static constexpr uint8_t kSizeBytes[4] { 0U, 3U, 4U, 8U };
+        static constexpr uint8_t kCountBytes[4] { 1U, 2U, 4U, 8U };
+        out->offset_field_bytes           = kOffsetBytes[offset_code];
+        out->size_field_bytes             = kSizeBytes[size_code];
+        out->input_item_count_field_bytes = kCountBytes[count_code];
+        out->sequential_order             = (out->flags & 0x10U) != 0U;
+        out->external_tiles_urls          = (out->flags & 0x80U) != 0U;
+
+        uint64_t p = payload_off + 4U;
+        if (!read_uint_be_n(bytes, p, out->input_item_count_field_bytes,
+                            &out->input_item_count)) {
+            return false;
+        }
+        p += out->input_item_count_field_bytes;
+
+        if (out->external_tiles_urls) {
+            if (p >= payload_end) {
+                return false;
+            }
+            const uint8_t directory_flags = u8(bytes[p]);
+            p += 1U;
+            if ((directory_flags & 0xFEU) != 0U) {
+                return false;
+            }
+            out->directory_id_present = (directory_flags & 0x01U) != 0U;
+            if (out->directory_id_present) {
+                if (!read_u16be(bytes, p, &out->directory_id_start)
+                    || !read_u16be(bytes, p + 2U, &out->directory_id_end)) {
+                    return false;
+                }
+                p += 4U;
+            }
+            if (!read_u64be(bytes, p, &out->tile_id_start)) {
+                return false;
+            }
+            p += 8U;
+            if (!read_tiled_image_utf8_string(bytes, &p, payload_end,
+                                              &out->base_url)
+                || !read_tiled_image_utf8_string(bytes, &p, payload_end,
+                                                 &out->url_extension)
+                || !read_tiled_image_utf8_string(bytes, &p, payload_end,
+                                                 &out->tile_request_template)) {
+                return false;
+            }
+        } else {
+            if (!read_uint_be_n(bytes, p, out->offset_field_bytes,
+                                &out->tile_offset_table_start)) {
+                return false;
+            }
+            p += out->offset_field_bytes;
+            if (!read_u32be(bytes, p, &out->tile_offset_table_size)) {
+                return false;
+            }
+            p += 4U;
+        }
+        out->syntax_valid = p == payload_end;
+        return out->syntax_valid;
+    }
+
+    static bool bmff_collect_data_references(std::span<const std::byte> bytes,
+                                             const BmffBox& dinf,
+                                             PrimaryProps* out) noexcept
+    {
+        if (!out) {
+            return false;
+        }
+        const uint64_t payload_off = dinf.offset + dinf.header_size;
+        const uint64_t payload_end = dinf.offset + dinf.size;
+        if (payload_off > payload_end || payload_end > bytes.size()) {
+            return false;
+        }
+
+        BmffBox dref {};
+        bool have_dref        = false;
+        uint64_t child_offset = payload_off;
+        uint32_t child_count  = 0U;
+        while (child_offset + 8U <= payload_end) {
+            if (child_count >= (1U << 16U)) {
+                return false;
+            }
+            child_count += 1U;
+            BmffBox child {};
+            if (!parse_bmff_box(bytes, child_offset, payload_end, &child)) {
+                return false;
+            }
+            if (child.type == fourcc('d', 'r', 'e', 'f')) {
+                if (have_dref) {
+                    return false;
+                }
+                dref      = child;
+                have_dref = true;
+            }
+            child_offset += child.size;
+        }
+        if (child_offset != payload_end || !have_dref) {
+            return false;
+        }
+
+        const uint64_t dref_payload_off = dref.offset + dref.header_size;
+        const uint64_t dref_payload_end = dref.offset + dref.size;
+        uint32_t entry_count            = 0U;
+        if (dref_payload_off + 8U > dref_payload_end
+            || u8(bytes[dref_payload_off]) != 0U
+            || u8(bytes[dref_payload_off + 1U]) != 0U
+            || u8(bytes[dref_payload_off + 2U]) != 0U
+            || u8(bytes[dref_payload_off + 3U]) != 0U
+            || !read_u32be(bytes, dref_payload_off + 4U, &entry_count)
+            || entry_count > (1U << 16U)) {
+            return false;
+        }
+
+        out->have_data_references = true;
+        out->data_reference_total = entry_count;
+        uint64_t p                = dref_payload_off + 8U;
+        for (uint32_t i = 0U; i < entry_count; ++i) {
+            if (p + 8U > dref_payload_end) {
+                return false;
+            }
+            BmffBox entry_box {};
+            if (!parse_bmff_box(bytes, p, dref_payload_end, &entry_box)) {
+                return false;
+            }
+            DataReferenceEntry entry {};
+            entry.index = i + 1U;
+            entry.type  = entry_box.type;
+            if (entry.type != fourcc('d', 'e', 't', 'i')) {
+                entry.syntax_valid = true;
+            } else {
+                (void)bmff_parse_deti(bytes, entry_box, &entry);
+            }
+            if (out->data_reference_count < out->data_references.size()) {
+                out->data_references[out->data_reference_count] = entry;
+                out->data_reference_count += 1U;
+            } else {
+                out->data_references_truncated = true;
+            }
+            p += entry_box.size;
+        }
+        out->data_references_valid = p == dref_payload_end;
+        return out->data_references_valid;
+    }
+
+    static const DataReferenceEntry*
+    find_data_reference(const PrimaryProps& p, uint16_t index) noexcept
+    {
+        for (uint32_t i = 0U; i < p.data_reference_count; ++i) {
+            if (p.data_references[i].index == index) {
+                return &p.data_references[i];
+            }
+        }
+        return nullptr;
     }
 
     static bool bmff_collect_item_locations(std::span<const std::byte> bytes,
@@ -6236,6 +7143,7 @@ namespace {
         BmffBox grpl {};
         BmffBox iloc {};
         BmffBox idat {};
+        BmffBox dinf {};
         bool has_pitm = false;
         bool has_iinf = false;
         bool has_iprp = false;
@@ -6243,6 +7151,7 @@ namespace {
         bool has_grpl = false;
         bool has_iloc = false;
         bool has_idat = false;
+        bool has_dinf = false;
 
         uint64_t child_off       = payload_off + 4;  // FullBox header.
         const uint64_t child_end = meta.offset + meta.size;
@@ -6280,6 +7189,9 @@ namespace {
             } else if (child.type == fourcc('i', 'd', 'a', 't')) {
                 idat     = child;
                 has_idat = true;
+            } else if (child.type == fourcc('d', 'i', 'n', 'f')) {
+                dinf     = child;
+                has_dinf = true;
             }
 
             child_off += child.size;
@@ -6327,6 +7239,10 @@ namespace {
             if (!bmff_collect_item_locations(bytes, iloc, out)) {
                 return false;
             }
+        }
+
+        if (has_dinf) {
+            (void)bmff_collect_data_references(bytes, dinf, out);
         }
 
         if (!has_pitm) {
@@ -6387,27 +7303,34 @@ namespace {
         std::array<PixiProp, 64> pixi {};
         std::array<ClapProp, 64> clap {};
         std::array<TilCProp, 64> tilc {};
-        uint32_t ispe_count = 0;
-        uint32_t irot_count = 0;
-        uint32_t imir_count = 0;
-        uint32_t colr_count = 0;
-        uint32_t auxc_count = 0;
-        uint32_t pasp_count = 0;
-        uint32_t pixi_count = 0;
-        uint32_t clap_count = 0;
-        uint32_t tilc_count = 0;
+        std::array<IpcoProperty, 256> properties {};
+        uint32_t ispe_count       = 0;
+        uint32_t irot_count       = 0;
+        uint32_t imir_count       = 0;
+        uint32_t colr_count       = 0;
+        uint32_t auxc_count       = 0;
+        uint32_t pasp_count       = 0;
+        uint32_t pixi_count       = 0;
+        uint32_t clap_count       = 0;
+        uint32_t tilc_count       = 0;
+        uint32_t property_count   = 0U;
+        bool properties_truncated = false;
         if (has_ipco) {
             bmff_collect_ipco_props(bytes, ipco, &ispe, &ispe_count, &irot,
                                     &irot_count, &imir, &imir_count, &colr,
                                     &colr_count, &auxc, &auxc_count, &pasp,
                                     &pasp_count, &pixi, &pixi_count, &clap,
                                     &clap_count, &tilc, &tilc_count,
-                                    &out->ipco_summary);
-            out->have_ipco_summary = true;
-            out->ipco_ispe         = ispe;
-            out->ipco_ispe_count   = ispe_count;
-            out->ipco_tilc         = tilc;
-            out->ipco_tilc_count   = tilc_count;
+                                    &properties, &property_count,
+                                    &properties_truncated, &out->ipco_summary);
+            out->have_ipco_summary         = true;
+            out->ipco_ispe                 = ispe;
+            out->ipco_ispe_count           = ispe_count;
+            out->ipco_tilc                 = tilc;
+            out->ipco_tilc_count           = tilc_count;
+            out->ipco_properties           = properties;
+            out->ipco_property_count       = property_count;
+            out->ipco_properties_truncated = properties_truncated;
         }
 
         if (!has_ipma) {
@@ -6581,7 +7504,7 @@ namespace {
                     emit_item_location_fields(*ctx->store, ctx->block,
                                               ctx->order, p);
                     emit_tiled_image_fields(*ctx->store, ctx->block, ctx->order,
-                                            p);
+                                            bytes, p);
                     emit_derived_image_fields(*ctx->store, ctx->block,
                                               ctx->order, bytes, p);
                     if (p.have_item_id) {

@@ -247,20 +247,22 @@ Coverage matrix
        ordered source IDs, grid coordinates, overlay offsets/background,
        identity sources, recursive method-2 item-offset descriptor reads,
        descriptor-reference depth, and fail-closed graph cycle/missing-source/
-       truncated-reference validity fields. ``tili`` image items expose a
-       bounded ``tilC`` version-0 core with tile dimensions, up to eight extra
-       dimensions, single-property relationship checks, ceil-divided tile
-       grids, overflow-checked expected tile counts, aggregate validity, and a
-       source-bound container-graph concept. Primary
+       truncated-reference validity fields. ``tili`` image items expose
+       bounded ``tilC`` version-0 dimensions, extra dimensions, property
+       relationships, tile grids, expected tile counts, ``dref``/``deti``
+       mapping, internal ``tile_item_type``/``tipa`` associations, external
+       URL state, logical offset tables, explicit or sequentially inferred
+       tile sizes, empty-tile state, separate core/layout/complete validity,
+       and a source-bound container-graph concept. Primary
        item-location and derived-construction aliases, primary-linked roles with linked-item
        semantic aggregate counters, aux semantics, primary color/profile
        property summaries, primary display dimensions and transform summary,
        primary pixel aspect ratio, primary pixel component bit depth,
        clean-aperture rationals, JUMBF box labels, and draft C2PA/JUMBF
        structural fields are exposed.
-     - High, about 97-98%.
-     - Conditional ``tile_item_type``/``tipa``, external-tile ``dref`` state,
-       tile-offset tables, and full C2PA manifest/policy semantics.
+     - High, about 98%.
+     - Independently authored tiled-image conformance files and full C2PA
+       manifest/policy semantics.
    * - Photoshop IRB
      - Raw resources are preserved and a bounded interpreted subset is decoded
        for fixed-layout resources, including Photoshop 2 info/color-table
@@ -371,10 +373,8 @@ outputs.
 Next interpretation priorities
 ------------------------------
 
-1. Extend the stable bounded BMFF tiled-image core with conditional
-   ``tile_item_type``/``tipa``, external-tile ``dref`` state, and tile-offset
-   tables without weakening current fail-closed relationship and overflow
-   rules.
+1. Validate the complete bounded BMFF tiled-image contract against
+   independently authored conformance files as they become available.
 2. Broaden transfer diagnostic policy coverage now that stable message tokens
    and localizable argument tokens are available for GUI workflows.
 3. Expand GPS/date policy beyond current coordinate tolerance,

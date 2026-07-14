@@ -30,6 +30,15 @@ namespace {
         out->push_back(std::byte { static_cast<uint8_t>((v >> 0) & 0xFF) });
     }
 
+    static void append_u64be(std::vector<std::byte>* out, uint64_t v)
+    {
+        for (uint32_t i = 0U; i < 8U; ++i) {
+            const uint32_t shift = (7U - i) * 8U;
+            out->push_back(
+                std::byte { static_cast<uint8_t>((v >> shift) & 0xFFU) });
+        }
+    }
+
     static void append_fourcc(std::vector<std::byte>* out, uint32_t fourcc_v)
     {
         append_u32be(out, fourcc_v);
@@ -49,6 +58,17 @@ namespace {
         out->push_back(std::byte { 0 });
         out->push_back(std::byte { 0 });
         out->push_back(std::byte { 0 });
+    }
+
+    static void append_fullbox_header(std::vector<std::byte>* out,
+                                      uint8_t version, uint32_t flags)
+    {
+        out->push_back(std::byte { version });
+        out->push_back(
+            std::byte { static_cast<uint8_t>((flags >> 16U) & 0xFFU) });
+        out->push_back(
+            std::byte { static_cast<uint8_t>((flags >> 8U) & 0xFFU) });
+        out->push_back(std::byte { static_cast<uint8_t>(flags & 0xFFU) });
     }
 
     static void append_auxc_payload(std::vector<std::byte>* out,
@@ -300,6 +320,211 @@ namespace {
                             iinf_box.end());
         meta_payload.insert(meta_payload.end(), iprp_box.begin(),
                             iprp_box.end());
+        append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
+        return file;
+    }
+
+    struct CompleteTiledImageOptions final {
+        bool external_tiles                 = false;
+        bool omit_internal_conditional      = false;
+        bool add_external_conditional       = false;
+        uint16_t data_reference_index       = 1U;
+        uint16_t construction_method        = 0U;
+        uint64_t input_item_count           = 2U;
+        uint32_t tipa_property_index        = 3U;
+        uint8_t tipa_version                = 0U;
+        uint32_t tipa_flags                 = 0U;
+        uint32_t deti_extra_flags           = 0U;
+        uint8_t external_directory_flags    = 1U;
+        bool omit_external_template_nul     = false;
+        bool include_tile_sizes             = true;
+        bool sequential_order               = false;
+        uint32_t declared_offset_table_size = 16U;
+        uint32_t first_tile_offset          = 16U;
+        uint32_t first_tile_size            = 4U;
+        uint32_t second_tile_offset         = 20U;
+        uint32_t second_tile_size           = 4U;
+    };
+
+    static std::vector<std::byte>
+    make_complete_tiled_image_file(const CompleteTiledImageOptions& options)
+    {
+        std::vector<std::byte> file;
+        std::vector<std::byte> ftyp_payload;
+        append_fourcc(&ftyp_payload, fourcc('h', 'e', 'i', 'c'));
+        append_u32be(&ftyp_payload, 0U);
+        append_fourcc(&ftyp_payload, fourcc('m', 'i', 'f', '1'));
+        append_bmff_box(&file, fourcc('f', 't', 'y', 'p'), ftyp_payload);
+
+        uint32_t mdat_payload_offset = 0U;
+        uint32_t mdat_payload_size   = 0U;
+        if (!options.external_tiles) {
+            std::vector<std::byte> mdat_payload;
+            append_u32be(&mdat_payload, options.first_tile_offset);
+            if (options.include_tile_sizes) {
+                append_u32be(&mdat_payload, options.first_tile_size);
+            }
+            append_u32be(&mdat_payload, options.second_tile_offset);
+            if (options.include_tile_sizes) {
+                append_u32be(&mdat_payload, options.second_tile_size);
+            }
+            append_u32be(&mdat_payload, 0x11111111U);
+            append_u32be(&mdat_payload, 0x22222222U);
+            mdat_payload_offset = static_cast<uint32_t>(file.size() + 8U);
+            mdat_payload_size   = static_cast<uint32_t>(mdat_payload.size());
+            append_bmff_box(&file, fourcc('m', 'd', 'a', 't'), mdat_payload);
+        }
+
+        std::vector<std::byte> pitm_payload;
+        append_fullbox_header(&pitm_payload, 0U);
+        append_u16be(&pitm_payload, 1U);
+        std::vector<std::byte> pitm_box;
+        append_bmff_box(&pitm_box, fourcc('p', 'i', 't', 'm'), pitm_payload);
+
+        std::vector<std::byte> infe_box;
+        append_infe_v2(&infe_box, 1U, 0U, fourcc('t', 'i', 'l', 'i'), "tiled");
+        std::vector<std::byte> iinf_payload;
+        append_fullbox_header(&iinf_payload, 2U);
+        append_u32be(&iinf_payload, 1U);
+        iinf_payload.insert(iinf_payload.end(), infe_box.begin(),
+                            infe_box.end());
+        std::vector<std::byte> iinf_box;
+        append_bmff_box(&iinf_box, fourcc('i', 'i', 'n', 'f'), iinf_payload);
+
+        std::vector<std::byte> ispe_payload;
+        append_fullbox_header(&ispe_payload, 0U);
+        append_u32be(&ispe_payload, 128U);
+        append_u32be(&ispe_payload, 64U);
+        std::vector<std::byte> ispe_box;
+        append_bmff_box(&ispe_box, fourcc('i', 's', 'p', 'e'), ispe_payload);
+
+        std::vector<std::byte> tilc_payload;
+        append_fullbox_header(&tilc_payload, 0U);
+        append_u32be(&tilc_payload, 64U);
+        append_u32be(&tilc_payload, 64U);
+        tilc_payload.push_back(std::byte { 0U });
+        if ((!options.external_tiles && !options.omit_internal_conditional)
+            || (options.external_tiles && options.add_external_conditional)) {
+            append_fourcc(&tilc_payload, fourcc('a', 'v', '0', '1'));
+            std::vector<std::byte> tipa_payload;
+            append_fullbox_header(&tipa_payload, options.tipa_version,
+                                  options.tipa_flags);
+            tipa_payload.push_back(std::byte { 1U });
+            if ((options.tipa_flags & 1U) == 0U) {
+                tipa_payload.push_back(std::byte { static_cast<uint8_t>(
+                    0x80U | (options.tipa_property_index & 0x7FU)) });
+            } else {
+                append_u16be(&tipa_payload,
+                             static_cast<uint16_t>(
+                                 0x8000U
+                                 | (options.tipa_property_index & 0x7FFFU)));
+            }
+            append_bmff_box(&tilc_payload, fourcc('t', 'i', 'p', 'a'),
+                            tipa_payload);
+        }
+        std::vector<std::byte> tilc_box;
+        append_bmff_box(&tilc_box, fourcc('t', 'i', 'l', 'C'), tilc_payload);
+
+        std::vector<std::byte> av1c_box;
+        const std::array<std::byte, 0> no_payload {};
+        append_bmff_box(&av1c_box, fourcc('a', 'v', '1', 'C'), no_payload);
+        std::vector<std::byte> ipco_payload;
+        ipco_payload.insert(ipco_payload.end(), ispe_box.begin(),
+                            ispe_box.end());
+        ipco_payload.insert(ipco_payload.end(), tilc_box.begin(),
+                            tilc_box.end());
+        ipco_payload.insert(ipco_payload.end(), av1c_box.begin(),
+                            av1c_box.end());
+        std::vector<std::byte> ipco_box;
+        append_bmff_box(&ipco_box, fourcc('i', 'p', 'c', 'o'), ipco_payload);
+
+        std::vector<std::byte> ipma_payload;
+        append_fullbox_header(&ipma_payload, 0U);
+        append_u32be(&ipma_payload, 1U);
+        append_u16be(&ipma_payload, 1U);
+        ipma_payload.push_back(std::byte { 2U });
+        ipma_payload.push_back(std::byte { 1U });
+        ipma_payload.push_back(std::byte { 0x82U });
+        std::vector<std::byte> ipma_box;
+        append_bmff_box(&ipma_box, fourcc('i', 'p', 'm', 'a'), ipma_payload);
+
+        std::vector<std::byte> iprp_payload;
+        iprp_payload.insert(iprp_payload.end(), ipco_box.begin(),
+                            ipco_box.end());
+        iprp_payload.insert(iprp_payload.end(), ipma_box.begin(),
+                            ipma_box.end());
+        std::vector<std::byte> iprp_box;
+        append_bmff_box(&iprp_box, fourcc('i', 'p', 'r', 'p'), iprp_payload);
+
+        std::vector<std::byte> deti_payload;
+        uint32_t deti_flags = options.external_tiles
+                                  ? 0x80U
+                                  : (options.include_tile_sizes ? 0x08U : 0U);
+        if (options.sequential_order) {
+            deti_flags |= 0x10U;
+        }
+        deti_flags |= options.deti_extra_flags;
+        append_fullbox_header(&deti_payload, 0U, deti_flags);
+        deti_payload.push_back(
+            std::byte { static_cast<uint8_t>(options.input_item_count) });
+        if (options.external_tiles) {
+            deti_payload.push_back(
+                std::byte { options.external_directory_flags });
+            append_u16be(&deti_payload, 10U);
+            append_u16be(&deti_payload, 12U);
+            append_u64be(&deti_payload, 1000U);
+            append_bytes(&deti_payload, "https://tiles.example/image/");
+            deti_payload.push_back(std::byte { 0U });
+            append_bytes(&deti_payload, "representation");
+            deti_payload.push_back(std::byte { 0U });
+            append_bytes(&deti_payload, "$tileID$.heif");
+            if (!options.omit_external_template_nul) {
+                deti_payload.push_back(std::byte { 0U });
+            }
+        } else {
+            append_u32be(&deti_payload, 0U);
+            append_u32be(&deti_payload, options.declared_offset_table_size);
+        }
+        std::vector<std::byte> deti_box;
+        append_bmff_box(&deti_box, fourcc('d', 'e', 't', 'i'), deti_payload);
+        std::vector<std::byte> dref_payload;
+        append_fullbox_header(&dref_payload, 0U);
+        append_u32be(&dref_payload, 1U);
+        dref_payload.insert(dref_payload.end(), deti_box.begin(),
+                            deti_box.end());
+        std::vector<std::byte> dref_box;
+        append_bmff_box(&dref_box, fourcc('d', 'r', 'e', 'f'), dref_payload);
+        std::vector<std::byte> dinf_box;
+        append_bmff_box(&dinf_box, fourcc('d', 'i', 'n', 'f'), dref_box);
+
+        std::vector<std::byte> iloc_payload;
+        append_fullbox_header(&iloc_payload, 1U);
+        iloc_payload.push_back(std::byte { 0x44U });
+        iloc_payload.push_back(std::byte { 0U });
+        append_u16be(&iloc_payload, 1U);
+        append_u16be(&iloc_payload, 1U);
+        append_u16be(&iloc_payload, options.construction_method);
+        append_u16be(&iloc_payload, options.data_reference_index);
+        append_u16be(&iloc_payload, options.external_tiles ? 0U : 1U);
+        if (!options.external_tiles) {
+            append_u32be(&iloc_payload, mdat_payload_offset);
+            append_u32be(&iloc_payload, mdat_payload_size);
+        }
+        std::vector<std::byte> iloc_box;
+        append_bmff_box(&iloc_box, fourcc('i', 'l', 'o', 'c'), iloc_payload);
+
+        std::vector<std::byte> meta_payload;
+        append_fullbox_header(&meta_payload, 0U);
+        meta_payload.insert(meta_payload.end(), pitm_box.begin(),
+                            pitm_box.end());
+        meta_payload.insert(meta_payload.end(), iinf_box.begin(),
+                            iinf_box.end());
+        meta_payload.insert(meta_payload.end(), iprp_box.begin(),
+                            iprp_box.end());
+        meta_payload.insert(meta_payload.end(), dinf_box.begin(),
+                            dinf_box.end());
+        meta_payload.insert(meta_payload.end(), iloc_box.begin(),
+                            iloc_box.end());
         append_bmff_box(&file, fourcc('m', 'e', 't', 'a'), meta_payload);
         return file;
     }
@@ -5223,6 +5448,168 @@ TEST(BmffDerivedFieldsDecode, RejectsTiledImageTileCountOverflow)
               std::vector<uint8_t>({ 0U }));
     EXPECT_TRUE(
         collect_u64_values(store, "tiled_image.expected_tile_count").empty());
+}
+
+TEST(BmffDerivedFieldsDecode, ValidatesCompleteInternalTiledImageLayout)
+{
+    const CompleteTiledImageOptions options {};
+    const std::vector<std::byte> file = make_complete_tiled_image_file(options);
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    EXPECT_EQ(collect_u8_values(store,
+                                "tiled_image.complete_configuration_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.data_reference_index"),
+              std::vector<uint32_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.data_reference_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.external_tiles"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.input_item_count"),
+              std::vector<uint64_t>({ 2U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.input_item_count_matches"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.conditional_payload_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tile_item_type"),
+              std::vector<uint32_t>({ fourcc('a', 'v', '0', '1') }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.tipa_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tile_property_index"),
+              std::vector<uint32_t>({ 3U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tile_property_type"),
+              std::vector<uint32_t>({ fourcc('a', 'v', '1', 'C') }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.offset_table_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u64_values(store,
+                                 "tiled_image.expected_offset_table_size"),
+              std::vector<uint64_t>({ 16U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.logical_item_data_size"),
+              std::vector<uint64_t>({ 24U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.offset.start"),
+              std::vector<uint64_t>({ 16U, 20U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.offset.size"),
+              std::vector<uint64_t>({ 4U, 4U }));
+}
+
+TEST(BmffDerivedFieldsDecode, ValidatesCompleteExternalTiledImageLayout)
+{
+    CompleteTiledImageOptions options;
+    options.external_tiles            = true;
+    const std::vector<std::byte> file = make_complete_tiled_image_file(options);
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    EXPECT_EQ(collect_u8_values(store,
+                                "tiled_image.complete_configuration_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.external_tiles"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.conditional_payload_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u16_values(store, "tiled_image.directory_id_start"),
+              std::vector<uint16_t>({ 10U }));
+    EXPECT_EQ(collect_u16_values(store, "tiled_image.directory_id_end"),
+              std::vector<uint16_t>({ 12U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.tile_id_start"),
+              std::vector<uint64_t>({ 1000U }));
+    EXPECT_EQ(collect_text_values(store, "tiled_image.base_url"),
+              std::vector<std::string>({ "https://tiles.example/image/" }));
+    EXPECT_EQ(collect_text_values(store, "tiled_image.tile_request_template"),
+              std::vector<std::string>({ "$tileID$.heif" }));
+    EXPECT_TRUE(
+        collect_u8_values(store, "tiled_image.offset_table_valid").empty());
+}
+
+TEST(BmffDerivedFieldsDecode, InfersSequentialTiledImageSizes)
+{
+    CompleteTiledImageOptions options;
+    options.include_tile_sizes         = false;
+    options.sequential_order           = true;
+    options.declared_offset_table_size = 8U;
+    options.first_tile_offset          = 8U;
+    options.second_tile_offset         = 12U;
+    options.tipa_flags                 = 1U;
+    const std::vector<std::byte> file = make_complete_tiled_image_file(options);
+    MetaStore store;
+    decode_bmff_test_file(file, &store);
+
+    EXPECT_EQ(collect_u8_values(store,
+                                "tiled_image.complete_configuration_valid"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.sequential_order"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.size_field_bytes"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_EQ(collect_u32_values(store, "tiled_image.tipa_flags"),
+              std::vector<uint32_t>({ 1U }));
+    EXPECT_EQ(collect_u8_values(store, "tiled_image.tile_sizes_validated"),
+              std::vector<uint8_t>({ 1U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.offset.start"),
+              std::vector<uint64_t>({ 8U, 12U }));
+    EXPECT_EQ(collect_u64_values(store, "tiled_image.offset.size"),
+              std::vector<uint64_t>({ 4U, 4U }));
+}
+
+TEST(BmffDerivedFieldsDecode, RejectsIncompleteTiledImageLayouts)
+{
+    std::array<CompleteTiledImageOptions, 10> options {};
+    options[0].data_reference_index       = 2U;
+    options[1].input_item_count           = 3U;
+    options[2].tipa_property_index        = 4U;
+    options[3].declared_offset_table_size = 12U;
+    options[4].second_tile_offset         = 23U;
+    options[5].omit_internal_conditional  = true;
+    options[6].construction_method        = 1U;
+    options[7].tipa_version               = 1U;
+    options[8].tipa_flags                 = 2U;
+    options[9].deti_extra_flags           = 0x100U;
+
+    for (size_t i = 0U; i < options.size(); ++i) {
+        const std::vector<std::byte> file = make_complete_tiled_image_file(
+            options[i]);
+        MetaStore store;
+        decode_bmff_test_file(file, &store);
+        EXPECT_EQ(collect_u8_values(store,
+                                    "tiled_image.complete_configuration_valid"),
+                  std::vector<uint8_t>({ 0U }))
+            << "case " << i;
+    }
+
+    CompleteTiledImageOptions external_options;
+    external_options.external_tiles            = true;
+    external_options.add_external_conditional  = true;
+    const std::vector<std::byte> external_file = make_complete_tiled_image_file(
+        external_options);
+    MetaStore external_store;
+    decode_bmff_test_file(external_file, &external_store);
+    EXPECT_EQ(collect_u8_values(external_store,
+                                "tiled_image.complete_configuration_valid"),
+              std::vector<uint8_t>({ 0U }));
+    EXPECT_EQ(collect_u8_values(external_store,
+                                "tiled_image.conditional_payload_valid"),
+              std::vector<uint8_t>({ 0U }));
+
+    std::array<CompleteTiledImageOptions, 2> malformed_external {};
+    malformed_external[0].external_tiles             = true;
+    malformed_external[0].external_directory_flags   = 0x80U;
+    malformed_external[1].external_tiles             = true;
+    malformed_external[1].omit_external_template_nul = true;
+    for (size_t i = 0U; i < malformed_external.size(); ++i) {
+        const std::vector<std::byte> malformed_file
+            = make_complete_tiled_image_file(malformed_external[i]);
+        MetaStore malformed_store;
+        decode_bmff_test_file(malformed_file, &malformed_store);
+        EXPECT_EQ(collect_u8_values(malformed_store,
+                                    "tiled_image.complete_configuration_valid"),
+                  std::vector<uint8_t>({ 0U }))
+            << "external case " << i;
+        EXPECT_EQ(collect_u8_values(malformed_store,
+                                    "tiled_image.data_reference_valid"),
+                  std::vector<uint8_t>({ 0U }))
+            << "external case " << i;
+    }
 }
 
 }  // namespace openmeta

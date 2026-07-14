@@ -1,5 +1,29 @@
 # OpenMeta Changes
 
+## 0.4.74 - 2026-07-14
+
+Changes compared with `0.4.73`.
+
+### Added
+
+- Added bounded BMFF `dinf`/`dref`/`deti` decoding for tiled-image data
+  references, including internal offset-table state and bounded external URL
+  components.
+- Added conditional internal `tile_item_type` and nested `tipa` decoding with
+  8-bit/16-bit association records, `ipco` index validation, and property-type
+  projection.
+- Added logical-`iloc` offset-table validation, explicit and sequentially
+  inferred tile sizes, empty-tile state, bounded row output, and complete
+  tiled-image configuration validity.
+
+### Changed
+
+- Internal tiled-image data reads now permit only the selected root `deti`
+  reference; generic item reads continue to reject non-local data references.
+- Updated public BMFF support, interpretation, API stability, RAW parity, and
+  development documentation for the complete bounded tiled-image field
+  contract.
+
 ## 0.4.73 - 2026-07-13
 
 Changes compared with `0.4.72`.

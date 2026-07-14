@@ -42,8 +42,8 @@ model should stay compact:
        endpoint roles and named item-id aliases, semantic item-group roles,
        typed relation counts, and bounded ``grid``/``iovl``/``iden``
        construction semantics with recursive item-offset descriptors and
-       graph-cycle/source validation, bounded ``tili``/``tilC`` tile-layout
-       interpretation, ``container_graph``
+       graph-cycle/source validation, bounded complete ``tili`` configuration/
+       reference/offset-table interpretation, ``container_graph``
        concepts, primary item properties,
        primary metadata-carrier flags, primary sidecar and scene summaries,
        and display-transform summaries, JUMBF labels, Photoshop
@@ -61,7 +61,7 @@ model should stay compact:
        EXIF/XMP GPS timestamp composites,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
-     - Medium-high, about 97%.
+     - High, about 97-98%.
    * - Query
      - Find entries by name, fuzzy term, or semantic group, then expose
        normalized query candidates, structured interpretation records, and

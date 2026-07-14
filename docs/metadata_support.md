@@ -241,10 +241,13 @@ OpenMeta now has a bounded semantic model on top of raw item discovery:
   derived-graph cycle/missing-source/truncated-reference validation, and a
   source-bound `container_graph` concept for query/transfer diagnostics
 - `tili` tiled-image items and bounded `tilC` version-0 configuration fields,
-  including tile width/height, up to eight extra dimensions, conditional
-  payload byte counts, required single-`ispe`/single-`tilC` association checks,
-  ceil-divided tile rows/columns, overflow-checked expected tile counts, and
-  source-bound query/transfer diagnostics
+  including tile width/height, up to eight extra dimensions, required
+  single-`ispe`/single-`tilC` association checks, ceil-divided tile
+  rows/columns, overflow-checked expected tile counts, `dinf`/`dref`/`deti`
+  mapping, internal `tile_item_type` and nested `tipa` associations, bounded
+  external URL components, logical-`iloc` offset tables, explicit or
+  sequentially inferred tile sizes, empty-tile state, complete-configuration
+  validity, and source-bound query/transfer diagnostics
 - graph summaries
 - `auxC`-typed auxiliary semantics
 - bounded primary-linked image-role fields, separate primary inbound
@@ -260,8 +263,12 @@ Derived descriptors are interpreted from complete method-0 file extents,
 method-1 `idat` extents, and bounded method-2 item-offset chains. Method-2
 resolution follows ordered `iref` `iloc` references, rejects reserved or
 out-of-range indexes, detects recursion cycles, validates every source range,
-and never materializes a complete logical item. External data references and
-incomplete extent inventories remain structural-only.
+and never materializes a complete logical item. External data references other
+than bounded tiled-image `deti` URL state and incomplete extent inventories
+remain structural-only. Tiled-image offset-table validation scans at most
+262144 entries and emits at most 64 rows; URL components retain at most 512
+bytes for field output. Larger valid structures remain visible through counts
+and truncation fields but do not receive complete-configuration validity.
 
 ### JXL
 
@@ -304,8 +311,8 @@ What this means in practice:
 
 ## Main Current Gaps
 
-- conditional BMFF tiled-image `tile_item_type`/`tipa`, external-tile `dref`
-  state, and tile-offset tables beyond the stable bounded `tilC` core
+- independently authored conformance-file validation for the recently
+  standardized BMFF tiled-image layout
 - additional `JXL brob` realtypes beyond `Exif`, `xml `, `jumb`, and `c2pa`
 - full `JUMBF/C2PA` semantics and policy validation
 - deeper RAF model-specific native tables and X3F image-processing sections

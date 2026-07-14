@@ -17,7 +17,7 @@ model should stay compact:
 | Area | Purpose | Readiness |
 | --- | --- | --- |
 | Decoding | Find metadata carriers and decode EXIF, XMP, IPTC, ICC, Photoshop IRB, JUMBF/C2PA, EXR, and related blocks into `MetaStore` entries. | High, about 98-100% for the current target scope. |
-| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups including `avio` AVIF brands, item groups, item semantic counts, whole-scene policy hints, graph-component summaries with per-component roles, member item IDs, semantic composition, typed relation counts, bounded `grid`/`iovl`/`iden` construction semantics with recursive item-offset descriptors and graph-cycle/source validation, bounded `tili`/`tilC` tile-layout interpretation, `container_graph` concepts, primary item properties, primary metadata-carrier flags, primary sidecar and scene summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, working-path and numbered clipping-path records, byte-count, descriptor-header, scalar/class/alias/enum/reference, and bounded nested list/object summaries, EXIF 3.1 correction/noise labels, version/firmware-style value formatting for selected EXIF/Nikon/Olympus/native RAF contexts, selected Sony ILCE-7RM6 correction-offset routing, Fujifilm flash white-balance naming, Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo scalar MakerNote labels, current Canon RF/Nikon Z lens labels, an ambiguous Pentax Sigma/Samsung/Tokina lens-family label, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | Medium-high, about 97%. |
+| Interpretation | Normalize names and values, group entries by meaning, and classify source-bound data such as RAW crop, exposure adjustment, color/profile/source-color-transform evidence, RAW curves/linearity metadata with descriptor-backed compressed-storage applicability, lens-correction, sensor, BMFF brand/item-property associations and rollups including `avio` AVIF brands, item groups, item semantic counts, whole-scene policy hints, graph-component summaries with per-component roles, member item IDs, semantic composition, typed relation counts, bounded `grid`/`iovl`/`iden` construction semantics with recursive item-offset descriptors and graph-cycle/source validation, bounded complete `tili` configuration/reference/offset-table interpretation, `container_graph` concepts, primary item properties, primary metadata-carrier flags, primary sidecar and scene summaries, and display-transform summaries, JUMBF labels, Photoshop IRB embedded carriers plus fixed-layout, XML/text, working-path and numbered clipping-path records, byte-count, descriptor-header, scalar/class/alias/enum/reference, and bounded nested list/object summaries, EXIF 3.1 correction/noise labels, version/firmware-style value formatting for selected EXIF/Nikon/Olympus/native RAF contexts, selected Sony ILCE-7RM6 correction-offset routing, Fujifilm flash white-balance naming, Apple/FLIR/JVC/GE/Reconyx/Microsoft/Nintendo/Sanyo scalar MakerNote labels, current Canon RF/Nikon Z lens labels, an ambiguous Pentax Sigma/Samsung/Tokina lens-family label, EXIF/XMP GPS timestamp composites, computational, thermal, stitch/panorama capture state, and vendor-private fields. | High, about 97-98%. |
 | Query | Find entries by name, fuzzy term, or semantic group, then expose normalized query candidates, structured interpretation records, bounded cross-family concept resolutions, transfer hints, and conflict flags for crop/border/active-area, exposure/gain, color/WB/profile/source-color-transform, orientation, date/time, GPS, lens-correction, computational/thermal/stitch, RAW/source-processing fields, and BMFF derived-image construction and tiled-image configuration evidence across standard and vendor metadata. | Medium-high, about 88-93%. |
 | Creation | Build fresh metadata entries from host-provided values. | Medium, about 55-65%. |
 | Editing | Modify existing logical metadata entries while preserving valid surrounding structure. | Medium, about 60-70%. |
@@ -763,13 +763,16 @@ This policy surface is intentionally marked draft and may be refined.
     depth, graph cycle/self-reference/missing-source/depth/truncation validity,
     and primary aliases. Descriptor reads use complete method-0 file extents,
     method-1 `idat` extents, or bounded recursive method-2 item-offset chains.
-    External data references and incomplete extents remain structural-only.
-    `tili` items also expose bounded `tilC` version-0 tile dimensions, up to
-    eight extra dimensions, conditional payload byte counts, required
+    External data references other than tiled-image `deti` URL state and
+    incomplete extents remain structural-only. `tili` items expose bounded
+    `tilC` version-0 tile dimensions, up to eight extra dimensions, required
     single-`ispe`/single-`tilC` relationship checks, ceil-divided tile grids,
-    overflow-checked expected tile counts, and aggregate validity. Conditional
-    `tile_item_type`/`tipa`, external-tile `dref` state, and tile-offset tables
-    remain structural-only.
+    overflow-checked expected tile counts, mapped `dref`/`deti` state,
+    internal `tile_item_type` and nested `tipa` property associations,
+    external URL components, logical offset-table rows, explicit or
+    sequentially inferred sizes, empty tiles, and separate
+    core/layout/complete validity. Offset validation scans at most 262144
+    entries and emits at most 64 rows.
     Also emits
     `auxC`-based aux semantics (`aux.item_count`, `aux.item_id`,
     `aux.semantic`, `aux.type`, `aux.subtype_hex`, `aux.subtype_kind`,

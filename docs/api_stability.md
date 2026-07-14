@@ -40,11 +40,13 @@ different status.
 | Generated transfer payload internals, route strings, low-level package chunks, and diagnostic counters not documented by a stable API page | `openmeta/metadata_transfer.h` | Internal | These fields may be useful for tests and diagnostics, but they are not a compatibility contract for downstream integrations. |
 
 The bounded BMFF tiled-image field contract covers `tilC` version 0 tile
-dimensions, up to eight extra dimensions, association and layout validity, and
-overflow-checked expected tile counts. `TiledImageConfiguration` is an
-experimental source-bound concept role exposed unchanged by the thin Python
-enum. Conditional `tile_item_type`/`tipa`, external-tile `dref` state, and
-tile-offset tables are not part of this contract yet.
+dimensions, up to eight extra dimensions, `dref`/`deti` mapping, internal
+`tile_item_type`/`tipa` associations, bounded external URL components, logical
+offset-table rows, explicit or sequentially inferred tile sizes, and separate
+core/layout/complete validity. Offset-table validation is capped at 262144
+entries, emitted rows at 64, property associations at 64, and retained URL
+components at 512 bytes. `TiledImageConfiguration` remains an experimental
+source-bound concept role exposed unchanged by the thin Python enum.
 
 ## Practical Guidance
 
