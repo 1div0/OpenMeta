@@ -13469,6 +13469,7 @@ namespace {
                                                      candidate.conflict);
         out.entry_id                   = candidate.entry_id;
         out.location_scope             = candidate.location_scope;
+        out.language                   = candidate.language;
         out.preferred                  = candidate.preferred;
         out.conflict                   = candidate.conflict;
         out.compatible_file_safe       = candidate.compatible_file_safe;

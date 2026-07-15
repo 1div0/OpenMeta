@@ -62,6 +62,8 @@ model should stay compact:
        ``SubSecTime*`` date composition with normalized-instant conflict
        checks, separate camera/destination/shown/created GPS roles with
        scope-aware structured-location conflicts,
+       language-aware descriptive scalar roles and additive
+       creator/keyword/location-identifier collections,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
      - High, about 97-98%.
@@ -71,10 +73,10 @@ model should stay compact:
        bounded cross-family concept resolutions, transfer hints, and conflict
        flags for crop/border/active-area, exposure/gain,
        color/WB/profile/source-color-transform, orientation, date/time, GPS,
-       lens-correction, computational/thermal/stitch, and
+       descriptive fields, lens-correction, computational/thermal/stitch, and
        RAW/source-processing fields plus BMFF derived-image construction and
        tiled-image configuration evidence across standard and vendor metadata.
-     - Medium-high, about 88-93%.
+     - Medium-high, about 91-95%.
    * - Creation
      - Build fresh metadata entries from host-provided values.
      - Medium, about 55-65%.
@@ -169,11 +171,13 @@ available.
 
 For cross-family duplicated concepts, use ``openmeta/metadata_concepts.h``.
 It currently resolves orientation, date/time, exposure/gain, color/profile,
-GPS, geometry, lens-correction, and RAW-processing into candidate lists with
+GPS, descriptive fields, geometry, lens-correction, and RAW-processing into
+candidate lists with
 candidate source entries, source families, preferred entries, normalized
 compare keys, parsed date/time fields, date/time precision, timezone kind, GPS
 altitude-reference state, distinct destination/shown/created coordinate roles,
-structured-location scope, canonical geometry origin/size/rect/margins,
+structured-location scope, normalized descriptive language, additive
+collection preference, canonical geometry origin/size/rect/margins,
 normalized exposure values, full normalized value vectors for grouped
 matrix/vector/table records, transfer hints, compatible and rendered safety
 booleans, and same-role conflict flags. This is deliberately an

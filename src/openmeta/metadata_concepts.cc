@@ -45,6 +45,13 @@ namespace {
     static constexpr uint16_t kExifSubSecTimeDigitizedTag     = 0x9292U;
     static constexpr uint16_t kExifColorSpaceTag              = 0xA001U;
     static constexpr uint16_t kExifGainControlTag             = 0xA407U;
+    static constexpr uint16_t kExifDocumentNameTag            = 0x010DU;
+    static constexpr uint16_t kExifImageDescriptionTag        = 0x010EU;
+    static constexpr uint16_t kExifArtistTag                  = 0x013BU;
+    static constexpr uint16_t kExifXpTitleTag                 = 0x9C9BU;
+    static constexpr uint16_t kExifXpCommentTag               = 0x9C9CU;
+    static constexpr uint16_t kExifXpAuthorTag                = 0x9C9DU;
+    static constexpr uint16_t kExifXpKeywordsTag              = 0x9C9EU;
     static constexpr uint16_t kDngBaselineExposureTag         = 0xC62AU;
     static constexpr uint16_t kDngBaselineExposureOffsetTag   = 0xC7A5U;
     static constexpr uint16_t kDngRawToPreviewGainTag         = 0xC7A8U;
@@ -66,10 +73,26 @@ namespace {
     static constexpr uint16_t kIptcTimeCreatedDataset         = 60U;
     static constexpr uint16_t kIptcDigitalCreationDateDataset = 62U;
     static constexpr uint16_t kIptcDigitalCreationTimeDataset = 63U;
+    static constexpr uint16_t kIptcObjectNameDataset          = 5U;
+    static constexpr uint16_t kIptcKeywordsDataset            = 25U;
+    static constexpr uint16_t kIptcBylineDataset              = 80U;
+    static constexpr uint16_t kIptcCityDataset                = 90U;
+    static constexpr uint16_t kIptcSublocationDataset         = 92U;
+    static constexpr uint16_t kIptcProvinceStateDataset       = 95U;
+    static constexpr uint16_t kIptcCountryCodeDataset         = 100U;
+    static constexpr uint16_t kIptcCountryNameDataset         = 101U;
+    static constexpr uint16_t kIptcHeadlineDataset            = 105U;
+    static constexpr uint16_t kIptcCaptionDataset             = 120U;
     static constexpr uint32_t kIccHeaderRgbColorSpaceOffset   = 16U;
     static constexpr size_t kMaxDateTimeSubsecondDigits       = 9U;
     static constexpr std::string_view kExifXmpSchema
         = "http://ns.adobe.com/exif/1.0/";
+    static constexpr std::string_view kDcXmpSchema
+        = "http://purl.org/dc/elements/1.1/";
+    static constexpr std::string_view kPhotoshopXmpSchema
+        = "http://ns.adobe.com/photoshop/1.0/";
+    static constexpr std::string_view kIptcCoreXmpSchema
+        = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
     static constexpr std::string_view kIptcExtXmpSchema
         = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
 
@@ -184,6 +207,57 @@ namespace {
         }
         const char c = path[offset - 1U];
         return c == ':' || c == '/' || c == '.';
+    }
+
+    static std::string_view xmp_property_leaf(std::string_view path) noexcept
+    {
+        size_t begin                = 0U;
+        const size_t path_separator = path.rfind('/');
+        if (path_separator != std::string_view::npos) {
+            begin = path_separator + 1U;
+        }
+        size_t end = path.find('[', begin);
+        if (end == std::string_view::npos) {
+            end = path.size();
+        }
+        for (size_t i = 0U; i < end; ++i) {
+            if (i >= begin && (path[i] == ':' || path[i] == '.')) {
+                begin = i + 1U;
+            }
+        }
+        return path.substr(begin, end - begin);
+    }
+
+    static std::string_view xmp_path_language(std::string_view path) noexcept
+    {
+        static constexpr std::string_view marker = "[@xml:lang=";
+        const size_t begin                       = path.find(marker);
+        if (begin == std::string_view::npos) {
+            return {};
+        }
+        const size_t value_begin = begin + marker.size();
+        const size_t end         = path.find(']', value_begin);
+        if (end == std::string_view::npos || end == value_begin) {
+            return {};
+        }
+        return path.substr(value_begin, end - value_begin);
+    }
+
+    static void assign_candidate_language(std::string_view path,
+                                          MetadataConceptCandidate* candidate)
+    {
+        if (!candidate) {
+            return;
+        }
+        const std::string_view language = xmp_path_language(path);
+        if (language.empty()) {
+            candidate->language.assign("x-default");
+            return;
+        }
+        candidate->language.resize(language.size());
+        for (size_t i = 0U; i < language.size(); ++i) {
+            candidate->language[i] = ascii_lower(language[i]);
+        }
     }
 
     static std::string_view xmp_property_scope(std::string_view path) noexcept
@@ -1044,6 +1118,19 @@ namespace {
         case MetadataConceptRole::LocationCreatedLatitude:
         case MetadataConceptRole::LocationCreatedLongitude:
         case MetadataConceptRole::LocationCreatedAltitude:
+        case MetadataConceptRole::Title:
+        case MetadataConceptRole::Headline:
+        case MetadataConceptRole::Description:
+        case MetadataConceptRole::Creator:
+        case MetadataConceptRole::Keywords:
+        case MetadataConceptRole::LocationName:
+        case MetadataConceptRole::Sublocation:
+        case MetadataConceptRole::City:
+        case MetadataConceptRole::ProvinceState:
+        case MetadataConceptRole::CountryName:
+        case MetadataConceptRole::CountryCode:
+        case MetadataConceptRole::WorldRegion:
+        case MetadataConceptRole::LocationIdentifier:
         case MetadataConceptRole::Timestamp:
         case MetadataConceptRole::Crop:
         case MetadataConceptRole::ActiveArea:
@@ -1061,6 +1148,7 @@ namespace {
         switch (candidate->kind) {
         case MetadataConceptKind::DateTime:
         case MetadataConceptKind::Gps:
+        case MetadataConceptKind::Descriptive:
             set_transfer_hint(candidate, MetadataConceptTransferHint::Safe,
                               true, true);
             return;
@@ -1152,6 +1240,19 @@ namespace {
             case MetadataConceptRole::LocationCreatedLatitude:
             case MetadataConceptRole::LocationCreatedLongitude:
             case MetadataConceptRole::LocationCreatedAltitude:
+            case MetadataConceptRole::Title:
+            case MetadataConceptRole::Headline:
+            case MetadataConceptRole::Description:
+            case MetadataConceptRole::Creator:
+            case MetadataConceptRole::Keywords:
+            case MetadataConceptRole::LocationName:
+            case MetadataConceptRole::Sublocation:
+            case MetadataConceptRole::City:
+            case MetadataConceptRole::ProvinceState:
+            case MetadataConceptRole::CountryName:
+            case MetadataConceptRole::CountryCode:
+            case MetadataConceptRole::WorldRegion:
+            case MetadataConceptRole::LocationIdentifier:
             case MetadataConceptRole::Timestamp:
             case MetadataConceptRole::Crop:
             case MetadataConceptRole::ActiveArea:
@@ -1193,6 +1294,19 @@ namespace {
             case MetadataConceptRole::LocationCreatedLatitude:
             case MetadataConceptRole::LocationCreatedLongitude:
             case MetadataConceptRole::LocationCreatedAltitude:
+            case MetadataConceptRole::Title:
+            case MetadataConceptRole::Headline:
+            case MetadataConceptRole::Description:
+            case MetadataConceptRole::Creator:
+            case MetadataConceptRole::Keywords:
+            case MetadataConceptRole::LocationName:
+            case MetadataConceptRole::Sublocation:
+            case MetadataConceptRole::City:
+            case MetadataConceptRole::ProvinceState:
+            case MetadataConceptRole::CountryName:
+            case MetadataConceptRole::CountryCode:
+            case MetadataConceptRole::WorldRegion:
+            case MetadataConceptRole::LocationIdentifier:
             case MetadataConceptRole::Timestamp:
             case MetadataConceptRole::Crop:
             case MetadataConceptRole::ActiveArea:
@@ -1354,6 +1468,9 @@ namespace {
         }
         if (dst->location_scope.empty() && !src.location_scope.empty()) {
             dst->location_scope = src.location_scope;
+        }
+        if (dst->language.empty() && !src.language.empty()) {
+            dst->language = src.language;
         }
     }
 
@@ -3436,6 +3553,303 @@ namespace {
         append_xmp_gps_timestamp_composite(store, out);
     }
 
+    static bool descriptive_role_is_collection(MetadataConceptRole role) noexcept
+    {
+        return role == MetadataConceptRole::Creator
+               || role == MetadataConceptRole::Keywords
+               || role == MetadataConceptRole::LocationIdentifier;
+    }
+
+    static bool descriptive_role_is_location(MetadataConceptRole role) noexcept
+    {
+        switch (role) {
+        case MetadataConceptRole::LocationName:
+        case MetadataConceptRole::Sublocation:
+        case MetadataConceptRole::City:
+        case MetadataConceptRole::ProvinceState:
+        case MetadataConceptRole::CountryName:
+        case MetadataConceptRole::CountryCode:
+        case MetadataConceptRole::WorldRegion:
+        case MetadataConceptRole::LocationIdentifier: return true;
+        default: break;
+        }
+        return false;
+    }
+
+    static MetadataQuerySemanticKind
+    descriptive_semantic_for_role(MetadataConceptRole role) noexcept
+    {
+        switch (role) {
+        case MetadataConceptRole::Title:
+        case MetadataConceptRole::Headline:
+            return MetadataQuerySemanticKind::Title;
+        case MetadataConceptRole::Description:
+            return MetadataQuerySemanticKind::Description;
+        case MetadataConceptRole::Creator:
+            return MetadataQuerySemanticKind::Creator;
+        case MetadataConceptRole::Keywords:
+            return MetadataQuerySemanticKind::Keywords;
+        default: break;
+        }
+        return MetadataQuerySemanticKind::Unknown;
+    }
+
+    static bool descriptive_xmp_location_scope(std::string_view path,
+                                               std::string* out)
+    {
+        if (out) {
+            out->clear();
+        }
+        const size_t separator = path.find('/');
+        if (separator == std::string_view::npos) {
+            return false;
+        }
+        const std::string_view root = xmp_scope_leaf(
+            path.substr(0U, separator));
+        if (xmp_location_created_scope(root)) {
+            if (out) {
+                out->assign("LocationCreated");
+            }
+            return true;
+        }
+        if (xmp_location_shown_scope(root)) {
+            if (out) {
+                out->assign(root);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    static MetadataConceptRole
+    descriptive_location_role_for_leaf(std::string_view leaf) noexcept
+    {
+        if (ascii_equal_ci(leaf, "LocationName")) {
+            return MetadataConceptRole::LocationName;
+        }
+        if (ascii_equal_ci(leaf, "Location")
+            || ascii_equal_ci(leaf, "Sublocation")) {
+            return MetadataConceptRole::Sublocation;
+        }
+        if (ascii_equal_ci(leaf, "City")) {
+            return MetadataConceptRole::City;
+        }
+        if (ascii_equal_ci(leaf, "State")
+            || ascii_equal_ci(leaf, "ProvinceState")) {
+            return MetadataConceptRole::ProvinceState;
+        }
+        if (ascii_equal_ci(leaf, "Country")
+            || ascii_equal_ci(leaf, "CountryName")) {
+            return MetadataConceptRole::CountryName;
+        }
+        if (ascii_equal_ci(leaf, "CountryCode")) {
+            return MetadataConceptRole::CountryCode;
+        }
+        if (ascii_equal_ci(leaf, "WorldRegion")) {
+            return MetadataConceptRole::WorldRegion;
+        }
+        if (ascii_equal_ci(leaf, "LocationId")) {
+            return MetadataConceptRole::LocationIdentifier;
+        }
+        return MetadataConceptRole::Primary;
+    }
+
+    static void append_descriptive_text_candidate(
+        const MetaStore& store, EntryId id, MetadataConceptRole role,
+        uint8_t priority, std::string_view location_scope,
+        std::string_view xmp_path, MetadataConceptResolution* out)
+    {
+        std::string text;
+        if (!value_to_text(store.arena(), store.entry(id).value, &text)) {
+            return;
+        }
+        MetadataConceptCandidate candidate
+            = make_entry_candidate(store, id, MetadataConceptKind::Descriptive,
+                                   role, descriptive_semantic_for_role(role),
+                                   MetadataQueryValueShape::Text, priority);
+        candidate.text.assign(text);
+        normalize_text_key(text, &candidate.value_key);
+        if (candidate.value_key.empty()) {
+            return;
+        }
+        if (!location_scope.empty()) {
+            candidate.location_scope.assign(location_scope);
+        }
+        if (!descriptive_role_is_collection(role)) {
+            assign_candidate_language(xmp_path, &candidate);
+        }
+        append_candidate(out, candidate);
+    }
+
+    static void
+    append_exif_descriptive_candidate(const MetaStore& store, EntryId id,
+                                      const Entry& entry,
+                                      MetadataConceptResolution* out)
+    {
+        const uint16_t tag = entry.key.data.exif_tag.tag;
+        if (!exif_entry_ifd_and_tag(store, entry, "ifd0", tag)) {
+            return;
+        }
+        MetadataConceptRole role = MetadataConceptRole::Primary;
+        uint8_t priority         = 0U;
+        switch (tag) {
+        case kExifDocumentNameTag:
+            role     = MetadataConceptRole::Title;
+            priority = 76U;
+            break;
+        case kExifXpTitleTag:
+            role     = MetadataConceptRole::Title;
+            priority = 80U;
+            break;
+        case kExifImageDescriptionTag:
+            role     = MetadataConceptRole::Description;
+            priority = 76U;
+            break;
+        case kExifXpCommentTag:
+            role     = MetadataConceptRole::Description;
+            priority = 80U;
+            break;
+        case kExifArtistTag:
+            role     = MetadataConceptRole::Creator;
+            priority = 76U;
+            break;
+        case kExifXpAuthorTag:
+            role     = MetadataConceptRole::Creator;
+            priority = 80U;
+            break;
+        case kExifXpKeywordsTag:
+            role     = MetadataConceptRole::Keywords;
+            priority = 80U;
+            break;
+        default: return;
+        }
+        append_descriptive_text_candidate(store, id, role, priority, {}, {},
+                                          out);
+    }
+
+    static void
+    append_iptc_descriptive_candidate(const MetaStore& store, EntryId id,
+                                      const Entry& entry,
+                                      MetadataConceptResolution* out)
+    {
+        if (entry.key.data.iptc_dataset.record != 2U) {
+            return;
+        }
+        MetadataConceptRole role = MetadataConceptRole::Primary;
+        const uint16_t dataset   = entry.key.data.iptc_dataset.dataset;
+        switch (dataset) {
+        case kIptcObjectNameDataset: role = MetadataConceptRole::Title; break;
+        case kIptcKeywordsDataset: role = MetadataConceptRole::Keywords; break;
+        case kIptcBylineDataset: role = MetadataConceptRole::Creator; break;
+        case kIptcHeadlineDataset: role = MetadataConceptRole::Headline; break;
+        case kIptcCaptionDataset:
+            role = MetadataConceptRole::Description;
+            break;
+        case kIptcCityDataset: role = MetadataConceptRole::City; break;
+        case kIptcSublocationDataset:
+            role = MetadataConceptRole::Sublocation;
+            break;
+        case kIptcProvinceStateDataset:
+            role = MetadataConceptRole::ProvinceState;
+            break;
+        case kIptcCountryCodeDataset:
+            role = MetadataConceptRole::CountryCode;
+            break;
+        case kIptcCountryNameDataset:
+            role = MetadataConceptRole::CountryName;
+            break;
+        default: return;
+        }
+        const std::string_view scope = descriptive_role_is_location(role)
+                                           ? std::string_view("LocationCreated")
+                                           : std::string_view {};
+        append_descriptive_text_candidate(store, id, role, 86U, scope, {}, out);
+    }
+
+    static void append_xmp_descriptive_candidate(const MetaStore& store,
+                                                 EntryId id, const Entry& entry,
+                                                 MetadataConceptResolution* out)
+    {
+        const std::string_view path
+            = arena_string(store.arena(),
+                           entry.key.data.xmp_property.property_path);
+        const std::string_view leaf = xmp_property_leaf(path);
+        MetadataConceptRole role    = MetadataConceptRole::Primary;
+        std::string location_scope;
+        uint8_t priority = 0U;
+
+        if (xmp_schema_matches(store, entry, kDcXmpSchema)) {
+            if (ascii_equal_ci(leaf, "title")) {
+                role = MetadataConceptRole::Title;
+            } else if (ascii_equal_ci(leaf, "description")) {
+                role = MetadataConceptRole::Description;
+            } else if (ascii_equal_ci(leaf, "creator")) {
+                role = MetadataConceptRole::Creator;
+            } else if (ascii_equal_ci(leaf, "subject")) {
+                role = MetadataConceptRole::Keywords;
+            }
+            priority = 100U;
+        } else if (xmp_schema_matches(store, entry, kPhotoshopXmpSchema)) {
+            if (ascii_equal_ci(leaf, "Headline")) {
+                role = MetadataConceptRole::Headline;
+            } else {
+                role = descriptive_location_role_for_leaf(leaf);
+                if (descriptive_role_is_location(role)) {
+                    location_scope.assign("LocationCreated");
+                }
+            }
+            priority = 92U;
+        } else if (xmp_schema_matches(store, entry, kIptcCoreXmpSchema)) {
+            if (!descriptive_xmp_location_scope(path, &location_scope)) {
+                if (ascii_equal_ci(leaf, "Location")
+                    || ascii_equal_ci(leaf, "CountryCode")) {
+                    location_scope.assign("LocationCreated");
+                } else {
+                    return;
+                }
+            }
+            role     = descriptive_location_role_for_leaf(leaf);
+            priority = 96U;
+        } else if (xmp_schema_matches(store, entry, kIptcExtXmpSchema)) {
+            if (!descriptive_xmp_location_scope(path, &location_scope)) {
+                return;
+            }
+            role     = descriptive_location_role_for_leaf(leaf);
+            priority = 100U;
+        } else {
+            return;
+        }
+        if (role == MetadataConceptRole::Primary) {
+            return;
+        }
+        append_descriptive_text_candidate(store, id, role, priority,
+                                          location_scope, path, out);
+    }
+
+    static void append_descriptive_candidates(const MetaStore& store,
+                                              MetadataConceptResolution* out)
+    {
+        const std::span<const Entry> entries = store.entries();
+        for (EntryId id = 0U; id < entries.size(); ++id) {
+            const Entry& entry = entries[id];
+            if (any(entry.flags, EntryFlags::Deleted)) {
+                continue;
+            }
+            switch (entry.key.kind) {
+            case MetaKeyKind::ExifTag:
+                append_exif_descriptive_candidate(store, id, entry, out);
+                break;
+            case MetaKeyKind::IptcDataset:
+                append_iptc_descriptive_candidate(store, id, entry, out);
+                break;
+            case MetaKeyKind::XmpProperty:
+                append_xmp_descriptive_candidate(store, id, entry, out);
+                break;
+            default: break;
+            }
+        }
+    }
+
     static void append_container_graph_candidates(const MetaStore& store,
                                                   MetadataConceptResolution* out)
     {
@@ -3544,7 +3958,15 @@ namespace {
         case MetadataConceptRole::LocationShownAltitude:
         case MetadataConceptRole::LocationCreatedLatitude:
         case MetadataConceptRole::LocationCreatedLongitude:
-        case MetadataConceptRole::LocationCreatedAltitude: return true;
+        case MetadataConceptRole::LocationCreatedAltitude:
+        case MetadataConceptRole::LocationName:
+        case MetadataConceptRole::Sublocation:
+        case MetadataConceptRole::City:
+        case MetadataConceptRole::ProvinceState:
+        case MetadataConceptRole::CountryName:
+        case MetadataConceptRole::CountryCode:
+        case MetadataConceptRole::WorldRegion:
+        case MetadataConceptRole::LocationIdentifier: return true;
         case MetadataConceptRole::Primary:
         case MetadataConceptRole::Orientation:
         case MetadataConceptRole::Created:
@@ -3591,9 +4013,47 @@ namespace {
         case MetadataConceptRole::DerivedImageConstruction:
         case MetadataConceptRole::TiledImageConfiguration:
         case MetadataConceptRole::DestinationLatitude:
-        case MetadataConceptRole::DestinationLongitude: break;
+        case MetadataConceptRole::DestinationLongitude:
+        case MetadataConceptRole::Title:
+        case MetadataConceptRole::Headline:
+        case MetadataConceptRole::Description:
+        case MetadataConceptRole::Creator:
+        case MetadataConceptRole::Keywords: break;
         }
         return false;
+    }
+
+    static bool role_uses_language_scope(MetadataConceptRole role) noexcept
+    {
+        switch (role) {
+        case MetadataConceptRole::Title:
+        case MetadataConceptRole::Headline:
+        case MetadataConceptRole::Description:
+        case MetadataConceptRole::LocationName:
+        case MetadataConceptRole::Sublocation:
+        case MetadataConceptRole::City:
+        case MetadataConceptRole::ProvinceState:
+        case MetadataConceptRole::CountryName:
+        case MetadataConceptRole::CountryCode:
+        case MetadataConceptRole::WorldRegion: return true;
+        default: break;
+        }
+        return false;
+    }
+
+    static bool
+    candidates_share_role_scope(MetadataConceptRole role,
+                                const MetadataConceptCandidate& a,
+                                const MetadataConceptCandidate& b) noexcept
+    {
+        if (role_uses_location_scope(role)
+            && a.location_scope != b.location_scope) {
+            return false;
+        }
+        if (role_uses_language_scope(role) && a.language != b.language) {
+            return false;
+        }
+        return true;
     }
 
     static int64_t civil_day_number(int32_t year, uint32_t month,
@@ -3771,7 +4231,20 @@ namespace {
         case MetadataConceptRole::ContentBoundMetadata:
         case MetadataConceptRole::MultiImageScene:
         case MetadataConceptRole::DerivedImageConstruction:
-        case MetadataConceptRole::TiledImageConfiguration: break;
+        case MetadataConceptRole::TiledImageConfiguration:
+        case MetadataConceptRole::Title:
+        case MetadataConceptRole::Headline:
+        case MetadataConceptRole::Description:
+        case MetadataConceptRole::Creator:
+        case MetadataConceptRole::Keywords:
+        case MetadataConceptRole::LocationName:
+        case MetadataConceptRole::Sublocation:
+        case MetadataConceptRole::City:
+        case MetadataConceptRole::ProvinceState:
+        case MetadataConceptRole::CountryName:
+        case MetadataConceptRole::CountryCode:
+        case MetadataConceptRole::WorldRegion:
+        case MetadataConceptRole::LocationIdentifier: break;
         }
         return 0.0;
     }
@@ -3829,7 +4302,10 @@ namespace {
         if (!resolution) {
             return;
         }
-        if (role_uses_location_scope(role)) {
+        if (descriptive_role_is_collection(role)) {
+            return;
+        }
+        if (role_uses_location_scope(role) || role_uses_language_scope(role)) {
             for (size_t i = 0U; i < resolution->candidates.size(); ++i) {
                 MetadataConceptCandidate& a = resolution->candidates[i];
                 if (a.role != role) {
@@ -3839,7 +4315,7 @@ namespace {
                      ++j) {
                     MetadataConceptCandidate& b = resolution->candidates[j];
                     if (b.role != role
-                        || a.location_scope != b.location_scope) {
+                        || !candidates_share_role_scope(role, a, b)) {
                         continue;
                     }
                     if (concept_values_conflict(a, b)) {
@@ -3890,7 +4366,7 @@ namespace {
         if (!resolution) {
             return;
         }
-        if (role_uses_location_scope(role)) {
+        if (descriptive_role_is_collection(role)) {
             for (size_t i = 0U; i < resolution->candidates.size(); ++i) {
                 MetadataConceptCandidate& candidate = resolution->candidates[i];
                 if (candidate.role != role) {
@@ -3904,7 +4380,38 @@ namespace {
                     const MetadataConceptCandidate& other
                         = resolution->candidates[j];
                     if (other.role != role
-                        || other.location_scope != candidate.location_scope) {
+                        || !candidates_share_role_scope(role, candidate, other)
+                        || other.value_key != candidate.value_key) {
+                        continue;
+                    }
+                    if (other.priority > candidate.priority
+                        || (other.priority == candidate.priority && j < i)) {
+                        best = false;
+                        break;
+                    }
+                }
+                if (best) {
+                    candidate.preferred = true;
+                }
+            }
+            return;
+        }
+        if (role_uses_location_scope(role) || role_uses_language_scope(role)) {
+            for (size_t i = 0U; i < resolution->candidates.size(); ++i) {
+                MetadataConceptCandidate& candidate = resolution->candidates[i];
+                if (candidate.role != role) {
+                    continue;
+                }
+                bool best = true;
+                for (size_t j = 0U; j < resolution->candidates.size(); ++j) {
+                    if (i == j) {
+                        continue;
+                    }
+                    const MetadataConceptCandidate& other
+                        = resolution->candidates[j];
+                    if (other.role != role
+                        || !candidates_share_role_scope(role, candidate,
+                                                        other)) {
                         continue;
                     }
                     if (other.priority > candidate.priority
@@ -3990,6 +4497,19 @@ namespace {
             MetadataConceptRole::LocationCreatedLatitude,
             MetadataConceptRole::LocationCreatedLongitude,
             MetadataConceptRole::LocationCreatedAltitude,
+            MetadataConceptRole::Title,
+            MetadataConceptRole::Headline,
+            MetadataConceptRole::Description,
+            MetadataConceptRole::Creator,
+            MetadataConceptRole::Keywords,
+            MetadataConceptRole::LocationName,
+            MetadataConceptRole::Sublocation,
+            MetadataConceptRole::City,
+            MetadataConceptRole::ProvinceState,
+            MetadataConceptRole::CountryName,
+            MetadataConceptRole::CountryCode,
+            MetadataConceptRole::WorldRegion,
+            MetadataConceptRole::LocationIdentifier,
             MetadataConceptRole::Timestamp,
             MetadataConceptRole::Crop,
             MetadataConceptRole::ActiveArea,
@@ -4075,6 +4595,9 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind)
     case MetadataConceptKind::ContainerGraph:
         append_container_graph_candidates(store, &out);
         break;
+    case MetadataConceptKind::Descriptive:
+        append_descriptive_candidates(store, &out);
+        break;
     }
     finalize_resolution(&out, nullptr);
     return out;
@@ -4084,7 +4607,7 @@ MetadataConceptResult
 resolve_metadata_concepts(const MetaStore& store)
 {
     MetadataConceptResult out;
-    out.concepts.reserve(9U);
+    out.concepts.reserve(10U);
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Orientation));
     out.concepts.push_back(
@@ -4103,6 +4626,8 @@ resolve_metadata_concepts(const MetaStore& store)
         resolve_metadata_concept(store, MetadataConceptKind::RawProcessing));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::ContainerGraph));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::Descriptive));
     return out;
 }
 
@@ -4138,6 +4663,9 @@ resolve_metadata_concept(const MetaStore& store, MetadataConceptKind kind,
     case MetadataConceptKind::ContainerGraph:
         append_container_graph_candidates(store, &out);
         break;
+    case MetadataConceptKind::Descriptive:
+        append_descriptive_candidates(store, &out);
+        break;
     }
     finalize_resolution(&out, &raw_descriptor);
     return out;
@@ -4148,7 +4676,7 @@ resolve_metadata_concepts(const MetaStore& store,
                           const MetadataRawDataDescriptor& raw_descriptor)
 {
     MetadataConceptResult out;
-    out.concepts.reserve(9U);
+    out.concepts.reserve(10U);
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::Orientation,
                                  raw_descriptor));
@@ -4175,6 +4703,9 @@ resolve_metadata_concepts(const MetaStore& store,
                                  raw_descriptor));
     out.concepts.push_back(
         resolve_metadata_concept(store, MetadataConceptKind::ContainerGraph,
+                                 raw_descriptor));
+    out.concepts.push_back(
+        resolve_metadata_concept(store, MetadataConceptKind::Descriptive,
                                  raw_descriptor));
     return out;
 }
@@ -4265,7 +4796,20 @@ metadata_raw_applicability_for_descriptor(
     case MetadataConceptRole::ContentBoundMetadata:
     case MetadataConceptRole::MultiImageScene:
     case MetadataConceptRole::DerivedImageConstruction:
-    case MetadataConceptRole::TiledImageConfiguration: break;
+    case MetadataConceptRole::TiledImageConfiguration:
+    case MetadataConceptRole::Title:
+    case MetadataConceptRole::Headline:
+    case MetadataConceptRole::Description:
+    case MetadataConceptRole::Creator:
+    case MetadataConceptRole::Keywords:
+    case MetadataConceptRole::LocationName:
+    case MetadataConceptRole::Sublocation:
+    case MetadataConceptRole::City:
+    case MetadataConceptRole::ProvinceState:
+    case MetadataConceptRole::CountryName:
+    case MetadataConceptRole::CountryCode:
+    case MetadataConceptRole::WorldRegion:
+    case MetadataConceptRole::LocationIdentifier: break;
     }
     return MetadataRawApplicabilityState::Unknown;
 }
@@ -4283,6 +4827,7 @@ metadata_concept_kind_name(MetadataConceptKind kind) noexcept
     case MetadataConceptKind::RawProcessing: return "raw_processing";
     case MetadataConceptKind::Exposure: return "exposure";
     case MetadataConceptKind::ContainerGraph: return "container_graph";
+    case MetadataConceptKind::Descriptive: return "descriptive";
     }
     return "unknown";
 }
@@ -4376,6 +4921,19 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
         return "derived_image_construction";
     case MetadataConceptRole::TiledImageConfiguration:
         return "tiled_image_configuration";
+    case MetadataConceptRole::Title: return "title";
+    case MetadataConceptRole::Headline: return "headline";
+    case MetadataConceptRole::Description: return "description";
+    case MetadataConceptRole::Creator: return "creator";
+    case MetadataConceptRole::Keywords: return "keywords";
+    case MetadataConceptRole::LocationName: return "location_name";
+    case MetadataConceptRole::Sublocation: return "sublocation";
+    case MetadataConceptRole::City: return "city";
+    case MetadataConceptRole::ProvinceState: return "province_state";
+    case MetadataConceptRole::CountryName: return "country_name";
+    case MetadataConceptRole::CountryCode: return "country_code";
+    case MetadataConceptRole::WorldRegion: return "world_region";
+    case MetadataConceptRole::LocationIdentifier: return "location_identifier";
     }
     return "unknown";
 }

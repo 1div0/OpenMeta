@@ -89,10 +89,13 @@ Coverage matrix
        descriptive EXIF/IPTC/XMP concepts such as title/headline,
        description/caption, creator/author, keywords/subject, and IPTC
        date/time promoted into cross-family created-date candidates are
-       queryable with source-entry provenance.
-     - Medium-high, about 80-87%.
-     - Full MWG-style reconciliation of duplicated EXIF/XMP/IPTC concepts
-       remains bounded.
+       queryable with source-entry provenance. The ``Descriptive`` concept
+       reconciles these standard scalar and collection fields plus common
+       created/shown location fields with language and structured-location
+       scopes.
+     - Medium-high, about 87-92%.
+     - Rights/licensing, contact, event/person/product, and broader MWG-style
+       duplicated-field reconciliation remain bounded.
    * - Orientation
      - EXIF/TIFF orientation query, LibRaw flip mapping, and generic
        orientation helpers for index, rotation degrees, mirrored state,
@@ -319,24 +322,26 @@ Coverage matrix
        RapidFuzz near-miss matching,
        structured interpretation records, and bounded cross-family concept
        resolution for orientation, date/time, exposure/gain,
-       color/profile, GPS, geometry, lens-correction, RAW-processing, and
-       container graph policy with
+       color/profile, GPS, descriptive fields, geometry, lens-correction,
+       RAW-processing, and container graph policy with
        parsed date/time fields, matching EXIF ``OffsetTime*``/
        ``SubSecTime*`` provenance, bounded subsecond precision,
        normalized-instant conflict checks, IPTC created and digital-creation
        date/time plus XMP ``DateTimeDigitized`` promoted into cross-family
        date candidates, same-scope EXIF/XMP GPS timestamp assembly, distinct
        camera/destination/shown/created coordinate roles, scope-aware
-       structured-location conflict handling, GPS altitude-reference state and
-       display token, canonical geometry
+       structured-location conflict handling, language-aware descriptive
+       scalar conflicts, additive creator/keyword/location-identifier
+       collections, GPS altitude-reference state and display token, canonical
+       geometry
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, RAW applicability states,
        rendered/compatible safety booleans, and tolerance-aware
        GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 89-94%.
-     - Explicit roles for structured subjects and additional
-       descriptive-location fields, more long-tail per-model concept aliases,
-       and richer localized policy wording.
+     - Medium-high, about 91-95%.
+     - Rights/licensing/contact/event/person/product concept roles, more
+       long-tail per-model concept aliases, and richer localized policy
+       wording.
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
        source-specific image geometry, color/profile, RAW curves/linearity
@@ -381,9 +386,9 @@ Next interpretation priorities
    independently authored conformance files as they become available.
 2. Broaden transfer diagnostic policy coverage now that stable message tokens
    and localizable argument tokens are available for GUI workflows.
-3. Expand cross-family reconciliation for descriptive title, description,
-   creator, keyword, subject, and descriptive-location fields without hiding
-   source-family conflicts.
+3. Extend bounded descriptive reconciliation to rights/licensing,
+   credit/source, creator contact, event, person, and product fields without
+   merging distinct schemas or collection roles.
 4. Expand the remaining unambiguous MakerNote long tail: encrypted/custom
    settings, per-model firmware formulas outside currently supported
    formatter contexts, remaining live-vendor scalar/string-coded fields, and

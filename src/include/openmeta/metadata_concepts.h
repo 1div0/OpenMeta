@@ -26,6 +26,7 @@ enum class MetadataConceptKind : uint8_t {
     RawProcessing,
     Exposure,
     ContainerGraph,
+    Descriptive,
 };
 
 enum class MetadataConceptSourceFamily : uint8_t {
@@ -92,6 +93,19 @@ enum class MetadataConceptRole : uint8_t {
     LocationCreatedLatitude,
     LocationCreatedLongitude,
     LocationCreatedAltitude,
+    Title,
+    Headline,
+    Description,
+    Creator,
+    Keywords,
+    LocationName,
+    Sublocation,
+    City,
+    ProvinceState,
+    CountryName,
+    CountryCode,
+    WorldRegion,
+    LocationIdentifier,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {
@@ -221,6 +235,8 @@ struct MetadataConceptCandidate final {
     uint8_t gps_altitude_reference_code = 0U;
     /// Structured XMP parent path, for example `LocationShown[1]`.
     std::string location_scope;
+    /// Normalized language tag for localized descriptive values.
+    std::string language;
 };
 
 struct MetadataConceptResolution final {

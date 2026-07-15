@@ -1,5 +1,26 @@
 # OpenMeta Changes
 
+## 0.4.77 - 2026-07-15
+
+Changes compared with `0.4.76`.
+
+### Added
+
+- Added the experimental `Descriptive` concept kind with roles for title,
+  headline, description, creator, keywords, and common created/shown location
+  fields across standard EXIF, IPTC IIM, and XMP schemas.
+- Added normalized language provenance to concept candidates, transfer
+  diagnostics, and thin Python dictionaries.
+
+### Changed
+
+- Localized scalar conflicts and preference are evaluated per language and,
+  for structured locations, per `LocationCreated` or `LocationShown[n]` scope.
+- Creator, keyword/subject, and location-identifier values now use additive
+  collection semantics: distinct values remain preferred while duplicate
+  normalized values select the highest-priority source without false
+  conflicts.
+
 ## 0.4.76 - 2026-07-14
 
 Changes compared with `0.4.75`.

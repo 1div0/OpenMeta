@@ -21932,6 +21932,39 @@ TEST(MetadataTransferApi,
     EXPECT_TRUE(contains_entry_id(location->source_entries, latitude_id));
 }
 
+TEST(MetadataTransferApi, TransferConceptDiagnosticsPreserveDescriptiveScopes)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry location_name;
+    location_name.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[1]/LocationName[@xml:lang=fr-FR]");
+    location_name.value = openmeta::make_text(store.arena(), "Quartier de Gion",
+                                              openmeta::TextEncoding::Utf8);
+    location_name.origin.block               = block;
+    location_name.origin.order_in_block      = 0U;
+    const openmeta::EntryId location_name_id = store.add_entry(location_name);
+    ASSERT_NE(location_name_id, openmeta::kInvalidEntryId);
+    store.finalize();
+
+    const openmeta::TransferConceptDiagnostics diagnostics
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::RenderedImage);
+    const openmeta::TransferConceptDiagnostic* location
+        = find_transfer_concept_diagnostic(
+            diagnostics, openmeta::MetadataConceptKind::Descriptive,
+            openmeta::MetadataConceptRole::LocationName,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+
+    ASSERT_NE(location, nullptr);
+    EXPECT_EQ(location->location_scope, "LocationShown[1]");
+    EXPECT_EQ(location->language, "fr-fr");
+    EXPECT_TRUE(contains_entry_id(location->source_entries, location_name_id));
+}
+
 TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
 {
     openmeta::MetaStore store;

@@ -88,7 +88,13 @@ Structured-location candidates carry a ``location_scope`` such as
 ``LocationShown[1]``; conflicts and preference are resolved independently
 within each scope. Use
 ``metadata_concept_gps_altitude_reference_name(...)`` for a stable display
-token. Treat this as an inspection and policy input rather than an automatic
+token. Descriptive concepts reconcile standard EXIF, IPTC IIM, Dublin Core,
+Photoshop, IPTC Core, and IPTC Extension title/headline, description, creator,
+keyword/subject, and location fields. Scalar conflicts are isolated by
+normalized language and structured location scope; creator, keyword, and
+location-identifier values are additive collections whose duplicate values
+select one preferred source. Treat this as an inspection and policy input
+rather than an automatic
 metadata rewrite decision; source-bound color, lens, and RAW-processing values
 still need rendered-transfer safety filtering. Each candidate also carries a
 transfer hint: ``safe``, ``source_bound``, ``rendered_unsafe``, or
@@ -134,8 +140,8 @@ OpenMeta splits host integration surfaces deliberately:
   ``metadata_interpretation.h`` for query-backed semantic records
 - concept-resolution utility:
   ``metadata_concepts.h`` for cross-family orientation, date/time,
-  color/profile, exposure/gain, GPS, geometry, lens-correction, and
-  RAW-processing conflict inspection
+  color/profile, exposure/gain, GPS, descriptive fields, geometry,
+  lens-correction, and RAW-processing conflict inspection
 
 Read and query
 --------------

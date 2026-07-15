@@ -217,7 +217,8 @@ Host-facing API map
        timezone kind, normalized geometry fields, normalized exposure values,
        and same-role conflicts for orientation,
        date/time, exposure/gain, color/profile/source-color-transform, GPS,
-       geometry, lens-correction, RAW-processing, and container-graph evidence
+       descriptive fields, geometry, lens-correction, RAW-processing, and
+       container-graph evidence
        across EXIF, XMP, IPTC, ICC, PNG text, BMFF fields, and query-backed
        interpretation records where applicable. Exposure
        candidates cover exposure time, aperture, ISO sensitivity, exposure
@@ -268,12 +269,18 @@ Host-facing API map
        Structured candidates expose ``location_scope``, and
        conflict/preference handling compares values only within the same scope;
        ``metadata_concept_gps_altitude_reference_name(...)`` provides a stable
-       display token for the reference code. It is intended for inspection UI
+       display token for the reference code. The ``Descriptive`` kind
+       reconciles standard title, headline, description, creator,
+       keyword/subject, and created/shown location fields. Localized scalars
+       compare per normalized language; creator, keyword, and
+       location-identifier collections preserve distinct values and select one
+       preferred source per duplicate normalized value. It is intended for
+       inspection UI
        and host policy decisions; it does not rewrite metadata or hide
        ambiguity. Python ``Document`` and ``TransferSourceSnapshot`` expose
-       matching dictionary wrappers, including subsecond and location-scope
-       fields and the thin ``MetadataRawDataDescriptor`` object with storage,
-       compression, and plane-binding fields.
+       matching dictionary wrappers, including subsecond, location-scope, and
+       language fields and the thin ``MetadataRawDataDescriptor`` object with
+       storage, compression, and plane-binding fields.
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
        ``transfer_concept_diagnostic_message(...)``,
@@ -287,7 +294,8 @@ Host-facing API map
        keep/drop/requires-target-image-spec action, reason token, severity
        token, stable host-facing summary token, stable localization message
        token, localizable argument tokens, default message text, conflict
-       flag, source entries, structured-location scope where applicable,
+       flag, source entries, structured-location scope and language where
+       applicable,
        compatible/rendered safety booleans, RAW applicability state, and GPS
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
@@ -307,8 +315,8 @@ Host-facing API map
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``token``, ``message_token``,
-       ``message_arguments``, ``message``, ``location_scope``, and RAW
-       applicability fields, with
+       ``message_arguments``, ``message``, ``location_scope``, ``language``,
+       and RAW applicability fields, with
        overloads that accept the thin
        ``MetadataRawDataDescriptor`` object. Python transfer helpers also
        accept ``source_raw_data_descriptor`` for prepare-time filtering.

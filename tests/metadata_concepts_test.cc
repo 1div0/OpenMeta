@@ -214,6 +214,50 @@ namespace {
         return nullptr;
     }
 
+    static const MetadataConceptCandidate* find_role_family_scope_language(
+        const MetadataConceptResolution& resolution, MetadataConceptRole role,
+        MetadataConceptSourceFamily family, std::string_view scope,
+        std::string_view language)
+    {
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = resolution.candidates[i];
+            if (candidate.role == role && candidate.family == family
+                && candidate.location_scope == scope
+                && candidate.language == language) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
+    static const MetadataConceptCandidate* find_role_family_value(
+        const MetadataConceptResolution& resolution, MetadataConceptRole role,
+        MetadataConceptSourceFamily family, std::string_view value_key)
+    {
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = resolution.candidates[i];
+            if (candidate.role == role && candidate.family == family
+                && candidate.value_key == value_key) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
+    static const MetadataConceptCandidate* find_preferred_role_scope_language(
+        const MetadataConceptResolution& resolution, MetadataConceptRole role,
+        std::string_view scope, std::string_view language)
+    {
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = resolution.candidates[i];
+            if (candidate.role == role && candidate.location_scope == scope
+                && candidate.language == language && candidate.preferred) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
     static bool contains_entry(const std::vector<EntryId>& entries,
                                EntryId entry_id) noexcept
     {
@@ -1150,6 +1194,273 @@ namespace {
         EXPECT_FALSE(contains_entry(created->source_entries, invalid_offset));
         EXPECT_FALSE(
             contains_entry(created->source_entries, excessive_subsecond));
+    }
+
+    TEST(MetadataConcepts, ReconcilesCrossFamilyDescriptiveScalarsAndLanguages)
+    {
+        MetaStore store;
+        const EntryId exif_title = add_exif_text(&store, "ifd0", 0x9C9BU,
+                                                 "Evening frame");
+        (void)add_exif_text(&store, "ifd0", 0x010EU, "Street after rain");
+        (void)add_iptc_text(&store, 2U, 5U, "Evening frame");
+        (void)add_iptc_text(&store, 2U, 105U, "City at dusk");
+        (void)add_iptc_text(&store, 2U, 120U, "Street after rain");
+        const EntryId xmp_title
+            = add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:title[@xml:lang=x-default]", "Evening frame");
+        const EntryId xmp_title_fr
+            = add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:title[@xml:lang=fr-FR]", "Cadre du soir");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:description[@xml:lang=x-default]",
+                           "Street after rain");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/photoshop/1.0/",
+                           "photoshop:Headline", "City at dusk");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.found);
+        EXPECT_FALSE(descriptive.conflict);
+        EXPECT_TRUE(contains_entry(descriptive.source_entries, exif_title));
+        EXPECT_TRUE(contains_entry(descriptive.source_entries, xmp_title));
+        EXPECT_TRUE(contains_entry(descriptive.source_entries, xmp_title_fr));
+
+        const MetadataConceptCandidate* exif_default
+            = find_role_family_scope_language(descriptive,
+                                              MetadataConceptRole::Title,
+                                              MetadataConceptSourceFamily::Exif,
+                                              {}, "x-default");
+        const MetadataConceptCandidate* xmp_default
+            = find_role_family_scope_language(descriptive,
+                                              MetadataConceptRole::Title,
+                                              MetadataConceptSourceFamily::Xmp,
+                                              {}, "x-default");
+        const MetadataConceptCandidate* xmp_french
+            = find_role_family_scope_language(descriptive,
+                                              MetadataConceptRole::Title,
+                                              MetadataConceptSourceFamily::Xmp,
+                                              {}, "fr-fr");
+        const MetadataConceptCandidate* headline
+            = find_role_family(descriptive, MetadataConceptRole::Headline,
+                               MetadataConceptSourceFamily::Xmp);
+        ASSERT_NE(exif_default, nullptr);
+        ASSERT_NE(xmp_default, nullptr);
+        ASSERT_NE(xmp_french, nullptr);
+        ASSERT_NE(headline, nullptr);
+        EXPECT_FALSE(exif_default->preferred);
+        EXPECT_TRUE(xmp_default->preferred);
+        EXPECT_TRUE(xmp_french->preferred);
+        EXPECT_TRUE(headline->preferred);
+    }
+
+    TEST(MetadataConcepts, FlagsDescriptiveConflictsOnlyWithinLanguage)
+    {
+        MetaStore store;
+        (void)add_exif_text(&store, "ifd0", 0x9C9BU, "Evening frame");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:title[@xml:lang=x-default]", "Morning frame");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:title[@xml:lang=fr-FR]", "Cadre du soir");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.conflict);
+        const MetadataConceptCandidate* default_title
+            = find_role_family_scope_language(descriptive,
+                                              MetadataConceptRole::Title,
+                                              MetadataConceptSourceFamily::Xmp,
+                                              {}, "x-default");
+        const MetadataConceptCandidate* french_title
+            = find_role_family_scope_language(descriptive,
+                                              MetadataConceptRole::Title,
+                                              MetadataConceptSourceFamily::Xmp,
+                                              {}, "fr-fr");
+        ASSERT_NE(default_title, nullptr);
+        ASSERT_NE(french_title, nullptr);
+        EXPECT_TRUE(default_title->conflict);
+        EXPECT_FALSE(french_title->conflict);
+        EXPECT_TRUE(french_title->preferred);
+    }
+
+    TEST(MetadataConcepts, TreatsCreatorsAndKeywordsAsAdditiveCollections)
+    {
+        MetaStore store;
+        (void)add_exif_text(&store, "ifd0", 0x013BU, "Alice");
+        (void)add_iptc_text(&store, 2U, 80U, "Alice");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:creator[1]", "Alice");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:creator[2]", "Bob");
+        (void)add_iptc_text(&store, 2U, 25U, "night");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:subject[1]", "night");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:subject[2]", "street");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.found);
+        EXPECT_FALSE(descriptive.conflict);
+        const MetadataConceptCandidate* exif_alice
+            = find_role_family_value(descriptive, MetadataConceptRole::Creator,
+                                     MetadataConceptSourceFamily::Exif,
+                                     "alice");
+        const MetadataConceptCandidate* xmp_alice
+            = find_role_family_value(descriptive, MetadataConceptRole::Creator,
+                                     MetadataConceptSourceFamily::Xmp, "alice");
+        const MetadataConceptCandidate* xmp_bob
+            = find_role_family_value(descriptive, MetadataConceptRole::Creator,
+                                     MetadataConceptSourceFamily::Xmp, "bob");
+        const MetadataConceptCandidate* iptc_night
+            = find_role_family_value(descriptive, MetadataConceptRole::Keywords,
+                                     MetadataConceptSourceFamily::Iptc,
+                                     "night");
+        const MetadataConceptCandidate* xmp_night
+            = find_role_family_value(descriptive, MetadataConceptRole::Keywords,
+                                     MetadataConceptSourceFamily::Xmp, "night");
+        const MetadataConceptCandidate* xmp_street
+            = find_role_family_value(descriptive, MetadataConceptRole::Keywords,
+                                     MetadataConceptSourceFamily::Xmp,
+                                     "street");
+        ASSERT_NE(exif_alice, nullptr);
+        ASSERT_NE(xmp_alice, nullptr);
+        ASSERT_NE(xmp_bob, nullptr);
+        ASSERT_NE(iptc_night, nullptr);
+        ASSERT_NE(xmp_night, nullptr);
+        ASSERT_NE(xmp_street, nullptr);
+        EXPECT_FALSE(exif_alice->preferred);
+        EXPECT_TRUE(xmp_alice->preferred);
+        EXPECT_TRUE(xmp_bob->preferred);
+        EXPECT_FALSE(iptc_night->preferred);
+        EXPECT_TRUE(xmp_night->preferred);
+        EXPECT_TRUE(xmp_street->preferred);
+    }
+
+    TEST(MetadataConcepts, ResolvesDescriptiveLocationsByScopeAndLanguage)
+    {
+        MetaStore store;
+        (void)add_iptc_text(&store, 2U, 90U, "Paris");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/photoshop/1.0/",
+                           "photoshop:City", "Paris");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/",
+                           "LocationCreated/Address/City", "Paris");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/City", "Kyoto");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[2]/City", "Paris");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/LocationName[@xml:lang=x-default]",
+                           "Gion");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/LocationName[@xml:lang=fr-FR]",
+                           "Quartier de Gion");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/LocationId[1]", "shown-001");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/LocationId[2]", "shown-002");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.found);
+        EXPECT_FALSE(descriptive.conflict);
+        const MetadataConceptCandidate* created_city
+            = find_preferred_role_scope_language(descriptive,
+                                                 MetadataConceptRole::City,
+                                                 "LocationCreated",
+                                                 "x-default");
+        const MetadataConceptCandidate* shown1_city
+            = find_preferred_role_scope_language(descriptive,
+                                                 MetadataConceptRole::City,
+                                                 "LocationShown[1]",
+                                                 "x-default");
+        const MetadataConceptCandidate* shown2_city
+            = find_preferred_role_scope_language(descriptive,
+                                                 MetadataConceptRole::City,
+                                                 "LocationShown[2]",
+                                                 "x-default");
+        const MetadataConceptCandidate* shown_name_default
+            = find_preferred_role_scope_language(
+                descriptive, MetadataConceptRole::LocationName,
+                "LocationShown[1]", "x-default");
+        const MetadataConceptCandidate* shown_name_french
+            = find_preferred_role_scope_language(
+                descriptive, MetadataConceptRole::LocationName,
+                "LocationShown[1]", "fr-fr");
+        const MetadataConceptCandidate* shown_id_one = find_role_family_value(
+            descriptive, MetadataConceptRole::LocationIdentifier,
+            MetadataConceptSourceFamily::Xmp, "shown001");
+        const MetadataConceptCandidate* shown_id_two = find_role_family_value(
+            descriptive, MetadataConceptRole::LocationIdentifier,
+            MetadataConceptSourceFamily::Xmp, "shown002");
+        ASSERT_NE(created_city, nullptr);
+        ASSERT_NE(shown1_city, nullptr);
+        ASSERT_NE(shown2_city, nullptr);
+        ASSERT_NE(shown_name_default, nullptr);
+        ASSERT_NE(shown_name_french, nullptr);
+        ASSERT_NE(shown_id_one, nullptr);
+        ASSERT_NE(shown_id_two, nullptr);
+        EXPECT_EQ(shown_id_one->text, "shown-001");
+        EXPECT_EQ(shown_id_two->text, "shown-002");
+        EXPECT_EQ(created_city->family, MetadataConceptSourceFamily::Xmp);
+        EXPECT_TRUE(created_city->preferred);
+        EXPECT_TRUE(shown1_city->preferred);
+        EXPECT_TRUE(shown2_city->preferred);
+        EXPECT_TRUE(shown_name_default->preferred);
+        EXPECT_TRUE(shown_name_french->preferred);
+        EXPECT_TRUE(shown_id_one->preferred);
+        EXPECT_TRUE(shown_id_two->preferred);
+    }
+
+    TEST(MetadataConcepts, FlagsDescriptiveLocationConflictsWithinOneScope)
+    {
+        MetaStore store;
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/City", "Kyoto");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/City", "Osaka");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[2]/City", "Kyoto");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.conflict);
+        size_t shown1_conflicts = 0U;
+        for (size_t i = 0U; i < descriptive.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate
+                = descriptive.candidates[i];
+            if (candidate.role == MetadataConceptRole::City
+                && candidate.location_scope == "LocationShown[1]"
+                && candidate.conflict) {
+                shown1_conflicts += 1U;
+            }
+        }
+        EXPECT_EQ(shown1_conflicts, 2U);
+        const MetadataConceptCandidate* shown2
+            = find_role_scope(descriptive, MetadataConceptRole::City,
+                              "LocationShown[2]");
+        ASSERT_NE(shown2, nullptr);
+        EXPECT_FALSE(shown2->conflict);
+        EXPECT_TRUE(shown2->preferred);
     }
 
     TEST(MetadataConcepts, UsesToleranceForGpsCoordinateConflicts)

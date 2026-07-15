@@ -1207,6 +1207,12 @@ namespace {
             out["location_scope"] = nb::str(candidate.location_scope.c_str(),
                                             candidate.location_scope.size());
         }
+        if (candidate.language.empty()) {
+            out["language"] = nb::none();
+        } else {
+            out["language"] = nb::str(candidate.language.c_str(),
+                                      candidate.language.size());
+        }
         out["priority"]           = nb::int_(candidate.priority);
         out["preferred"]          = nb::bool_(candidate.preferred);
         out["conflict"]           = nb::bool_(candidate.conflict);
@@ -1468,6 +1474,12 @@ namespace {
         } else {
             out["location_scope"] = nb::str(diagnostic.location_scope.c_str(),
                                             diagnostic.location_scope.size());
+        }
+        if (diagnostic.language.empty()) {
+            out["language"] = nb::none();
+        } else {
+            out["language"] = nb::str(diagnostic.language.c_str(),
+                                      diagnostic.language.size());
         }
         out["preferred"]            = nb::bool_(diagnostic.preferred);
         out["conflict"]             = nb::bool_(diagnostic.conflict);
@@ -6267,7 +6279,8 @@ NB_MODULE(_openmeta, m)
         .value("LensCorrection", MetadataConceptKind::LensCorrection)
         .value("RawProcessing", MetadataConceptKind::RawProcessing)
         .value("Exposure", MetadataConceptKind::Exposure)
-        .value("ContainerGraph", MetadataConceptKind::ContainerGraph);
+        .value("ContainerGraph", MetadataConceptKind::ContainerGraph)
+        .value("Descriptive", MetadataConceptKind::Descriptive);
 
     nb::enum_<MetadataConceptSourceFamily>(m, "MetadataConceptSourceFamily")
         .value("Unknown", MetadataConceptSourceFamily::Unknown)
@@ -6346,7 +6359,20 @@ NB_MODULE(_openmeta, m)
         .value("LocationCreatedLongitude",
                MetadataConceptRole::LocationCreatedLongitude)
         .value("LocationCreatedAltitude",
-               MetadataConceptRole::LocationCreatedAltitude);
+               MetadataConceptRole::LocationCreatedAltitude)
+        .value("Title", MetadataConceptRole::Title)
+        .value("Headline", MetadataConceptRole::Headline)
+        .value("Description", MetadataConceptRole::Description)
+        .value("Creator", MetadataConceptRole::Creator)
+        .value("Keywords", MetadataConceptRole::Keywords)
+        .value("LocationName", MetadataConceptRole::LocationName)
+        .value("Sublocation", MetadataConceptRole::Sublocation)
+        .value("City", MetadataConceptRole::City)
+        .value("ProvinceState", MetadataConceptRole::ProvinceState)
+        .value("CountryName", MetadataConceptRole::CountryName)
+        .value("CountryCode", MetadataConceptRole::CountryCode)
+        .value("WorldRegion", MetadataConceptRole::WorldRegion)
+        .value("LocationIdentifier", MetadataConceptRole::LocationIdentifier);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")
