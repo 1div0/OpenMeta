@@ -1,5 +1,24 @@
 # OpenMeta Changes
 
+## 0.4.76 - 2026-07-14
+
+Changes compared with `0.4.75`.
+
+### Added
+
+- Added distinct GPS concept roles for EXIF/XMP destination coordinates and
+  IPTC Extension `LocationShown` / `LocationCreated` coordinates.
+- Added structured-location scope provenance to C++ candidates, transfer
+  diagnostics, and thin Python dictionaries.
+
+### Changed
+
+- Structured-location conflict and preference handling now compares duplicate
+  values only within the same `LocationShown[n]` or `LocationCreated` scope,
+  without conflating these coordinates with camera position.
+- EXIF destination latitude/longitude candidates now retain their matching
+  reference tags as source-entry provenance.
+
 ## 0.4.75 - 2026-07-14
 
 Changes compared with `0.4.74`.

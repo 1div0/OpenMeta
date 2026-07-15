@@ -57,6 +57,10 @@ namespace {
     static constexpr uint16_t kGpsAltitudeRefTag              = 0x0005U;
     static constexpr uint16_t kGpsAltitudeTag                 = 0x0006U;
     static constexpr uint16_t kGpsTimeStampTag                = 0x0007U;
+    static constexpr uint16_t kGpsDestLatitudeRefTag          = 0x0013U;
+    static constexpr uint16_t kGpsDestLatitudeTag             = 0x0014U;
+    static constexpr uint16_t kGpsDestLongitudeRefTag         = 0x0015U;
+    static constexpr uint16_t kGpsDestLongitudeTag            = 0x0016U;
     static constexpr uint16_t kGpsDateStampTag                = 0x001DU;
     static constexpr uint16_t kIptcDateCreatedDataset         = 55U;
     static constexpr uint16_t kIptcTimeCreatedDataset         = 60U;
@@ -66,6 +70,8 @@ namespace {
     static constexpr size_t kMaxDateTimeSubsecondDigits       = 9U;
     static constexpr std::string_view kExifXmpSchema
         = "http://ns.adobe.com/exif/1.0/";
+    static constexpr std::string_view kIptcExtXmpSchema
+        = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
 
     static std::string_view arena_string(const ByteArena& arena,
                                          ByteSpan span) noexcept
@@ -149,6 +155,20 @@ namespace {
         return true;
     }
 
+    static bool ascii_starts_with_ci(std::string_view text,
+                                     std::string_view prefix) noexcept
+    {
+        if (text.size() < prefix.size()) {
+            return false;
+        }
+        for (size_t i = 0U; i < prefix.size(); ++i) {
+            if (ascii_lower(text[i]) != ascii_lower(prefix[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     static bool xmp_leaf_matches(std::string_view path,
                                  std::string_view name) noexcept
     {
@@ -173,6 +193,39 @@ namespace {
             return {};
         }
         return path.substr(0U, separator);
+    }
+
+    static std::string_view xmp_scope_leaf(std::string_view scope) noexcept
+    {
+        const size_t separator = scope.find_last_of(":/.");
+        if (separator == std::string_view::npos) {
+            return scope;
+        }
+        return scope.substr(separator + 1U);
+    }
+
+    static bool xmp_location_shown_scope(std::string_view scope) noexcept
+    {
+        static constexpr std::string_view prefix = "LocationShown[";
+        scope                                    = xmp_scope_leaf(scope);
+        if (!ascii_starts_with_ci(scope, prefix) || scope.back() != ']') {
+            return false;
+        }
+        const size_t index_begin = prefix.size();
+        if (index_begin + 1U >= scope.size()) {
+            return false;
+        }
+        for (size_t i = index_begin; i + 1U < scope.size(); ++i) {
+            if (!ascii_is_digit(scope[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool xmp_location_created_scope(std::string_view scope) noexcept
+    {
+        return ascii_equal_ci(xmp_scope_leaf(scope), "LocationCreated");
     }
 
     static bool xmp_schema_matches(const MetaStore& store, const Entry& entry,
@@ -983,6 +1036,14 @@ namespace {
         case MetadataConceptRole::Latitude:
         case MetadataConceptRole::Longitude:
         case MetadataConceptRole::Altitude:
+        case MetadataConceptRole::DestinationLatitude:
+        case MetadataConceptRole::DestinationLongitude:
+        case MetadataConceptRole::LocationShownLatitude:
+        case MetadataConceptRole::LocationShownLongitude:
+        case MetadataConceptRole::LocationShownAltitude:
+        case MetadataConceptRole::LocationCreatedLatitude:
+        case MetadataConceptRole::LocationCreatedLongitude:
+        case MetadataConceptRole::LocationCreatedAltitude:
         case MetadataConceptRole::Timestamp:
         case MetadataConceptRole::Crop:
         case MetadataConceptRole::ActiveArea:
@@ -1083,6 +1144,14 @@ namespace {
             case MetadataConceptRole::Latitude:
             case MetadataConceptRole::Longitude:
             case MetadataConceptRole::Altitude:
+            case MetadataConceptRole::DestinationLatitude:
+            case MetadataConceptRole::DestinationLongitude:
+            case MetadataConceptRole::LocationShownLatitude:
+            case MetadataConceptRole::LocationShownLongitude:
+            case MetadataConceptRole::LocationShownAltitude:
+            case MetadataConceptRole::LocationCreatedLatitude:
+            case MetadataConceptRole::LocationCreatedLongitude:
+            case MetadataConceptRole::LocationCreatedAltitude:
             case MetadataConceptRole::Timestamp:
             case MetadataConceptRole::Crop:
             case MetadataConceptRole::ActiveArea:
@@ -1116,6 +1185,14 @@ namespace {
             case MetadataConceptRole::Latitude:
             case MetadataConceptRole::Longitude:
             case MetadataConceptRole::Altitude:
+            case MetadataConceptRole::DestinationLatitude:
+            case MetadataConceptRole::DestinationLongitude:
+            case MetadataConceptRole::LocationShownLatitude:
+            case MetadataConceptRole::LocationShownLongitude:
+            case MetadataConceptRole::LocationShownAltitude:
+            case MetadataConceptRole::LocationCreatedLatitude:
+            case MetadataConceptRole::LocationCreatedLongitude:
+            case MetadataConceptRole::LocationCreatedAltitude:
             case MetadataConceptRole::Timestamp:
             case MetadataConceptRole::Crop:
             case MetadataConceptRole::ActiveArea:
@@ -1275,6 +1352,9 @@ namespace {
             dst->gps_altitude_below_sea_level = src.gps_altitude_below_sea_level;
             dst->gps_altitude_reference_code = src.gps_altitude_reference_code;
         }
+        if (dst->location_scope.empty() && !src.location_scope.empty()) {
+            dst->location_scope = src.location_scope;
+        }
     }
 
     static void append_candidate(MetadataConceptResolution* resolution,
@@ -1344,26 +1424,6 @@ namespace {
         const std::string_view entry_field
             = arena_string(store.arena(), entry.key.data.bmff_field.field);
         return ascii_equal_ci(entry_field, field);
-    }
-
-    static bool find_exif_text(const MetaStore& store, std::string_view ifd,
-                               uint16_t tag, std::string* out)
-    {
-        const std::span<const Entry> entries = store.entries();
-        for (EntryId id = 0U; id < entries.size(); ++id) {
-            const Entry& entry = entries[id];
-            if (any(entry.flags, EntryFlags::Deleted)) {
-                continue;
-            }
-            if (!exif_entry_ifd_and_tag(store, entry, ifd, tag)) {
-                continue;
-            }
-            return value_to_text(store.arena(), entry.value, out);
-        }
-        if (out) {
-            out->clear();
-        }
-        return false;
     }
 
     static bool find_exif_text_entry(const MetaStore& store,
@@ -2839,7 +2899,8 @@ namespace {
 
     static void append_gps_numeric_candidate(const MetaStore& store, EntryId id,
                                              MetadataConceptRole role,
-                                             double value, uint8_t priority,
+                                             double value, EntryId ref_id,
+                                             uint8_t priority,
                                              MetadataConceptResolution* out)
     {
         MetadataConceptCandidate candidate
@@ -2848,6 +2909,7 @@ namespace {
                                    MetadataQueryValueShape::Scalar, priority);
         fill_numeric_candidate(&candidate, &value, 1U);
         candidate.value_key = gps_numeric_key(value);
+        add_unique_entry(&candidate.source_entries, ref_id);
         append_candidate(out, candidate);
     }
 
@@ -2861,22 +2923,48 @@ namespace {
         }
 
         if (entry.key.data.exif_tag.tag == kGpsLatitudeTag) {
+            EntryId ref_id = kInvalidEntryId;
             std::string ref;
-            (void)find_exif_text(store, "gpsifd", kGpsLatitudeRefTag, &ref);
+            (void)find_exif_text_entry(store, "gpsifd", kGpsLatitudeRefTag,
+                                       &ref_id, &ref);
             double value = 0.0;
             if (gps_coordinate_from_value(store, entry.value, ref, &value)) {
                 append_gps_numeric_candidate(store, id,
                                              MetadataConceptRole::Latitude,
-                                             value, 100U, out);
+                                             value, ref_id, 100U, out);
             }
         } else if (entry.key.data.exif_tag.tag == kGpsLongitudeTag) {
+            EntryId ref_id = kInvalidEntryId;
             std::string ref;
-            (void)find_exif_text(store, "gpsifd", kGpsLongitudeRefTag, &ref);
+            (void)find_exif_text_entry(store, "gpsifd", kGpsLongitudeRefTag,
+                                       &ref_id, &ref);
             double value = 0.0;
             if (gps_coordinate_from_value(store, entry.value, ref, &value)) {
                 append_gps_numeric_candidate(store, id,
                                              MetadataConceptRole::Longitude,
-                                             value, 100U, out);
+                                             value, ref_id, 100U, out);
+            }
+        } else if (entry.key.data.exif_tag.tag == kGpsDestLatitudeTag) {
+            EntryId ref_id = kInvalidEntryId;
+            std::string ref;
+            (void)find_exif_text_entry(store, "gpsifd", kGpsDestLatitudeRefTag,
+                                       &ref_id, &ref);
+            double value = 0.0;
+            if (gps_coordinate_from_value(store, entry.value, ref, &value)) {
+                append_gps_numeric_candidate(
+                    store, id, MetadataConceptRole::DestinationLatitude, value,
+                    ref_id, 95U, out);
+            }
+        } else if (entry.key.data.exif_tag.tag == kGpsDestLongitudeTag) {
+            EntryId ref_id = kInvalidEntryId;
+            std::string ref;
+            (void)find_exif_text_entry(store, "gpsifd", kGpsDestLongitudeRefTag,
+                                       &ref_id, &ref);
+            double value = 0.0;
+            if (gps_coordinate_from_value(store, entry.value, ref, &value)) {
+                append_gps_numeric_candidate(
+                    store, id, MetadataConceptRole::DestinationLongitude, value,
+                    ref_id, 95U, out);
             }
         } else if (entry.key.data.exif_tag.tag == kGpsAltitudeTag) {
             double value = 0.0;
@@ -3028,11 +3116,72 @@ namespace {
         const std::string_view path
             = arena_string(store.arena(),
                            entry.key.data.xmp_property.property_path);
+        const std::string_view scope = xmp_property_scope(path);
+        if (xmp_schema_matches(store, entry, kIptcExtXmpSchema)) {
+            MetadataConceptRole role = MetadataConceptRole::Primary;
+            if (xmp_location_shown_scope(scope)) {
+                if (xmp_leaf_matches(path, "GPSLatitude")) {
+                    role = MetadataConceptRole::LocationShownLatitude;
+                } else if (xmp_leaf_matches(path, "GPSLongitude")) {
+                    role = MetadataConceptRole::LocationShownLongitude;
+                } else if (xmp_leaf_matches(path, "GPSAltitude")) {
+                    role = MetadataConceptRole::LocationShownAltitude;
+                }
+            } else if (xmp_location_created_scope(scope)) {
+                if (xmp_leaf_matches(path, "GPSLatitude")) {
+                    role = MetadataConceptRole::LocationCreatedLatitude;
+                } else if (xmp_leaf_matches(path, "GPSLongitude")) {
+                    role = MetadataConceptRole::LocationCreatedLongitude;
+                } else if (xmp_leaf_matches(path, "GPSAltitude")) {
+                    role = MetadataConceptRole::LocationCreatedAltitude;
+                }
+            }
+            if (role == MetadataConceptRole::Primary) {
+                return;
+            }
+
+            std::string text;
+            if (!value_to_text(store.arena(), entry.value, &text)) {
+                return;
+            }
+            MetadataConceptCandidate candidate
+                = make_entry_candidate(store, id, MetadataConceptKind::Gps,
+                                       role, MetadataQuerySemanticKind::Unknown,
+                                       MetadataQueryValueShape::Text, 78U);
+            candidate.text.assign(text);
+            candidate.location_scope.assign(xmp_scope_leaf(scope));
+            double numeric = 0.0;
+            if (parse_xmp_gps_coordinate(text, &numeric)) {
+                if (role == MetadataConceptRole::LocationShownAltitude
+                    || role == MetadataConceptRole::LocationCreatedAltitude) {
+                    EntryId ref_id   = kInvalidEntryId;
+                    uint8_t ref_code = 0U;
+                    const bool has_ref
+                        = find_xmp_gps_altitude_ref(store, kIptcExtXmpSchema,
+                                                    scope, &ref_id, &ref_code);
+                    if (has_ref && ref_code != 0U) {
+                        numeric = -std::fabs(numeric);
+                    }
+                    if (has_ref) {
+                        candidate.has_gps_altitude_reference   = true;
+                        candidate.gps_altitude_below_sea_level = ref_code != 0U;
+                        candidate.gps_altitude_reference_code  = ref_code;
+                        add_unique_entry(&candidate.source_entries, ref_id);
+                    }
+                }
+                fill_numeric_candidate(&candidate, &numeric, 1U);
+                candidate.value_key = gps_numeric_key(numeric);
+            }
+            if (candidate.value_key.empty()) {
+                normalize_text_key(text, &candidate.value_key);
+            }
+            append_candidate(out, candidate);
+            return;
+        }
         if (!xmp_schema_matches(store, entry, kExifXmpSchema)) {
             return;
         }
         const std::string_view schema = kExifXmpSchema;
-        const std::string_view scope  = xmp_property_scope(path);
         const bool split_date_stamp   = xmp_leaf_matches(path, "GPSDateStamp");
         const bool split_time_stamp   = xmp_leaf_matches(path, "GPSTimeStamp");
         if ((split_date_stamp
@@ -3044,15 +3193,24 @@ namespace {
         }
         MetadataConceptRole role = MetadataConceptRole::Primary;
         uint8_t priority         = 0U;
-        if (ascii_contains_ci(path, "GPSLatitude")) {
+        if (xmp_leaf_matches(path, "GPSDestLatitude")) {
+            role     = MetadataConceptRole::DestinationLatitude;
+            priority = 78U;
+        } else if (xmp_leaf_matches(path, "GPSDestLongitude")) {
+            role     = MetadataConceptRole::DestinationLongitude;
+            priority = 78U;
+        } else if (xmp_leaf_matches(path, "GPSDestLatitudeRef")
+                   || xmp_leaf_matches(path, "GPSDestLongitudeRef")) {
+            return;
+        } else if (xmp_leaf_matches(path, "GPSLatitude")) {
             role     = MetadataConceptRole::Latitude;
             priority = 80U;
-        } else if (ascii_contains_ci(path, "GPSLongitude")) {
+        } else if (xmp_leaf_matches(path, "GPSLongitude")) {
             role     = MetadataConceptRole::Longitude;
             priority = 80U;
-        } else if (ascii_contains_ci(path, "GPSAltitudeRef")) {
+        } else if (xmp_leaf_matches(path, "GPSAltitudeRef")) {
             return;
-        } else if (ascii_contains_ci(path, "GPSAltitude")) {
+        } else if (xmp_leaf_matches(path, "GPSAltitude")) {
             role     = MetadataConceptRole::Altitude;
             priority = 75U;
         } else if (xmp_leaf_matches(path, "GPSDateTime")
@@ -3077,7 +3235,9 @@ namespace {
                                    MetadataQueryValueShape::Text, priority);
         candidate.text = text;
         if (role == MetadataConceptRole::Latitude
-            || role == MetadataConceptRole::Longitude) {
+            || role == MetadataConceptRole::Longitude
+            || role == MetadataConceptRole::DestinationLatitude
+            || role == MetadataConceptRole::DestinationLongitude) {
             double numeric = 0.0;
             if (parse_xmp_gps_coordinate(text, &numeric)) {
                 fill_numeric_candidate(&candidate, &numeric, 1U);
@@ -3376,6 +3536,66 @@ namespace {
         return role;
     }
 
+    static bool role_uses_location_scope(MetadataConceptRole role) noexcept
+    {
+        switch (role) {
+        case MetadataConceptRole::LocationShownLatitude:
+        case MetadataConceptRole::LocationShownLongitude:
+        case MetadataConceptRole::LocationShownAltitude:
+        case MetadataConceptRole::LocationCreatedLatitude:
+        case MetadataConceptRole::LocationCreatedLongitude:
+        case MetadataConceptRole::LocationCreatedAltitude: return true;
+        case MetadataConceptRole::Primary:
+        case MetadataConceptRole::Orientation:
+        case MetadataConceptRole::Created:
+        case MetadataConceptRole::Digitized:
+        case MetadataConceptRole::Modified:
+        case MetadataConceptRole::MetadataDate:
+        case MetadataConceptRole::DateCreated:
+        case MetadataConceptRole::ColorSpace:
+        case MetadataConceptRole::IccProfile:
+        case MetadataConceptRole::ColorMatrix:
+        case MetadataConceptRole::WhiteBalance:
+        case MetadataConceptRole::Latitude:
+        case MetadataConceptRole::Longitude:
+        case MetadataConceptRole::Altitude:
+        case MetadataConceptRole::Timestamp:
+        case MetadataConceptRole::Crop:
+        case MetadataConceptRole::ActiveArea:
+        case MetadataConceptRole::Border:
+        case MetadataConceptRole::SensorGeometry:
+        case MetadataConceptRole::LensCorrection:
+        case MetadataConceptRole::BlackLevel:
+        case MetadataConceptRole::WhiteLevel:
+        case MetadataConceptRole::Linearization:
+        case MetadataConceptRole::CfaLayout:
+        case MetadataConceptRole::RawStorage:
+        case MetadataConceptRole::SourceProcessing:
+        case MetadataConceptRole::ComputationalProcessing:
+        case MetadataConceptRole::ThermalProcessing:
+        case MetadataConceptRole::StitchProcessing:
+        case MetadataConceptRole::ExposureTime:
+        case MetadataConceptRole::Aperture:
+        case MetadataConceptRole::IsoSensitivity:
+        case MetadataConceptRole::ExposureBias:
+        case MetadataConceptRole::ExposureProgram:
+        case MetadataConceptRole::Gain:
+        case MetadataConceptRole::RawExposureAdjustment:
+        case MetadataConceptRole::SourceColorTransform:
+        case MetadataConceptRole::RawValueCurve:
+        case MetadataConceptRole::RawLinearityLimit:
+        case MetadataConceptRole::RawCalibrationCurve:
+        case MetadataConceptRole::RawCurveControlPoints:
+        case MetadataConceptRole::ContentBoundMetadata:
+        case MetadataConceptRole::MultiImageScene:
+        case MetadataConceptRole::DerivedImageConstruction:
+        case MetadataConceptRole::TiledImageConfiguration:
+        case MetadataConceptRole::DestinationLatitude:
+        case MetadataConceptRole::DestinationLongitude: break;
+        }
+        return false;
+    }
+
     static int64_t civil_day_number(int32_t year, uint32_t month,
                                     uint32_t day) noexcept
     {
@@ -3500,8 +3720,16 @@ namespace {
     {
         switch (role) {
         case MetadataConceptRole::Latitude:
-        case MetadataConceptRole::Longitude: return 0.0000001;
-        case MetadataConceptRole::Altitude: return 0.001;
+        case MetadataConceptRole::Longitude:
+        case MetadataConceptRole::DestinationLatitude:
+        case MetadataConceptRole::DestinationLongitude:
+        case MetadataConceptRole::LocationShownLatitude:
+        case MetadataConceptRole::LocationShownLongitude:
+        case MetadataConceptRole::LocationCreatedLatitude:
+        case MetadataConceptRole::LocationCreatedLongitude: return 0.0000001;
+        case MetadataConceptRole::Altitude:
+        case MetadataConceptRole::LocationShownAltitude:
+        case MetadataConceptRole::LocationCreatedAltitude: return 0.001;
         case MetadataConceptRole::Primary:
         case MetadataConceptRole::Orientation:
         case MetadataConceptRole::Created:
@@ -3565,7 +3793,10 @@ namespace {
                 return true;
             }
         }
-        if (conflict_group_role(a.role) == MetadataConceptRole::Altitude
+        const MetadataConceptRole role = conflict_group_role(a.role);
+        if ((role == MetadataConceptRole::Altitude
+             || role == MetadataConceptRole::LocationShownAltitude
+             || role == MetadataConceptRole::LocationCreatedAltitude)
             && a.has_gps_altitude_reference && b.has_gps_altitude_reference
             && a.gps_altitude_reference_code != b.gps_altitude_reference_code) {
             return true;
@@ -3596,6 +3827,28 @@ namespace {
                                     MetadataConceptRole role)
     {
         if (!resolution) {
+            return;
+        }
+        if (role_uses_location_scope(role)) {
+            for (size_t i = 0U; i < resolution->candidates.size(); ++i) {
+                MetadataConceptCandidate& a = resolution->candidates[i];
+                if (a.role != role) {
+                    continue;
+                }
+                for (size_t j = i + 1U; j < resolution->candidates.size();
+                     ++j) {
+                    MetadataConceptCandidate& b = resolution->candidates[j];
+                    if (b.role != role
+                        || a.location_scope != b.location_scope) {
+                        continue;
+                    }
+                    if (concept_values_conflict(a, b)) {
+                        a.conflict           = true;
+                        b.conflict           = true;
+                        resolution->conflict = true;
+                    }
+                }
+            }
             return;
         }
         const MetadataConceptRole group = conflict_group_role(role);
@@ -3635,6 +3888,35 @@ namespace {
                                     MetadataConceptRole role)
     {
         if (!resolution) {
+            return;
+        }
+        if (role_uses_location_scope(role)) {
+            for (size_t i = 0U; i < resolution->candidates.size(); ++i) {
+                MetadataConceptCandidate& candidate = resolution->candidates[i];
+                if (candidate.role != role) {
+                    continue;
+                }
+                bool best = true;
+                for (size_t j = 0U; j < resolution->candidates.size(); ++j) {
+                    if (i == j) {
+                        continue;
+                    }
+                    const MetadataConceptCandidate& other
+                        = resolution->candidates[j];
+                    if (other.role != role
+                        || other.location_scope != candidate.location_scope) {
+                        continue;
+                    }
+                    if (other.priority > candidate.priority
+                        || (other.priority == candidate.priority && j < i)) {
+                        best = false;
+                        break;
+                    }
+                }
+                if (best) {
+                    candidate.preferred = true;
+                }
+            }
             return;
         }
         size_t best_index  = resolution->candidates.size();
@@ -3700,6 +3982,14 @@ namespace {
             MetadataConceptRole::Latitude,
             MetadataConceptRole::Longitude,
             MetadataConceptRole::Altitude,
+            MetadataConceptRole::DestinationLatitude,
+            MetadataConceptRole::DestinationLongitude,
+            MetadataConceptRole::LocationShownLatitude,
+            MetadataConceptRole::LocationShownLongitude,
+            MetadataConceptRole::LocationShownAltitude,
+            MetadataConceptRole::LocationCreatedLatitude,
+            MetadataConceptRole::LocationCreatedLongitude,
+            MetadataConceptRole::LocationCreatedAltitude,
             MetadataConceptRole::Timestamp,
             MetadataConceptRole::Crop,
             MetadataConceptRole::ActiveArea,
@@ -3947,6 +4237,14 @@ metadata_raw_applicability_for_descriptor(
     case MetadataConceptRole::Latitude:
     case MetadataConceptRole::Longitude:
     case MetadataConceptRole::Altitude:
+    case MetadataConceptRole::DestinationLatitude:
+    case MetadataConceptRole::DestinationLongitude:
+    case MetadataConceptRole::LocationShownLatitude:
+    case MetadataConceptRole::LocationShownLongitude:
+    case MetadataConceptRole::LocationShownAltitude:
+    case MetadataConceptRole::LocationCreatedLatitude:
+    case MetadataConceptRole::LocationCreatedLongitude:
+    case MetadataConceptRole::LocationCreatedAltitude:
     case MetadataConceptRole::Timestamp:
     case MetadataConceptRole::Crop:
     case MetadataConceptRole::ActiveArea:
@@ -4023,6 +4321,22 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::Latitude: return "latitude";
     case MetadataConceptRole::Longitude: return "longitude";
     case MetadataConceptRole::Altitude: return "altitude";
+    case MetadataConceptRole::DestinationLatitude:
+        return "destination_latitude";
+    case MetadataConceptRole::DestinationLongitude:
+        return "destination_longitude";
+    case MetadataConceptRole::LocationShownLatitude:
+        return "location_shown_latitude";
+    case MetadataConceptRole::LocationShownLongitude:
+        return "location_shown_longitude";
+    case MetadataConceptRole::LocationShownAltitude:
+        return "location_shown_altitude";
+    case MetadataConceptRole::LocationCreatedLatitude:
+        return "location_created_latitude";
+    case MetadataConceptRole::LocationCreatedLongitude:
+        return "location_created_longitude";
+    case MetadataConceptRole::LocationCreatedAltitude:
+        return "location_created_altitude";
     case MetadataConceptRole::Timestamp: return "timestamp";
     case MetadataConceptRole::Crop: return "crop";
     case MetadataConceptRole::ActiveArea: return "active_area";

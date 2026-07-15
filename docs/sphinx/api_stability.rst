@@ -262,16 +262,18 @@ Host-facing API map
        entries, IPTC digital-creation date/time and XMP
        ``DateTimeDigitized`` map to the ``Digitized`` date/time role, and GPS
        altitude candidates expose altitude-reference code plus
-       below-sea-level state when reference metadata is present. Camera-GPS
-       XMP candidates are limited to the EXIF XMP schema, so IPTC Extension
-       structured locations are not conflated with camera position;
+       below-sea-level state when reference metadata is present. Camera
+       position, EXIF/XMP destination coordinates, and IPTC Extension
+       ``LocationShown`` / ``LocationCreated`` coordinates use distinct roles.
+       Structured candidates expose ``location_scope``, and
+       conflict/preference handling compares values only within the same scope;
        ``metadata_concept_gps_altitude_reference_name(...)`` provides a stable
        display token for the reference code. It is intended for inspection UI
        and host policy decisions; it does not rewrite metadata or hide
        ambiguity. Python ``Document`` and ``TransferSourceSnapshot`` expose
-       matching dictionary wrappers, including subsecond fields and the thin
-       ``MetadataRawDataDescriptor`` object with storage, compression, and
-       plane-binding fields.
+       matching dictionary wrappers, including subsecond and location-scope
+       fields and the thin ``MetadataRawDataDescriptor`` object with storage,
+       compression, and plane-binding fields.
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
        ``transfer_concept_diagnostic_message(...)``,
@@ -285,7 +287,7 @@ Host-facing API map
        keep/drop/requires-target-image-spec action, reason token, severity
        token, stable host-facing summary token, stable localization message
        token, localizable argument tokens, default message text, conflict
-       flag, source entries,
+       flag, source entries, structured-location scope where applicable,
        compatible/rendered safety booleans, RAW applicability state, and GPS
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
@@ -305,7 +307,8 @@ Host-facing API map
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``token``, ``message_token``,
-       ``message_arguments``, ``message``, and RAW applicability fields, with
+       ``message_arguments``, ``message``, ``location_scope``, and RAW
+       applicability fields, with
        overloads that accept the thin
        ``MetadataRawDataDescriptor`` object. Python transfer helpers also
        accept ``source_raw_data_descriptor`` for prepare-time filtering.

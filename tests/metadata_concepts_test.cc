@@ -201,6 +201,19 @@ namespace {
         return nullptr;
     }
 
+    static const MetadataConceptCandidate*
+    find_role_scope(const MetadataConceptResolution& resolution,
+                    MetadataConceptRole role, std::string_view scope)
+    {
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = resolution.candidates[i];
+            if (candidate.role == role && candidate.location_scope == scope) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
     static bool contains_entry(const std::vector<EntryId>& entries,
                                EntryId entry_id) noexcept
     {
@@ -1190,7 +1203,8 @@ namespace {
         }
     }
 
-    TEST(MetadataConcepts, KeepsStructuredXmpLocationsOutOfCameraGps)
+    TEST(MetadataConcepts,
+         ResolvesStructuredXmpLocationsWithoutCameraGpsConflicts)
     {
         MetaStore store;
         (void)add_exif_text(&store, "gpsifd", 0x0001U, "N");
@@ -1204,11 +1218,29 @@ namespace {
                                                                   lat.size()));
         (void)add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
                            "exif:GPSLatitude", "41,24.500N");
-        const EntryId shown_location
+        const EntryId shown1_latitude
             = add_xmp_text(&store,
                            "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
                            "LocationShown[1]/GPSLatitude", "48,51.507N");
-        const EntryId created_location
+        const EntryId shown1_longitude
+            = add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/GPSLongitude", "2,17.667E");
+        const EntryId shown1_altitude
+            = add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/GPSAltitude", "35");
+        const EntryId shown1_altitude_ref
+            = add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/GPSAltitudeRef", "0");
+        const EntryId shown2_latitude
+            = add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "Iptc4xmpExt:LocationShown[2]/"
+                           "Iptc4xmpExt:GPSLatitude",
+                           "35,40N");
+        const EntryId created_longitude
             = add_xmp_text(&store,
                            "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
                            "LocationCreated/GPSLongitude", "2,9E");
@@ -1219,8 +1251,134 @@ namespace {
 
         EXPECT_TRUE(gps.found);
         EXPECT_FALSE(gps.conflict);
-        EXPECT_FALSE(contains_entry(gps.source_entries, shown_location));
-        EXPECT_FALSE(contains_entry(gps.source_entries, created_location));
+        EXPECT_TRUE(contains_entry(gps.source_entries, shown1_latitude));
+        EXPECT_TRUE(contains_entry(gps.source_entries, shown1_longitude));
+        EXPECT_TRUE(contains_entry(gps.source_entries, shown1_altitude));
+        EXPECT_TRUE(contains_entry(gps.source_entries, shown2_latitude));
+        EXPECT_TRUE(contains_entry(gps.source_entries, created_longitude));
+
+        const MetadataConceptCandidate* camera_latitude
+            = find_role(gps, MetadataConceptRole::Latitude);
+        const MetadataConceptCandidate* shown1
+            = find_role_scope(gps, MetadataConceptRole::LocationShownLatitude,
+                              "LocationShown[1]");
+        const MetadataConceptCandidate* shown2
+            = find_role_scope(gps, MetadataConceptRole::LocationShownLatitude,
+                              "LocationShown[2]");
+        const MetadataConceptCandidate* shown_altitude
+            = find_role_scope(gps, MetadataConceptRole::LocationShownAltitude,
+                              "LocationShown[1]");
+        const MetadataConceptCandidate* created
+            = find_role_scope(gps,
+                              MetadataConceptRole::LocationCreatedLongitude,
+                              "LocationCreated");
+        ASSERT_NE(camera_latitude, nullptr);
+        ASSERT_NE(shown1, nullptr);
+        ASSERT_NE(shown2, nullptr);
+        ASSERT_NE(shown_altitude, nullptr);
+        ASSERT_NE(created, nullptr);
+        EXPECT_TRUE(camera_latitude->preferred);
+        EXPECT_TRUE(shown1->preferred);
+        EXPECT_TRUE(shown2->preferred);
+        EXPECT_TRUE(created->preferred);
+        EXPECT_NEAR(camera_latitude->numeric[0], 41.4083333333, 1.0e-9);
+        EXPECT_NEAR(shown1->numeric[0], 48.85845, 1.0e-9);
+        EXPECT_NEAR(shown2->numeric[0], 35.6666666667, 1.0e-9);
+        EXPECT_TRUE(shown_altitude->has_gps_altitude_reference);
+        EXPECT_FALSE(shown_altitude->gps_altitude_below_sea_level);
+        EXPECT_TRUE(contains_entry(shown_altitude->source_entries,
+                                   shown1_altitude_ref));
+    }
+
+    TEST(MetadataConcepts, FlagsStructuredLocationConflictsWithinOneScope)
+    {
+        MetaStore store;
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/GPSLatitude", "48,51.507N");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[1]/GPSLatitude", "49,00N");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "LocationShown[2]/GPSLatitude", "35,40N");
+        store.finalize();
+
+        const MetadataConceptResolution gps
+            = resolve_metadata_concept(store, MetadataConceptKind::Gps);
+
+        EXPECT_TRUE(gps.conflict);
+        size_t shown1_conflicts = 0U;
+        for (size_t i = 0U; i < gps.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = gps.candidates[i];
+            if (candidate.role == MetadataConceptRole::LocationShownLatitude
+                && candidate.location_scope == "LocationShown[1]"
+                && candidate.conflict) {
+                shown1_conflicts += 1U;
+            }
+        }
+        EXPECT_EQ(shown1_conflicts, 2U);
+        const MetadataConceptCandidate* shown2
+            = find_role_scope(gps, MetadataConceptRole::LocationShownLatitude,
+                              "LocationShown[2]");
+        ASSERT_NE(shown2, nullptr);
+        EXPECT_FALSE(shown2->conflict);
+        EXPECT_TRUE(shown2->preferred);
+    }
+
+    TEST(MetadataConcepts, ResolvesExifAndXmpDestinationCoordinates)
+    {
+        MetaStore store;
+        const EntryId latitude_ref = add_exif_text(&store, "gpsifd", 0x0013U,
+                                                   "N");
+        const std::array<URational, 3> latitude = {
+            URational { 48U, 1U },
+            URational { 51U, 1U },
+            URational { 3042U, 100U },
+        };
+        (void)add_exif_urational_array(
+            &store, "gpsifd", 0x0014U,
+            std::span<const URational>(latitude.data(), latitude.size()));
+        const EntryId longitude_ref = add_exif_text(&store, "gpsifd", 0x0015U,
+                                                    "E");
+        const std::array<URational, 3> longitude = {
+            URational { 2U, 1U },
+            URational { 17U, 1U },
+            URational { 4002U, 100U },
+        };
+        (void)add_exif_urational_array(
+            &store, "gpsifd", 0x0016U,
+            std::span<const URational>(longitude.data(), longitude.size()));
+        (void)add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
+                           "exif:GPSDestLatitude", "48,51.507N");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/exif/1.0/",
+                           "exif:GPSDestLongitude", "2,17.667E");
+        store.finalize();
+
+        const MetadataConceptResolution gps
+            = resolve_metadata_concept(store, MetadataConceptKind::Gps);
+
+        EXPECT_TRUE(gps.found);
+        EXPECT_FALSE(gps.conflict);
+        const MetadataConceptCandidate* exif_latitude
+            = find_role_family(gps, MetadataConceptRole::DestinationLatitude,
+                               MetadataConceptSourceFamily::Exif);
+        const MetadataConceptCandidate* xmp_latitude
+            = find_role_family(gps, MetadataConceptRole::DestinationLatitude,
+                               MetadataConceptSourceFamily::Xmp);
+        const MetadataConceptCandidate* exif_longitude
+            = find_role_family(gps, MetadataConceptRole::DestinationLongitude,
+                               MetadataConceptSourceFamily::Exif);
+        ASSERT_NE(exif_latitude, nullptr);
+        ASSERT_NE(xmp_latitude, nullptr);
+        ASSERT_NE(exif_longitude, nullptr);
+        EXPECT_TRUE(exif_latitude->preferred);
+        EXPECT_TRUE(
+            contains_entry(exif_latitude->source_entries, latitude_ref));
+        EXPECT_TRUE(
+            contains_entry(exif_longitude->source_entries, longitude_ref));
+        EXPECT_NEAR(exif_latitude->numeric[0], xmp_latitude->numeric[0],
+                    1.0e-9);
     }
 
     TEST(MetadataConcepts, CombinesXmpGpsDateAndTimeStamp)

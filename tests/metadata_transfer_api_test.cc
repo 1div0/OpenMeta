@@ -21899,6 +21899,39 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsMatchRenderedSafety)
               openmeta::TransferPolicyReason::SafetyModeFiltered);
 }
 
+TEST(MetadataTransferApi,
+     TransferConceptDiagnosticsPreserveStructuredLocationScope)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry latitude;
+    latitude.key = openmeta::make_xmp_property_key(
+        store.arena(), "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+        "LocationShown[2]/GPSLatitude");
+    latitude.value        = openmeta::make_text(store.arena(), "35,40N",
+                                                openmeta::TextEncoding::Utf8);
+    latitude.origin.block = block;
+    latitude.origin.order_in_block      = 0U;
+    const openmeta::EntryId latitude_id = store.add_entry(latitude);
+    ASSERT_NE(latitude_id, openmeta::kInvalidEntryId);
+    store.finalize();
+
+    const openmeta::TransferConceptDiagnostics diagnostics
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::RenderedImage);
+    const openmeta::TransferConceptDiagnostic* location
+        = find_transfer_concept_diagnostic(
+            diagnostics, openmeta::MetadataConceptKind::Gps,
+            openmeta::MetadataConceptRole::LocationShownLatitude,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+
+    ASSERT_NE(location, nullptr);
+    EXPECT_EQ(location->location_scope, "LocationShown[2]");
+    EXPECT_TRUE(contains_entry_id(location->source_entries, latitude_id));
+}
+
 TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
 {
     openmeta::MetaStore store;

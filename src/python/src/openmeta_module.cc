@@ -1201,6 +1201,12 @@ namespace {
         out["entry_id"]       = nb::int_(candidate.entry_id);
         out["source_entries"] = metadata_query_entry_ids_to_python(
             candidate.source_entries);
+        if (candidate.location_scope.empty()) {
+            out["location_scope"] = nb::none();
+        } else {
+            out["location_scope"] = nb::str(candidate.location_scope.c_str(),
+                                            candidate.location_scope.size());
+        }
         out["priority"]           = nb::int_(candidate.priority);
         out["preferred"]          = nb::bool_(candidate.preferred);
         out["conflict"]           = nb::bool_(candidate.conflict);
@@ -1457,6 +1463,12 @@ namespace {
         out["entry_id"]         = nb::int_(diagnostic.entry_id);
         out["source_entries"]   = metadata_query_entry_ids_to_python(
             diagnostic.source_entries);
+        if (diagnostic.location_scope.empty()) {
+            out["location_scope"] = nb::none();
+        } else {
+            out["location_scope"] = nb::str(diagnostic.location_scope.c_str(),
+                                            diagnostic.location_scope.size());
+        }
         out["preferred"]            = nb::bool_(diagnostic.preferred);
         out["conflict"]             = nb::bool_(diagnostic.conflict);
         out["compatible_file_safe"] = nb::bool_(
@@ -6319,7 +6331,22 @@ NB_MODULE(_openmeta, m)
         .value("DerivedImageConstruction",
                MetadataConceptRole::DerivedImageConstruction)
         .value("TiledImageConfiguration",
-               MetadataConceptRole::TiledImageConfiguration);
+               MetadataConceptRole::TiledImageConfiguration)
+        .value("DestinationLatitude", MetadataConceptRole::DestinationLatitude)
+        .value("DestinationLongitude",
+               MetadataConceptRole::DestinationLongitude)
+        .value("LocationShownLatitude",
+               MetadataConceptRole::LocationShownLatitude)
+        .value("LocationShownLongitude",
+               MetadataConceptRole::LocationShownLongitude)
+        .value("LocationShownAltitude",
+               MetadataConceptRole::LocationShownAltitude)
+        .value("LocationCreatedLatitude",
+               MetadataConceptRole::LocationCreatedLatitude)
+        .value("LocationCreatedLongitude",
+               MetadataConceptRole::LocationCreatedLongitude)
+        .value("LocationCreatedAltitude",
+               MetadataConceptRole::LocationCreatedAltitude);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

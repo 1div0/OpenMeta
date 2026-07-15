@@ -84,6 +84,14 @@ enum class MetadataConceptRole : uint8_t {
     MultiImageScene,
     DerivedImageConstruction,
     TiledImageConfiguration,
+    DestinationLatitude,
+    DestinationLongitude,
+    LocationShownLatitude,
+    LocationShownLongitude,
+    LocationShownAltitude,
+    LocationCreatedLatitude,
+    LocationCreatedLongitude,
+    LocationCreatedAltitude,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {
@@ -211,6 +219,8 @@ struct MetadataConceptCandidate final {
     bool has_gps_altitude_reference     = false;
     bool gps_altitude_below_sea_level   = false;
     uint8_t gps_altitude_reference_code = 0U;
+    /// Structured XMP parent path, for example `LocationShown[1]`.
+    std::string location_scope;
 };
 
 struct MetadataConceptResolution final {

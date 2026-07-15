@@ -60,7 +60,8 @@ model should stay compact:
        an ambiguous Pentax Sigma/Samsung/Tokina lens-family label,
        EXIF/XMP GPS timestamp composites, EXIF ``OffsetTime*``/
        ``SubSecTime*`` date composition with normalized-instant conflict
-       checks, camera-GPS isolation from structured IPTC locations,
+       checks, separate camera/destination/shown/created GPS roles with
+       scope-aware structured-location conflicts,
        computational, thermal, stitch/panorama capture state, and
        vendor-private fields.
      - High, about 97-98%.
@@ -171,7 +172,8 @@ It currently resolves orientation, date/time, exposure/gain, color/profile,
 GPS, geometry, lens-correction, and RAW-processing into candidate lists with
 candidate source entries, source families, preferred entries, normalized
 compare keys, parsed date/time fields, date/time precision, timezone kind, GPS
-altitude-reference state, canonical geometry origin/size/rect/margins,
+altitude-reference state, distinct destination/shown/created coordinate roles,
+structured-location scope, canonical geometry origin/size/rect/margins,
 normalized exposure values, full normalized value vectors for grouped
 matrix/vector/table records, transfer hints, compatible and rendered safety
 booleans, and same-role conflict flags. This is deliberately an

@@ -74,10 +74,12 @@ digital-creation date/time, XMP digitized timestamps, and GPS timestamps are
 assembled where the source fields provide enough pieces. GPS timestamps
 combine `GPSDateStamp` with `GPSTimeStamp` only within the same XMP property
 scope, and GPS altitude candidates report whether `GPSAltitudeRef` marked the
-height as below sea level. The camera-GPS concept accepts XMP coordinates from
-the EXIF XMP schema; IPTC Extension `LocationShown` and `LocationCreated`
-coordinates remain decoded/queryable but are not conflated with camera
-position. Use
+height as below sea level. Camera position accepts XMP coordinates only from
+the EXIF XMP schema. EXIF/XMP destination coordinates and IPTC Extension
+`LocationShown` / `LocationCreated` coordinates use distinct roles, so they are
+not conflated with camera position. Structured-location candidates carry a
+`location_scope` such as `LocationShown[1]`; conflicts and preference are
+resolved independently within each scope. Use
 `metadata_concept_gps_altitude_reference_name(...)` for a stable display token.
 Treat this as an inspection and policy input rather than an automatic metadata
 rewrite decision; source-bound color, lens, and RAW-processing values still need
