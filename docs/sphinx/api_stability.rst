@@ -143,7 +143,8 @@ Host-facing API map
      - Query contract for inspection matches plus normalized candidates.
        Current coverage includes crop/active-area/border margins,
        exposure/gain, white balance, color/profile/source-color-transform,
-       lens correction, orientation, descriptive EXIF/IPTC/XMP fields,
+       lens correction, orientation, descriptive EXIF/IPTC/XMP fields
+       including exact rights/license/credit/source semantics,
        container-graph evidence for BMFF content-bound metadata and
        multi-image scene policy, and RAW/source-processing metadata across
        standard tags, selected DNG tags,
@@ -161,6 +162,9 @@ Host-facing API map
        ``exact_match``,
        ``fuzzy_match``, and ``fuzzy_score`` so tools can label exact results
        separately from RapidFuzz near-miss hits.
+       Exact rights/license/credit/source matches may have zero
+       ``matched_terms`` because the stable 32-bit legacy term mask is full;
+       their explicit semantic and confidence remain authoritative.
        ``OPENMETA_ENABLE_RAPIDFUZZ=ON`` adds optional near-miss
        XMP/property-path scoring. Grouped candidates
        include ``matrix_set``, ``vector_set``, and ``table`` shapes for related
@@ -271,15 +275,19 @@ Host-facing API map
        ``metadata_concept_gps_altitude_reference_name(...)`` provides a stable
        display token for the reference code. The ``Descriptive`` kind
        reconciles standard title, headline, description, creator,
-       keyword/subject, and created/shown location fields. Localized scalars
-       compare per normalized language; creator, keyword, and
-       location-identifier collections preserve distinct values and select one
-       preferred source per duplicate normalized value. It is intended for
+       keyword/subject, created/shown location, copyright, rights/license,
+       credit, and source fields. Localized scalars compare per normalized
+       language; creator, keyword, location-identifier, rights-holder, and
+       licensor collections preserve distinct values and select one preferred
+       source per duplicate normalized value. Structured PLUS owner/licensor
+       members expose ``record_scope`` so related names and identifiers remain
+       associated. It is intended for
        inspection UI
        and host policy decisions; it does not rewrite metadata or hide
        ambiguity. Python ``Document`` and ``TransferSourceSnapshot`` expose
        matching dictionary wrappers, including subsecond, location-scope, and
-       language fields and the thin ``MetadataRawDataDescriptor`` object with
+       record-scope and language fields and the thin
+       ``MetadataRawDataDescriptor`` object with
        storage, compression, and plane-binding fields.
    * - Transfer concept diagnostics:
        ``transfer_concept_diagnostics_from_store(...)``,
@@ -294,8 +302,8 @@ Host-facing API map
        keep/drop/requires-target-image-spec action, reason token, severity
        token, stable host-facing summary token, stable localization message
        token, localizable argument tokens, default message text, conflict
-       flag, source entries, structured-location scope and language where
-       applicable,
+       flag, source entries, structured-location scope, generic
+       structured-record scope, and language where applicable,
        compatible/rendered safety booleans, RAW applicability state, and GPS
        altitude-reference presentation fields. Descriptor-aware overloads
        accept ``MetadataRawDataDescriptor`` and make RAW-processing keep/drop
@@ -315,7 +323,8 @@ Host-facing API map
        Python ``Document`` and ``TransferSourceSnapshot`` expose
        ``transfer_concept_diagnostics(...)``
        dictionaries with ``severity_name``, ``token``, ``message_token``,
-       ``message_arguments``, ``message``, ``location_scope``, ``language``,
+       ``message_arguments``, ``message``, ``location_scope``,
+       ``record_scope``, ``language``,
        and RAW applicability fields, with
        overloads that accept the thin
        ``MetadataRawDataDescriptor`` object. Python transfer helpers also

@@ -477,6 +477,7 @@ struct TransferConceptDiagnostic final {
     bool gps_altitude_below_sea_level               = false;
     uint8_t gps_altitude_reference_code             = 0U;
     std::string location_scope;
+    std::string record_scope;
     std::string language;
 };
 

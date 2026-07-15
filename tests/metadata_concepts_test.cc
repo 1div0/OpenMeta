@@ -244,6 +244,20 @@ namespace {
         return nullptr;
     }
 
+    static const MetadataConceptCandidate* find_role_family_record_scope(
+        const MetadataConceptResolution& resolution, MetadataConceptRole role,
+        MetadataConceptSourceFamily family, std::string_view record_scope)
+    {
+        for (size_t i = 0U; i < resolution.candidates.size(); ++i) {
+            const MetadataConceptCandidate& candidate = resolution.candidates[i];
+            if (candidate.role == role && candidate.family == family
+                && candidate.record_scope == record_scope) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    }
+
     static const MetadataConceptCandidate* find_preferred_role_scope_language(
         const MetadataConceptResolution& resolution, MetadataConceptRole role,
         std::string_view scope, std::string_view language)
@@ -1461,6 +1475,180 @@ namespace {
         ASSERT_NE(shown2, nullptr);
         EXPECT_FALSE(shown2->conflict);
         EXPECT_TRUE(shown2->preferred);
+    }
+
+    TEST(MetadataConcepts, ReconcilesRightsCreditAndSourceAcrossFamilies)
+    {
+        MetaStore store;
+        (void)add_exif_text(&store, "ifd0", 0x8298U,
+                            "Copyright 2026 Example Studio");
+        (void)add_iptc_text(&store, 2U, 116U, "Copyright 2026 Example Studio");
+        (void)add_iptc_text(&store, 2U, 110U, "Example Studio");
+        (void)add_iptc_text(&store, 2U, 115U, "Example Archive");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:rights[@xml:lang=x-default]",
+                           "Copyright 2026 Example Studio");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/photoshop/1.0/",
+                           "photoshop:Credit", "Example Studio");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/photoshop/1.0/",
+                           "photoshop:Source", "Example Archive");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/rights/",
+                           "xmpRights:Marked", "True");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/rights/",
+                           "xmpRights:WebStatement",
+                           "https://example.test/rights");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/rights/",
+                           "xmpRights:Certificate",
+                           "https://example.test/certificate");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/rights/",
+                           "xmpRights:Owner[1]", "Example Studio");
+        (void)add_xmp_text(&store,
+                           "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                           "DigitalSourceType",
+                           "http://cv.iptc.org/newscodes/digitalsourcetype/"
+                           "digitalCapture");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.found);
+        EXPECT_FALSE(descriptive.conflict);
+        const MetadataConceptCandidate* copyright_notice
+            = find_role_family_scope_language(
+                descriptive, MetadataConceptRole::CopyrightNotice,
+                MetadataConceptSourceFamily::Xmp, {}, "x-default");
+        const MetadataConceptCandidate* credit
+            = find_role_family(descriptive, MetadataConceptRole::CreditLine,
+                               MetadataConceptSourceFamily::Xmp);
+        const MetadataConceptCandidate* source
+            = find_role_family(descriptive, MetadataConceptRole::Source,
+                               MetadataConceptSourceFamily::Xmp);
+        const MetadataConceptCandidate* marked
+            = find_role(descriptive, MetadataConceptRole::RightsMarked);
+        const MetadataConceptCandidate* owner
+            = find_role(descriptive, MetadataConceptRole::RightsHolderName);
+        const MetadataConceptCandidate* digital_source
+            = find_role(descriptive, MetadataConceptRole::DigitalSourceType);
+        ASSERT_NE(copyright_notice, nullptr);
+        ASSERT_NE(credit, nullptr);
+        ASSERT_NE(source, nullptr);
+        ASSERT_NE(marked, nullptr);
+        ASSERT_NE(owner, nullptr);
+        ASSERT_NE(digital_source, nullptr);
+        EXPECT_TRUE(copyright_notice->preferred);
+        EXPECT_TRUE(credit->preferred);
+        EXPECT_TRUE(source->preferred);
+        EXPECT_EQ(marked->semantic, MetadataQuerySemanticKind::Rights);
+        EXPECT_EQ(owner->semantic, MetadataQuerySemanticKind::Rights);
+        EXPECT_EQ(digital_source->semantic, MetadataQuerySemanticKind::Source);
+        EXPECT_EQ(marked->transfer_hint, MetadataConceptTransferHint::Safe);
+    }
+
+    TEST(MetadataConcepts, ScopesLocalizedRightsConflictsByLanguage)
+    {
+        MetaStore store;
+        (void)add_exif_text(&store, "ifd0", 0x8298U, "Copyright A");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:rights[@xml:lang=x-default]", "Copyright B");
+        (void)add_xmp_text(&store, "http://purl.org/dc/elements/1.1/",
+                           "dc:rights[@xml:lang=fr-FR]", "Copyright A FR");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/rights/",
+                           "xmpRights:UsageTerms[@xml:lang=x-default]",
+                           "Editorial use only");
+        (void)add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/rights/",
+                           "xmpRights:UsageTerms[@xml:lang=fr-FR]",
+                           "Usage editorial uniquement");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.conflict);
+        const MetadataConceptCandidate* default_rights
+            = find_role_family_scope_language(
+                descriptive, MetadataConceptRole::CopyrightNotice,
+                MetadataConceptSourceFamily::Xmp, {}, "x-default");
+        const MetadataConceptCandidate* french_rights
+            = find_role_family_scope_language(
+                descriptive, MetadataConceptRole::CopyrightNotice,
+                MetadataConceptSourceFamily::Xmp, {}, "fr-fr");
+        const MetadataConceptCandidate* french_terms
+            = find_role_family_scope_language(
+                descriptive, MetadataConceptRole::RightsUsageTerms,
+                MetadataConceptSourceFamily::Xmp, {}, "fr-fr");
+        ASSERT_NE(default_rights, nullptr);
+        ASSERT_NE(french_rights, nullptr);
+        ASSERT_NE(french_terms, nullptr);
+        EXPECT_TRUE(default_rights->conflict);
+        EXPECT_FALSE(french_rights->conflict);
+        EXPECT_FALSE(french_terms->conflict);
+        EXPECT_TRUE(french_rights->preferred);
+        EXPECT_TRUE(french_terms->preferred);
+    }
+
+    TEST(MetadataConcepts, PreservesPlusRightsAndLicensorRecordScopes)
+    {
+        MetaStore store;
+        const std::string_view plus = "http://ns.useplus.org/ldf/xmp/1.0/";
+        (void)add_xmp_text(&store, plus, "Licensor[1]/LicensorName",
+                           "Agency One");
+        (void)add_xmp_text(&store, plus, "Licensor[1]/LicensorID", "L-001");
+        (void)add_xmp_text(&store, plus, "Licensor[2]/LicensorName",
+                           "Agency Two");
+        (void)add_xmp_text(&store, plus, "CopyrightOwner[1]/CopyrightOwnerName",
+                           "Example Studio");
+        (void)add_xmp_text(&store, plus, "CopyrightOwner[1]/CopyrightOwnerID",
+                           "O-001");
+        (void)add_xmp_text(&store, plus, "LicenseID", "LICENSE-001");
+        (void)add_xmp_text(&store, plus,
+                           "TermsAndConditionsText[@xml:lang=x-default]",
+                           "Use under contract");
+        (void)add_xmp_text(&store, plus, "TermsAndConditionsURL",
+                           "https://example.test/license");
+        (void)add_xmp_text(&store, plus, "CopyrightStatus", "CS-PRO");
+        (void)add_xmp_text(&store, plus, "CreditLineRequired", "CR-CAI");
+        store.finalize();
+
+        const MetadataConceptResolution descriptive
+            = resolve_metadata_concept(store, MetadataConceptKind::Descriptive);
+
+        EXPECT_TRUE(descriptive.found);
+        EXPECT_FALSE(descriptive.conflict);
+        const MetadataConceptCandidate* licensor_name
+            = find_role_family_record_scope(descriptive,
+                                            MetadataConceptRole::LicensorName,
+                                            MetadataConceptSourceFamily::Xmp,
+                                            "Licensor[1]");
+        const MetadataConceptCandidate* licensor_id
+            = find_role_family_record_scope(
+                descriptive, MetadataConceptRole::LicensorIdentifier,
+                MetadataConceptSourceFamily::Xmp, "Licensor[1]");
+        const MetadataConceptCandidate* owner_name
+            = find_role_family_record_scope(
+                descriptive, MetadataConceptRole::RightsHolderName,
+                MetadataConceptSourceFamily::Xmp, "CopyrightOwner[1]");
+        const MetadataConceptCandidate* owner_id = find_role_family_record_scope(
+            descriptive, MetadataConceptRole::RightsHolderIdentifier,
+            MetadataConceptSourceFamily::Xmp, "CopyrightOwner[1]");
+        const MetadataConceptCandidate* license_id
+            = find_role(descriptive, MetadataConceptRole::LicenseIdentifier);
+        const MetadataConceptCandidate* license_url
+            = find_role(descriptive, MetadataConceptRole::LicenseTermsUrl);
+        const MetadataConceptCandidate* credit_required
+            = find_role(descriptive, MetadataConceptRole::CreditLineRequired);
+        ASSERT_NE(licensor_name, nullptr);
+        ASSERT_NE(licensor_id, nullptr);
+        ASSERT_NE(owner_name, nullptr);
+        ASSERT_NE(owner_id, nullptr);
+        ASSERT_NE(license_id, nullptr);
+        ASSERT_NE(license_url, nullptr);
+        ASSERT_NE(credit_required, nullptr);
+        EXPECT_TRUE(licensor_name->preferred);
+        EXPECT_TRUE(licensor_id->preferred);
+        EXPECT_EQ(license_id->semantic, MetadataQuerySemanticKind::License);
+        EXPECT_EQ(license_url->semantic, MetadataQuerySemanticKind::License);
+        EXPECT_EQ(credit_required->semantic, MetadataQuerySemanticKind::Credit);
     }
 
     TEST(MetadataConcepts, UsesToleranceForGpsCoordinateConflicts)

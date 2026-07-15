@@ -1,5 +1,31 @@
 # OpenMeta Changes
 
+## 0.4.78 - 2026-07-15
+
+Changes compared with `0.4.77`.
+
+### Added
+
+- Added descriptive concept roles and exact query semantics for copyright
+  notices/status, rights owners and statements, usage terms, license and
+  licensor identifiers, credit lines, source, and digital-source type across
+  bounded EXIF, IPTC IIM, Dublin Core, XMP Rights, Photoshop, IPTC Extension,
+  and PLUS fields.
+- Added generic structured-record scope provenance to C++ candidates, transfer
+  diagnostics, and thin Python dictionaries so PLUS owner/licensor names and
+  identifiers retain their record association.
+
+### Changed
+
+- Rights-holder and licensor values use additive collection semantics, while
+  localized copyright notices and usage terms compare only within the same
+  normalized language.
+- Descriptive exact semantic matches can report rights, license, credit, or
+  source with zero legacy match-term bits, preserving the existing 32-bit
+  `MetadataQueryMatchTerm` ABI.
+- XMP query leaf extraction now stops before qualifiers, allowing localized
+  properties such as `UsageTerms[@xml:lang=...]` to classify correctly.
+
 ## 0.4.77 - 2026-07-15
 
 Changes compared with `0.4.76`.

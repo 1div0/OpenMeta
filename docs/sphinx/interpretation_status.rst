@@ -87,15 +87,17 @@ Coverage matrix
      - IPTC datasets and XMP properties decode into typed entries, bounded
        EXIF/IPTC-to-XMP projection exists for transfer/writeback, and common
        descriptive EXIF/IPTC/XMP concepts such as title/headline,
-       description/caption, creator/author, keywords/subject, and IPTC
-       date/time promoted into cross-family created-date candidates are
+       description/caption, creator/author, keywords/subject,
+       rights/license, credit/source, and IPTC date/time promoted into
+       cross-family created-date candidates are
        queryable with source-entry provenance. The ``Descriptive`` concept
        reconciles these standard scalar and collection fields plus common
-       created/shown location fields with language and structured-location
-       scopes.
-     - Medium-high, about 87-92%.
-     - Rights/licensing, contact, event/person/product, and broader MWG-style
-       duplicated-field reconciliation remain bounded.
+       created/shown location fields with language, structured-location, and
+       PLUS owner/licensor record scopes.
+     - Medium-high, about 89-93%.
+     - Creator contact, event/person/product, encoded rights expressions,
+       broader PLUS license constraints, and broader MWG-style duplicated-field
+       reconciliation remain bounded.
    * - Orientation
      - EXIF/TIFF orientation query, LibRaw flip mapping, and generic
        orientation helpers for index, rotation degrees, mirrored state,
@@ -304,7 +306,8 @@ Coverage matrix
        RAF raw crop/zoom rectangles, Canon/Nikon/Sony crop and border
        patterns, border margins, exposure/gain roles, selected
        vendor/MakerNote exposure-name aliases, per-family grouped vendor
-       records, descriptive EXIF/IPTC/XMP concepts, explicit color-profile
+       records, descriptive EXIF/IPTC/XMP concepts including exact
+       rights/license/credit/source semantics, explicit color-profile
        records for EXIF/ICC/XMP/PNG profile carriers, explicit
        source-color-transform records for camera RAW profiles, looks, tone
        curves, Canon ColorData tables, and vendor source color tables,
@@ -331,17 +334,18 @@ Coverage matrix
        date candidates, same-scope EXIF/XMP GPS timestamp assembly, distinct
        camera/destination/shown/created coordinate roles, scope-aware
        structured-location conflict handling, language-aware descriptive
-       scalar conflicts, additive creator/keyword/location-identifier
-       collections, GPS altitude-reference state and display token, canonical
+       scalar conflicts, additive creator/keyword/location-identifier/
+       rights-holder/licensor collections, structured owner/licensor record
+       scopes, GPS altitude-reference state and display token, canonical
        geometry
        origin/size/rect/margins, normalized exposure values, shape-checked
        grouped value vectors, transfer hints, RAW applicability states,
        rendered/compatible safety booleans, and tolerance-aware
        GPS/exposure/color/geometry conflicts.
-     - Medium-high, about 91-95%.
-     - Rights/licensing/contact/event/person/product concept roles, more
-       long-tail per-model concept aliases, and richer localized policy
-       wording.
+     - Medium-high, about 92-95%.
+     - Creator-contact/event/person/product concept roles, encoded rights
+       expressions and broader PLUS constraints, more long-tail per-model
+       concept aliases, and richer localized policy wording.
    * - Transfer-safety classification
      - Compatible-file versus rendered-image safety policies classify
        source-specific image geometry, color/profile, RAW curves/linearity
@@ -386,9 +390,9 @@ Next interpretation priorities
    independently authored conformance files as they become available.
 2. Broaden transfer diagnostic policy coverage now that stable message tokens
    and localizable argument tokens are available for GUI workflows.
-3. Extend bounded descriptive reconciliation to rights/licensing,
-   credit/source, creator contact, event, person, and product fields without
-   merging distinct schemas or collection roles.
+3. Extend bounded descriptive reconciliation to creator contact, event, person,
+   and product fields, then cover encoded rights expressions and broader PLUS
+   constraints without merging distinct schemas or collection roles.
 4. Expand the remaining unambiguous MakerNote long tail: encrypted/custom
    settings, per-model firmware formulas outside currently supported
    formatter contexts, remaining live-vendor scalar/string-coded fields, and

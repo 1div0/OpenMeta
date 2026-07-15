@@ -82,11 +82,14 @@ not conflated with camera position. Structured-location candidates carry a
 resolved independently within each scope. Use
 `metadata_concept_gps_altitude_reference_name(...)` for a stable display token.
 Descriptive concepts reconcile standard EXIF, IPTC IIM, Dublin Core,
-Photoshop, IPTC Core, and IPTC Extension title/headline, description, creator,
-keyword/subject, and location fields. Scalar conflicts are isolated by
-normalized language and structured location scope; creator, keyword, and
-location-identifier values are additive collections whose duplicate values
-select one preferred source.
+XMP Rights, Photoshop, IPTC Core/Extension, and PLUS title/headline,
+description, creator, keyword/subject, location, copyright, rights/license,
+credit, and source fields. Scalar conflicts are isolated by normalized
+language and structured location scope; creator, keyword, location-identifier,
+rights-holder, and licensor values are additive collections whose duplicate
+values select one preferred source. Structured owner/licensor members also
+carry a `record_scope`, such as `Licensor[1]`, so hosts can keep associated
+names and identifiers together.
 Treat this as an inspection and policy input rather than an automatic metadata
 rewrite decision; source-bound color, lens, and RAW-processing values still need
 rendered-transfer safety filtering. Each candidate also carries a transfer

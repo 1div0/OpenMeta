@@ -1207,6 +1207,12 @@ namespace {
             out["location_scope"] = nb::str(candidate.location_scope.c_str(),
                                             candidate.location_scope.size());
         }
+        if (candidate.record_scope.empty()) {
+            out["record_scope"] = nb::none();
+        } else {
+            out["record_scope"] = nb::str(candidate.record_scope.c_str(),
+                                          candidate.record_scope.size());
+        }
         if (candidate.language.empty()) {
             out["language"] = nb::none();
         } else {
@@ -1474,6 +1480,12 @@ namespace {
         } else {
             out["location_scope"] = nb::str(diagnostic.location_scope.c_str(),
                                             diagnostic.location_scope.size());
+        }
+        if (diagnostic.record_scope.empty()) {
+            out["record_scope"] = nb::none();
+        } else {
+            out["record_scope"] = nb::str(diagnostic.record_scope.c_str(),
+                                          diagnostic.record_scope.size());
         }
         if (diagnostic.language.empty()) {
             out["language"] = nb::none();
@@ -6223,7 +6235,11 @@ NB_MODULE(_openmeta, m)
         .value("RawCalibrationCurve",
                MetadataQuerySemanticKind::RawCalibrationCurve)
         .value("RawCurveControlPoints",
-               MetadataQuerySemanticKind::RawCurveControlPoints);
+               MetadataQuerySemanticKind::RawCurveControlPoints)
+        .value("Rights", MetadataQuerySemanticKind::Rights)
+        .value("License", MetadataQuerySemanticKind::License)
+        .value("Credit", MetadataQuerySemanticKind::Credit)
+        .value("Source", MetadataQuerySemanticKind::Source);
 
     nb::enum_<MetadataQueryValueShape>(m, "MetadataQueryValueShape")
         .value("Unknown", MetadataQueryValueShape::Unknown)
@@ -6372,7 +6388,24 @@ NB_MODULE(_openmeta, m)
         .value("CountryName", MetadataConceptRole::CountryName)
         .value("CountryCode", MetadataConceptRole::CountryCode)
         .value("WorldRegion", MetadataConceptRole::WorldRegion)
-        .value("LocationIdentifier", MetadataConceptRole::LocationIdentifier);
+        .value("LocationIdentifier", MetadataConceptRole::LocationIdentifier)
+        .value("CopyrightNotice", MetadataConceptRole::CopyrightNotice)
+        .value("CopyrightStatus", MetadataConceptRole::CopyrightStatus)
+        .value("RightsUsageTerms", MetadataConceptRole::RightsUsageTerms)
+        .value("RightsWebStatement", MetadataConceptRole::RightsWebStatement)
+        .value("RightsCertificate", MetadataConceptRole::RightsCertificate)
+        .value("RightsMarked", MetadataConceptRole::RightsMarked)
+        .value("RightsHolderName", MetadataConceptRole::RightsHolderName)
+        .value("RightsHolderIdentifier",
+               MetadataConceptRole::RightsHolderIdentifier)
+        .value("LicenseIdentifier", MetadataConceptRole::LicenseIdentifier)
+        .value("LicenseTermsUrl", MetadataConceptRole::LicenseTermsUrl)
+        .value("LicensorName", MetadataConceptRole::LicensorName)
+        .value("LicensorIdentifier", MetadataConceptRole::LicensorIdentifier)
+        .value("CreditLine", MetadataConceptRole::CreditLine)
+        .value("CreditLineRequired", MetadataConceptRole::CreditLineRequired)
+        .value("Source", MetadataConceptRole::Source)
+        .value("DigitalSourceType", MetadataConceptRole::DigitalSourceType);
 
     nb::enum_<MetadataConceptDateTimePrecision>(
         m, "MetadataConceptDateTimePrecision")

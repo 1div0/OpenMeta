@@ -28,6 +28,7 @@ namespace {
     static constexpr uint16_t kExifDateTimeTag                = 0x0132U;
     static constexpr uint16_t kExifExposureTimeTag            = 0x829AU;
     static constexpr uint16_t kExifFNumberTag                 = 0x829DU;
+    static constexpr uint16_t kExifCopyrightTag               = 0x8298U;
     static constexpr uint16_t kExifExposureProgramTag         = 0x8822U;
     static constexpr uint16_t kExifPhotographicSensitivityTag = 0x8827U;
     static constexpr uint16_t kExifDateTimeOriginalTag        = 0x9003U;
@@ -82,6 +83,9 @@ namespace {
     static constexpr uint16_t kIptcCountryCodeDataset         = 100U;
     static constexpr uint16_t kIptcCountryNameDataset         = 101U;
     static constexpr uint16_t kIptcHeadlineDataset            = 105U;
+    static constexpr uint16_t kIptcCreditDataset              = 110U;
+    static constexpr uint16_t kIptcSourceDataset              = 115U;
+    static constexpr uint16_t kIptcCopyrightNoticeDataset     = 116U;
     static constexpr uint16_t kIptcCaptionDataset             = 120U;
     static constexpr uint32_t kIccHeaderRgbColorSpaceOffset   = 16U;
     static constexpr size_t kMaxDateTimeSubsecondDigits       = 9U;
@@ -95,6 +99,10 @@ namespace {
         = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/";
     static constexpr std::string_view kIptcExtXmpSchema
         = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+    static constexpr std::string_view kXmpRightsSchema
+        = "http://ns.adobe.com/xap/1.0/rights/";
+    static constexpr std::string_view kPlusXmpSchema
+        = "http://ns.useplus.org/ldf/xmp/1.0/";
 
     static std::string_view arena_string(const ByteArena& arena,
                                          ByteSpan span) noexcept
@@ -1131,6 +1139,22 @@ namespace {
         case MetadataConceptRole::CountryCode:
         case MetadataConceptRole::WorldRegion:
         case MetadataConceptRole::LocationIdentifier:
+        case MetadataConceptRole::CopyrightNotice:
+        case MetadataConceptRole::CopyrightStatus:
+        case MetadataConceptRole::RightsUsageTerms:
+        case MetadataConceptRole::RightsWebStatement:
+        case MetadataConceptRole::RightsCertificate:
+        case MetadataConceptRole::RightsMarked:
+        case MetadataConceptRole::RightsHolderName:
+        case MetadataConceptRole::RightsHolderIdentifier:
+        case MetadataConceptRole::LicenseIdentifier:
+        case MetadataConceptRole::LicenseTermsUrl:
+        case MetadataConceptRole::LicensorName:
+        case MetadataConceptRole::LicensorIdentifier:
+        case MetadataConceptRole::CreditLine:
+        case MetadataConceptRole::CreditLineRequired:
+        case MetadataConceptRole::Source:
+        case MetadataConceptRole::DigitalSourceType:
         case MetadataConceptRole::Timestamp:
         case MetadataConceptRole::Crop:
         case MetadataConceptRole::ActiveArea:
@@ -1253,6 +1277,22 @@ namespace {
             case MetadataConceptRole::CountryCode:
             case MetadataConceptRole::WorldRegion:
             case MetadataConceptRole::LocationIdentifier:
+            case MetadataConceptRole::CopyrightNotice:
+            case MetadataConceptRole::CopyrightStatus:
+            case MetadataConceptRole::RightsUsageTerms:
+            case MetadataConceptRole::RightsWebStatement:
+            case MetadataConceptRole::RightsCertificate:
+            case MetadataConceptRole::RightsMarked:
+            case MetadataConceptRole::RightsHolderName:
+            case MetadataConceptRole::RightsHolderIdentifier:
+            case MetadataConceptRole::LicenseIdentifier:
+            case MetadataConceptRole::LicenseTermsUrl:
+            case MetadataConceptRole::LicensorName:
+            case MetadataConceptRole::LicensorIdentifier:
+            case MetadataConceptRole::CreditLine:
+            case MetadataConceptRole::CreditLineRequired:
+            case MetadataConceptRole::Source:
+            case MetadataConceptRole::DigitalSourceType:
             case MetadataConceptRole::Timestamp:
             case MetadataConceptRole::Crop:
             case MetadataConceptRole::ActiveArea:
@@ -1307,6 +1347,22 @@ namespace {
             case MetadataConceptRole::CountryCode:
             case MetadataConceptRole::WorldRegion:
             case MetadataConceptRole::LocationIdentifier:
+            case MetadataConceptRole::CopyrightNotice:
+            case MetadataConceptRole::CopyrightStatus:
+            case MetadataConceptRole::RightsUsageTerms:
+            case MetadataConceptRole::RightsWebStatement:
+            case MetadataConceptRole::RightsCertificate:
+            case MetadataConceptRole::RightsMarked:
+            case MetadataConceptRole::RightsHolderName:
+            case MetadataConceptRole::RightsHolderIdentifier:
+            case MetadataConceptRole::LicenseIdentifier:
+            case MetadataConceptRole::LicenseTermsUrl:
+            case MetadataConceptRole::LicensorName:
+            case MetadataConceptRole::LicensorIdentifier:
+            case MetadataConceptRole::CreditLine:
+            case MetadataConceptRole::CreditLineRequired:
+            case MetadataConceptRole::Source:
+            case MetadataConceptRole::DigitalSourceType:
             case MetadataConceptRole::Timestamp:
             case MetadataConceptRole::Crop:
             case MetadataConceptRole::ActiveArea:
@@ -1468,6 +1524,9 @@ namespace {
         }
         if (dst->location_scope.empty() && !src.location_scope.empty()) {
             dst->location_scope = src.location_scope;
+        }
+        if (dst->record_scope.empty() && !src.record_scope.empty()) {
+            dst->record_scope = src.record_scope;
         }
         if (dst->language.empty() && !src.language.empty()) {
             dst->language = src.language;
@@ -2446,7 +2505,11 @@ namespace {
         case MetadataQuerySemanticKind::Title:
         case MetadataQuerySemanticKind::Description:
         case MetadataQuerySemanticKind::Creator:
-        case MetadataQuerySemanticKind::Keywords: break;
+        case MetadataQuerySemanticKind::Keywords:
+        case MetadataQuerySemanticKind::Rights:
+        case MetadataQuerySemanticKind::License:
+        case MetadataQuerySemanticKind::Credit:
+        case MetadataQuerySemanticKind::Source: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -2577,7 +2640,11 @@ namespace {
         case MetadataQuerySemanticKind::Title:
         case MetadataQuerySemanticKind::Description:
         case MetadataQuerySemanticKind::Creator:
-        case MetadataQuerySemanticKind::Keywords: break;
+        case MetadataQuerySemanticKind::Keywords:
+        case MetadataQuerySemanticKind::Rights:
+        case MetadataQuerySemanticKind::License:
+        case MetadataQuerySemanticKind::Credit:
+        case MetadataQuerySemanticKind::Source: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -2682,7 +2749,11 @@ namespace {
         case MetadataQuerySemanticKind::Title:
         case MetadataQuerySemanticKind::Description:
         case MetadataQuerySemanticKind::Creator:
-        case MetadataQuerySemanticKind::Keywords: break;
+        case MetadataQuerySemanticKind::Keywords:
+        case MetadataQuerySemanticKind::Rights:
+        case MetadataQuerySemanticKind::License:
+        case MetadataQuerySemanticKind::Credit:
+        case MetadataQuerySemanticKind::Source: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -2953,7 +3024,11 @@ namespace {
         case MetadataQuerySemanticKind::RawValueCurve:
         case MetadataQuerySemanticKind::RawLinearityLimit:
         case MetadataQuerySemanticKind::RawCalibrationCurve:
-        case MetadataQuerySemanticKind::RawCurveControlPoints: break;
+        case MetadataQuerySemanticKind::RawCurveControlPoints:
+        case MetadataQuerySemanticKind::Rights:
+        case MetadataQuerySemanticKind::License:
+        case MetadataQuerySemanticKind::Credit:
+        case MetadataQuerySemanticKind::Source: break;
         }
         return MetadataConceptRole::Primary;
     }
@@ -3557,7 +3632,11 @@ namespace {
     {
         return role == MetadataConceptRole::Creator
                || role == MetadataConceptRole::Keywords
-               || role == MetadataConceptRole::LocationIdentifier;
+               || role == MetadataConceptRole::LocationIdentifier
+               || role == MetadataConceptRole::RightsHolderName
+               || role == MetadataConceptRole::RightsHolderIdentifier
+               || role == MetadataConceptRole::LicensorName
+               || role == MetadataConceptRole::LicensorIdentifier;
     }
 
     static bool descriptive_role_is_location(MetadataConceptRole role) noexcept
@@ -3589,6 +3668,26 @@ namespace {
             return MetadataQuerySemanticKind::Creator;
         case MetadataConceptRole::Keywords:
             return MetadataQuerySemanticKind::Keywords;
+        case MetadataConceptRole::CopyrightNotice:
+        case MetadataConceptRole::CopyrightStatus:
+        case MetadataConceptRole::RightsWebStatement:
+        case MetadataConceptRole::RightsCertificate:
+        case MetadataConceptRole::RightsMarked:
+        case MetadataConceptRole::RightsHolderName:
+        case MetadataConceptRole::RightsHolderIdentifier:
+            return MetadataQuerySemanticKind::Rights;
+        case MetadataConceptRole::RightsUsageTerms:
+        case MetadataConceptRole::LicenseIdentifier:
+        case MetadataConceptRole::LicenseTermsUrl:
+        case MetadataConceptRole::LicensorName:
+        case MetadataConceptRole::LicensorIdentifier:
+            return MetadataQuerySemanticKind::License;
+        case MetadataConceptRole::CreditLine:
+        case MetadataConceptRole::CreditLineRequired:
+            return MetadataQuerySemanticKind::Credit;
+        case MetadataConceptRole::Source:
+        case MetadataConceptRole::DigitalSourceType:
+            return MetadataQuerySemanticKind::Source;
         default: break;
         }
         return MetadataQuerySemanticKind::Unknown;
@@ -3619,6 +3718,32 @@ namespace {
             return true;
         }
         return false;
+    }
+
+    static std::string_view
+    descriptive_xmp_record_scope(std::string_view path,
+                                 std::string_view root_name) noexcept
+    {
+        const size_t separator = path.find('/');
+        if (separator == std::string_view::npos) {
+            return {};
+        }
+        const std::string_view root = xmp_scope_leaf(
+            path.substr(0U, separator));
+        if (ascii_equal_ci(root, root_name)) {
+            return root;
+        }
+        if (root.size() <= root_name.size() + 2U
+            || !ascii_starts_with_ci(root, root_name)
+            || root[root_name.size()] != '[' || root.back() != ']') {
+            return {};
+        }
+        for (size_t i = root_name.size() + 1U; i + 1U < root.size(); ++i) {
+            if (!ascii_is_digit(root[i])) {
+                return {};
+            }
+        }
+        return root;
     }
 
     static MetadataConceptRole
@@ -3657,7 +3782,8 @@ namespace {
     static void append_descriptive_text_candidate(
         const MetaStore& store, EntryId id, MetadataConceptRole role,
         uint8_t priority, std::string_view location_scope,
-        std::string_view xmp_path, MetadataConceptResolution* out)
+        std::string_view record_scope, std::string_view xmp_path,
+        MetadataConceptResolution* out)
     {
         std::string text;
         if (!value_to_text(store.arena(), store.entry(id).value, &text)) {
@@ -3674,6 +3800,9 @@ namespace {
         }
         if (!location_scope.empty()) {
             candidate.location_scope.assign(location_scope);
+        }
+        if (!record_scope.empty()) {
+            candidate.record_scope.assign(record_scope);
         }
         if (!descriptive_role_is_collection(role)) {
             assign_candidate_language(xmp_path, &candidate);
@@ -3713,6 +3842,10 @@ namespace {
             role     = MetadataConceptRole::Creator;
             priority = 76U;
             break;
+        case kExifCopyrightTag:
+            role     = MetadataConceptRole::CopyrightNotice;
+            priority = 76U;
+            break;
         case kExifXpAuthorTag:
             role     = MetadataConceptRole::Creator;
             priority = 80U;
@@ -3723,7 +3856,7 @@ namespace {
             break;
         default: return;
         }
-        append_descriptive_text_candidate(store, id, role, priority, {}, {},
+        append_descriptive_text_candidate(store, id, role, priority, {}, {}, {},
                                           out);
     }
 
@@ -3742,6 +3875,11 @@ namespace {
         case kIptcKeywordsDataset: role = MetadataConceptRole::Keywords; break;
         case kIptcBylineDataset: role = MetadataConceptRole::Creator; break;
         case kIptcHeadlineDataset: role = MetadataConceptRole::Headline; break;
+        case kIptcCreditDataset: role = MetadataConceptRole::CreditLine; break;
+        case kIptcSourceDataset: role = MetadataConceptRole::Source; break;
+        case kIptcCopyrightNoticeDataset:
+            role = MetadataConceptRole::CopyrightNotice;
+            break;
         case kIptcCaptionDataset:
             role = MetadataConceptRole::Description;
             break;
@@ -3763,7 +3901,8 @@ namespace {
         const std::string_view scope = descriptive_role_is_location(role)
                                            ? std::string_view("LocationCreated")
                                            : std::string_view {};
-        append_descriptive_text_candidate(store, id, role, 86U, scope, {}, out);
+        append_descriptive_text_candidate(store, id, role, 86U, scope, {}, {},
+                                          out);
     }
 
     static void append_xmp_descriptive_candidate(const MetaStore& store,
@@ -3776,6 +3915,7 @@ namespace {
         const std::string_view leaf = xmp_property_leaf(path);
         MetadataConceptRole role    = MetadataConceptRole::Primary;
         std::string location_scope;
+        std::string record_scope;
         uint8_t priority = 0U;
 
         if (xmp_schema_matches(store, entry, kDcXmpSchema)) {
@@ -3787,11 +3927,17 @@ namespace {
                 role = MetadataConceptRole::Creator;
             } else if (ascii_equal_ci(leaf, "subject")) {
                 role = MetadataConceptRole::Keywords;
+            } else if (ascii_equal_ci(leaf, "rights")) {
+                role = MetadataConceptRole::CopyrightNotice;
             }
             priority = 100U;
         } else if (xmp_schema_matches(store, entry, kPhotoshopXmpSchema)) {
             if (ascii_equal_ci(leaf, "Headline")) {
                 role = MetadataConceptRole::Headline;
+            } else if (ascii_equal_ci(leaf, "Credit")) {
+                role = MetadataConceptRole::CreditLine;
+            } else if (ascii_equal_ci(leaf, "Source")) {
+                role = MetadataConceptRole::Source;
             } else {
                 role = descriptive_location_role_for_leaf(leaf);
                 if (descriptive_role_is_location(role)) {
@@ -3812,9 +3958,56 @@ namespace {
             priority = 96U;
         } else if (xmp_schema_matches(store, entry, kIptcExtXmpSchema)) {
             if (!descriptive_xmp_location_scope(path, &location_scope)) {
-                return;
+                if (ascii_equal_ci(leaf, "DigitalSourceType")) {
+                    role = MetadataConceptRole::DigitalSourceType;
+                } else {
+                    return;
+                }
+            } else {
+                role = descriptive_location_role_for_leaf(leaf);
             }
-            role     = descriptive_location_role_for_leaf(leaf);
+            priority = 100U;
+        } else if (xmp_schema_matches(store, entry, kXmpRightsSchema)) {
+            if (ascii_equal_ci(leaf, "Certificate")) {
+                role = MetadataConceptRole::RightsCertificate;
+            } else if (ascii_equal_ci(leaf, "Marked")) {
+                role = MetadataConceptRole::RightsMarked;
+            } else if (ascii_equal_ci(leaf, "Owner")) {
+                role = MetadataConceptRole::RightsHolderName;
+            } else if (ascii_equal_ci(leaf, "UsageTerms")) {
+                role = MetadataConceptRole::RightsUsageTerms;
+            } else if (ascii_equal_ci(leaf, "WebStatement")) {
+                role = MetadataConceptRole::RightsWebStatement;
+            }
+            priority = 100U;
+        } else if (xmp_schema_matches(store, entry, kPlusXmpSchema)) {
+            if (ascii_equal_ci(leaf, "CopyrightStatus")) {
+                role = MetadataConceptRole::CopyrightStatus;
+            } else if (ascii_equal_ci(leaf, "CopyrightOwnerName")) {
+                role = MetadataConceptRole::RightsHolderName;
+                record_scope.assign(
+                    descriptive_xmp_record_scope(path, "CopyrightOwner"));
+            } else if (ascii_equal_ci(leaf, "CopyrightOwnerID")) {
+                role = MetadataConceptRole::RightsHolderIdentifier;
+                record_scope.assign(
+                    descriptive_xmp_record_scope(path, "CopyrightOwner"));
+            } else if (ascii_equal_ci(leaf, "LicenseID")) {
+                role = MetadataConceptRole::LicenseIdentifier;
+            } else if (ascii_equal_ci(leaf, "TermsAndConditionsText")) {
+                role = MetadataConceptRole::RightsUsageTerms;
+            } else if (ascii_equal_ci(leaf, "TermsAndConditionsURL")) {
+                role = MetadataConceptRole::LicenseTermsUrl;
+            } else if (ascii_equal_ci(leaf, "LicensorName")) {
+                role = MetadataConceptRole::LicensorName;
+                record_scope.assign(
+                    descriptive_xmp_record_scope(path, "Licensor"));
+            } else if (ascii_equal_ci(leaf, "LicensorID")) {
+                role = MetadataConceptRole::LicensorIdentifier;
+                record_scope.assign(
+                    descriptive_xmp_record_scope(path, "Licensor"));
+            } else if (ascii_equal_ci(leaf, "CreditLineRequired")) {
+                role = MetadataConceptRole::CreditLineRequired;
+            }
             priority = 100U;
         } else {
             return;
@@ -3823,7 +4016,8 @@ namespace {
             return;
         }
         append_descriptive_text_candidate(store, id, role, priority,
-                                          location_scope, path, out);
+                                          location_scope, record_scope, path,
+                                          out);
     }
 
     static void append_descriptive_candidates(const MetaStore& store,
@@ -4018,7 +4212,23 @@ namespace {
         case MetadataConceptRole::Headline:
         case MetadataConceptRole::Description:
         case MetadataConceptRole::Creator:
-        case MetadataConceptRole::Keywords: break;
+        case MetadataConceptRole::Keywords:
+        case MetadataConceptRole::CopyrightNotice:
+        case MetadataConceptRole::CopyrightStatus:
+        case MetadataConceptRole::RightsUsageTerms:
+        case MetadataConceptRole::RightsWebStatement:
+        case MetadataConceptRole::RightsCertificate:
+        case MetadataConceptRole::RightsMarked:
+        case MetadataConceptRole::RightsHolderName:
+        case MetadataConceptRole::RightsHolderIdentifier:
+        case MetadataConceptRole::LicenseIdentifier:
+        case MetadataConceptRole::LicenseTermsUrl:
+        case MetadataConceptRole::LicensorName:
+        case MetadataConceptRole::LicensorIdentifier:
+        case MetadataConceptRole::CreditLine:
+        case MetadataConceptRole::CreditLineRequired:
+        case MetadataConceptRole::Source:
+        case MetadataConceptRole::DigitalSourceType: break;
         }
         return false;
     }
@@ -4029,6 +4239,8 @@ namespace {
         case MetadataConceptRole::Title:
         case MetadataConceptRole::Headline:
         case MetadataConceptRole::Description:
+        case MetadataConceptRole::CopyrightNotice:
+        case MetadataConceptRole::RightsUsageTerms:
         case MetadataConceptRole::LocationName:
         case MetadataConceptRole::Sublocation:
         case MetadataConceptRole::City:
@@ -4244,7 +4456,23 @@ namespace {
         case MetadataConceptRole::CountryName:
         case MetadataConceptRole::CountryCode:
         case MetadataConceptRole::WorldRegion:
-        case MetadataConceptRole::LocationIdentifier: break;
+        case MetadataConceptRole::LocationIdentifier:
+        case MetadataConceptRole::CopyrightNotice:
+        case MetadataConceptRole::CopyrightStatus:
+        case MetadataConceptRole::RightsUsageTerms:
+        case MetadataConceptRole::RightsWebStatement:
+        case MetadataConceptRole::RightsCertificate:
+        case MetadataConceptRole::RightsMarked:
+        case MetadataConceptRole::RightsHolderName:
+        case MetadataConceptRole::RightsHolderIdentifier:
+        case MetadataConceptRole::LicenseIdentifier:
+        case MetadataConceptRole::LicenseTermsUrl:
+        case MetadataConceptRole::LicensorName:
+        case MetadataConceptRole::LicensorIdentifier:
+        case MetadataConceptRole::CreditLine:
+        case MetadataConceptRole::CreditLineRequired:
+        case MetadataConceptRole::Source:
+        case MetadataConceptRole::DigitalSourceType: break;
         }
         return 0.0;
     }
@@ -4510,6 +4738,22 @@ namespace {
             MetadataConceptRole::CountryCode,
             MetadataConceptRole::WorldRegion,
             MetadataConceptRole::LocationIdentifier,
+            MetadataConceptRole::CopyrightNotice,
+            MetadataConceptRole::CopyrightStatus,
+            MetadataConceptRole::RightsUsageTerms,
+            MetadataConceptRole::RightsWebStatement,
+            MetadataConceptRole::RightsCertificate,
+            MetadataConceptRole::RightsMarked,
+            MetadataConceptRole::RightsHolderName,
+            MetadataConceptRole::RightsHolderIdentifier,
+            MetadataConceptRole::LicenseIdentifier,
+            MetadataConceptRole::LicenseTermsUrl,
+            MetadataConceptRole::LicensorName,
+            MetadataConceptRole::LicensorIdentifier,
+            MetadataConceptRole::CreditLine,
+            MetadataConceptRole::CreditLineRequired,
+            MetadataConceptRole::Source,
+            MetadataConceptRole::DigitalSourceType,
             MetadataConceptRole::Timestamp,
             MetadataConceptRole::Crop,
             MetadataConceptRole::ActiveArea,
@@ -4809,7 +5053,23 @@ metadata_raw_applicability_for_descriptor(
     case MetadataConceptRole::CountryName:
     case MetadataConceptRole::CountryCode:
     case MetadataConceptRole::WorldRegion:
-    case MetadataConceptRole::LocationIdentifier: break;
+    case MetadataConceptRole::LocationIdentifier:
+    case MetadataConceptRole::CopyrightNotice:
+    case MetadataConceptRole::CopyrightStatus:
+    case MetadataConceptRole::RightsUsageTerms:
+    case MetadataConceptRole::RightsWebStatement:
+    case MetadataConceptRole::RightsCertificate:
+    case MetadataConceptRole::RightsMarked:
+    case MetadataConceptRole::RightsHolderName:
+    case MetadataConceptRole::RightsHolderIdentifier:
+    case MetadataConceptRole::LicenseIdentifier:
+    case MetadataConceptRole::LicenseTermsUrl:
+    case MetadataConceptRole::LicensorName:
+    case MetadataConceptRole::LicensorIdentifier:
+    case MetadataConceptRole::CreditLine:
+    case MetadataConceptRole::CreditLineRequired:
+    case MetadataConceptRole::Source:
+    case MetadataConceptRole::DigitalSourceType: break;
     }
     return MetadataRawApplicabilityState::Unknown;
 }
@@ -4934,6 +5194,23 @@ metadata_concept_role_name(MetadataConceptRole role) noexcept
     case MetadataConceptRole::CountryCode: return "country_code";
     case MetadataConceptRole::WorldRegion: return "world_region";
     case MetadataConceptRole::LocationIdentifier: return "location_identifier";
+    case MetadataConceptRole::CopyrightNotice: return "copyright_notice";
+    case MetadataConceptRole::CopyrightStatus: return "copyright_status";
+    case MetadataConceptRole::RightsUsageTerms: return "rights_usage_terms";
+    case MetadataConceptRole::RightsWebStatement: return "rights_web_statement";
+    case MetadataConceptRole::RightsCertificate: return "rights_certificate";
+    case MetadataConceptRole::RightsMarked: return "rights_marked";
+    case MetadataConceptRole::RightsHolderName: return "rights_holder_name";
+    case MetadataConceptRole::RightsHolderIdentifier:
+        return "rights_holder_identifier";
+    case MetadataConceptRole::LicenseIdentifier: return "license_identifier";
+    case MetadataConceptRole::LicenseTermsUrl: return "license_terms_url";
+    case MetadataConceptRole::LicensorName: return "licensor_name";
+    case MetadataConceptRole::LicensorIdentifier: return "licensor_identifier";
+    case MetadataConceptRole::CreditLine: return "credit_line";
+    case MetadataConceptRole::CreditLineRequired: return "credit_line_required";
+    case MetadataConceptRole::Source: return "source";
+    case MetadataConceptRole::DigitalSourceType: return "digital_source_type";
     }
     return "unknown";
 }

@@ -321,6 +321,60 @@ TEST(MetadataQuery, ReconcilesDescriptiveExifIptcXmpEntries)
     EXPECT_EQ(dispatched.matches.size(), result.matches.size());
 }
 
+TEST(MetadataQuery, ClassifiesRightsLicenseCreditAndSourceEntries)
+{
+    MetaStore store;
+    const EntryId exif_rights = add_exif_text(&store, "ifd0", 0x8298U,
+                                              "Copyright Example");
+    const EntryId iptc_credit = add_iptc_text(&store, 2U, 110U,
+                                              "Example Studio");
+    const EntryId iptc_source = add_iptc_text(&store, 2U, 115U,
+                                              "Example Archive");
+    const EntryId xmp_terms
+        = add_xmp_text(&store, "http://ns.adobe.com/xap/1.0/rights/",
+                       "xmpRights:UsageTerms[@xml:lang=x-default]",
+                       "Editorial use only");
+    const EntryId plus_licensor
+        = add_xmp_text(&store, "http://ns.useplus.org/ldf/xmp/1.0/",
+                       "Licensor[1]/LicensorName", "Example Agency");
+    const EntryId digital_source
+        = add_xmp_text(&store, "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+                       "DigitalSourceType", "digitalCapture");
+    store.finalize();
+
+    const MetadataQueryResult result = query_descriptive_metadata(store);
+
+    const MetadataQueryMatch* rights = find_match_for_entry(result,
+                                                            exif_rights);
+    const MetadataQueryMatch* credit = find_match_for_entry(result,
+                                                            iptc_credit);
+    const MetadataQueryMatch* source = find_match_for_entry(result,
+                                                            iptc_source);
+    const MetadataQueryMatch* terms  = find_match_for_entry(result, xmp_terms);
+    const MetadataQueryMatch* licensor = find_match_for_entry(result,
+                                                              plus_licensor);
+    const MetadataQueryMatch* source_type
+        = find_match_for_entry(result, digital_source);
+    ASSERT_NE(rights, nullptr);
+    ASSERT_NE(credit, nullptr);
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(terms, nullptr);
+    ASSERT_NE(licensor, nullptr);
+    ASSERT_NE(source_type, nullptr);
+    EXPECT_EQ(rights->semantic, MetadataQuerySemanticKind::Rights);
+    EXPECT_EQ(credit->semantic, MetadataQuerySemanticKind::Credit);
+    EXPECT_EQ(source->semantic, MetadataQuerySemanticKind::Source);
+    EXPECT_EQ(terms->semantic, MetadataQuerySemanticKind::License);
+    EXPECT_EQ(licensor->semantic, MetadataQuerySemanticKind::License);
+    EXPECT_EQ(source_type->semantic, MetadataQuerySemanticKind::Source);
+    EXPECT_TRUE(rights->exact_match);
+    EXPECT_EQ(rights->matched_terms, 0U);
+    EXPECT_GE(rights->confidence, 90U);
+    EXPECT_STREQ(metadata_query_semantic_kind_name(
+                     MetadataQuerySemanticKind::License),
+                 "license");
+}
+
 TEST(MetadataQuery, DoesNotPairDngCropAcrossIfds)
 {
     MetaStore store;

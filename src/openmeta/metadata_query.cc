@@ -22,36 +22,47 @@
 namespace openmeta {
 namespace {
 
-    static constexpr uint16_t kDngDefaultCropOriginTag         = 0xC61FU;
-    static constexpr uint16_t kDngDefaultCropSizeTag           = 0xC620U;
-    static constexpr uint16_t kDngActiveAreaTag                = 0xC68DU;
-    static constexpr uint16_t kDngMaskedAreasTag               = 0xC68EU;
-    static constexpr uint16_t kExifDocumentNameTag             = 0x010DU;
-    static constexpr uint16_t kExifImageDescriptionTag         = 0x010EU;
-    static constexpr uint16_t kExifOrientationTag              = 0x0112U;
-    static constexpr uint16_t kExifArtistTag                   = 0x013BU;
-    static constexpr uint16_t kExifThumbnailOrientationTag     = 0x5029U;
-    static constexpr uint16_t kExifExposureTimeTag             = 0x829AU;
-    static constexpr uint16_t kExifFNumberTag                  = 0x829DU;
-    static constexpr uint16_t kExifExposureProgramTag          = 0x8822U;
-    static constexpr uint16_t kExifPhotographicSensitivityTag  = 0x8827U;
-    static constexpr uint16_t kExifShutterSpeedValueTag        = 0x9201U;
-    static constexpr uint16_t kExifApertureValueTag            = 0x9202U;
-    static constexpr uint16_t kExifBrightnessValueTag          = 0x9203U;
-    static constexpr uint16_t kExifExposureBiasValueTag        = 0x9204U;
-    static constexpr uint16_t kExifMaxApertureValueTag         = 0x9205U;
-    static constexpr uint16_t kExifLightSourceTag              = 0x9208U;
-    static constexpr uint16_t kExifExposureIndexTag            = 0x9215U;
-    static constexpr uint16_t kExifColorSpaceTag               = 0xA001U;
-    static constexpr uint16_t kExifWhiteBalanceTag             = 0xA403U;
-    static constexpr uint16_t kExifGainControlTag              = 0xA407U;
-    static constexpr uint16_t kExifCfaRepeatPatternDimTag      = 0x828DU;
-    static constexpr uint16_t kExifCfaPatternTag               = 0x828EU;
-    static constexpr uint16_t kExifCfaPattern2Tag              = 0xA302U;
-    static constexpr uint16_t kExifXpTitleTag                  = 0x9C9BU;
-    static constexpr uint16_t kExifXpCommentTag                = 0x9C9CU;
-    static constexpr uint16_t kExifXpAuthorTag                 = 0x9C9DU;
-    static constexpr uint16_t kExifXpKeywordsTag               = 0x9C9EU;
+    static constexpr uint16_t kDngDefaultCropOriginTag        = 0xC61FU;
+    static constexpr uint16_t kDngDefaultCropSizeTag          = 0xC620U;
+    static constexpr uint16_t kDngActiveAreaTag               = 0xC68DU;
+    static constexpr uint16_t kDngMaskedAreasTag              = 0xC68EU;
+    static constexpr uint16_t kExifDocumentNameTag            = 0x010DU;
+    static constexpr uint16_t kExifImageDescriptionTag        = 0x010EU;
+    static constexpr uint16_t kExifOrientationTag             = 0x0112U;
+    static constexpr uint16_t kExifArtistTag                  = 0x013BU;
+    static constexpr uint16_t kExifCopyrightTag               = 0x8298U;
+    static constexpr uint16_t kExifThumbnailOrientationTag    = 0x5029U;
+    static constexpr uint16_t kExifExposureTimeTag            = 0x829AU;
+    static constexpr uint16_t kExifFNumberTag                 = 0x829DU;
+    static constexpr uint16_t kExifExposureProgramTag         = 0x8822U;
+    static constexpr uint16_t kExifPhotographicSensitivityTag = 0x8827U;
+    static constexpr uint16_t kExifShutterSpeedValueTag       = 0x9201U;
+    static constexpr uint16_t kExifApertureValueTag           = 0x9202U;
+    static constexpr uint16_t kExifBrightnessValueTag         = 0x9203U;
+    static constexpr uint16_t kExifExposureBiasValueTag       = 0x9204U;
+    static constexpr uint16_t kExifMaxApertureValueTag        = 0x9205U;
+    static constexpr uint16_t kExifLightSourceTag             = 0x9208U;
+    static constexpr uint16_t kExifExposureIndexTag           = 0x9215U;
+    static constexpr uint16_t kExifColorSpaceTag              = 0xA001U;
+    static constexpr uint16_t kExifWhiteBalanceTag            = 0xA403U;
+    static constexpr uint16_t kExifGainControlTag             = 0xA407U;
+    static constexpr uint16_t kExifCfaRepeatPatternDimTag     = 0x828DU;
+    static constexpr uint16_t kExifCfaPatternTag              = 0x828EU;
+    static constexpr uint16_t kExifCfaPattern2Tag             = 0xA302U;
+    static constexpr uint16_t kExifXpTitleTag                 = 0x9C9BU;
+    static constexpr uint16_t kExifXpCommentTag               = 0x9C9CU;
+    static constexpr uint16_t kExifXpAuthorTag                = 0x9C9DU;
+    static constexpr uint16_t kExifXpKeywordsTag              = 0x9C9EU;
+    static constexpr std::string_view kDcXmpSchema
+        = "http://purl.org/dc/elements/1.1/";
+    static constexpr std::string_view kPhotoshopXmpSchema
+        = "http://ns.adobe.com/photoshop/1.0/";
+    static constexpr std::string_view kIptcExtXmpSchema
+        = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
+    static constexpr std::string_view kXmpRightsSchema
+        = "http://ns.adobe.com/xap/1.0/rights/";
+    static constexpr std::string_view kPlusXmpSchema
+        = "http://ns.useplus.org/ldf/xmp/1.0/";
     static constexpr uint16_t kPanasonicLinearityLimitRedTag   = 0x000EU;
     static constexpr uint16_t kPanasonicLinearityLimitGreenTag = 0x000FU;
     static constexpr uint16_t kPanasonicLinearityLimitBlueTag  = 0x0010U;
@@ -1232,6 +1243,9 @@ namespace {
         case 25U: return "Keywords";
         case 80U: return "By-line";
         case 105U: return "Headline";
+        case 110U: return "Credit";
+        case 115U: return "Source";
+        case 116U: return "CopyrightNotice";
         case 120U: return "Caption-Abstract";
         default: break;
         }
@@ -1259,17 +1273,18 @@ namespace {
 
     static std::string_view xmp_leaf_property(std::string_view path) noexcept
     {
-        size_t start = 0U;
-        for (size_t i = 0U; i < path.size(); ++i) {
-            if (path[i] == '/' || path[i] == ':') {
-                start = i + 1U;
-            }
+        size_t start                = 0U;
+        const size_t path_separator = path.rfind('/');
+        if (path_separator != std::string_view::npos) {
+            start = path_separator + 1U;
         }
-        size_t end = path.size();
-        for (size_t i = start; i < path.size(); ++i) {
-            if (path[i] == '[') {
-                end = i;
-                break;
+        size_t end = path.find('[', start);
+        if (end == std::string_view::npos) {
+            end = path.size();
+        }
+        for (size_t i = start; i < end; ++i) {
+            if (path[i] == ':') {
+                start = i + 1U;
             }
         }
         return path.substr(start, end - start);
@@ -1305,6 +1320,73 @@ namespace {
             return static_cast<uint32_t>(MetadataQueryMatchTerm::Keywords);
         }
         return 0U;
+    }
+
+    static MetadataQuerySemanticKind
+    xmp_descriptive_exact_semantic(std::string_view ns,
+                                   std::string_view path) noexcept
+    {
+        const std::string_view leaf = xmp_leaf_property(path);
+        if (ns == kDcXmpSchema
+            && equals_ascii_case_insensitive(leaf, "rights")) {
+            return MetadataQuerySemanticKind::Rights;
+        }
+        if (ns == kPhotoshopXmpSchema) {
+            if (equals_ascii_case_insensitive(leaf, "Credit")) {
+                return MetadataQuerySemanticKind::Credit;
+            }
+            if (equals_ascii_case_insensitive(leaf, "Source")) {
+                return MetadataQuerySemanticKind::Source;
+            }
+        }
+        if (ns == kIptcExtXmpSchema
+            && equals_ascii_case_insensitive(leaf, "DigitalSourceType")) {
+            return MetadataQuerySemanticKind::Source;
+        }
+        if (ns == kXmpRightsSchema) {
+            if (equals_ascii_case_insensitive(leaf, "UsageTerms")) {
+                return MetadataQuerySemanticKind::License;
+            }
+            if (equals_ascii_case_insensitive(leaf, "Certificate")
+                || equals_ascii_case_insensitive(leaf, "Marked")
+                || equals_ascii_case_insensitive(leaf, "Owner")
+                || equals_ascii_case_insensitive(leaf, "WebStatement")) {
+                return MetadataQuerySemanticKind::Rights;
+            }
+        }
+        if (ns == kPlusXmpSchema) {
+            if (equals_ascii_case_insensitive(leaf, "LicenseID")
+                || equals_ascii_case_insensitive(leaf, "TermsAndConditionsText")
+                || equals_ascii_case_insensitive(leaf, "TermsAndConditionsURL")
+                || equals_ascii_case_insensitive(leaf, "LicensorName")
+                || equals_ascii_case_insensitive(leaf, "LicensorID")) {
+                return MetadataQuerySemanticKind::License;
+            }
+            if (equals_ascii_case_insensitive(leaf, "CreditLineRequired")) {
+                return MetadataQuerySemanticKind::Credit;
+            }
+            if (equals_ascii_case_insensitive(leaf, "CopyrightStatus")
+                || equals_ascii_case_insensitive(leaf, "CopyrightOwnerName")
+                || equals_ascii_case_insensitive(leaf, "CopyrightOwnerID")) {
+                return MetadataQuerySemanticKind::Rights;
+            }
+        }
+        return MetadataQuerySemanticKind::Unknown;
+    }
+
+    static MetadataQuerySemanticKind
+    iptc_descriptive_exact_semantic(uint16_t record, uint16_t dataset) noexcept
+    {
+        if (record != 2U) {
+            return MetadataQuerySemanticKind::Unknown;
+        }
+        switch (dataset) {
+        case 110U: return MetadataQuerySemanticKind::Credit;
+        case 115U: return MetadataQuerySemanticKind::Source;
+        case 116U: return MetadataQuerySemanticKind::Rights;
+        default: break;
+        }
+        return MetadataQuerySemanticKind::Unknown;
     }
 
     static uint32_t color_profile_terms() noexcept
@@ -2101,7 +2183,9 @@ namespace {
                              MetadataQuerySemanticKind explicit_semantic
                              = MetadataQuerySemanticKind::Unknown)
     {
-        if (!result || terms == 0U) {
+        if (!result
+            || (terms == 0U
+                && explicit_semantic == MetadataQuerySemanticKind::Unknown)) {
             return;
         }
         MetadataQueryMatch match;
@@ -2111,7 +2195,8 @@ namespace {
                              ? explicit_semantic
                              : semantic_from_terms(kind, terms);
         match.shape    = value_shape(entry.value);
-        match.confidence    = confidence_from_terms(kind, terms);
+        match.confidence    = terms == 0U ? 90U
+                                          : confidence_from_terms(kind, terms);
         match.matched_terms = terms;
         match.exact_match   = provenance.exact_match;
         match.fuzzy_match   = provenance.fuzzy_match;
@@ -2177,6 +2262,11 @@ namespace {
         }
         MetadataQuerySemanticKind explicit_semantic
             = MetadataQuerySemanticKind::Unknown;
+        if (kind == MetadataQueryKind::Descriptive
+            && entry.key.data.exif_tag.tag == kExifCopyrightTag) {
+            note_exact_match(&provenance);
+            explicit_semantic = MetadataQuerySemanticKind::Rights;
+        }
         if (kind == MetadataQueryKind::Color
             && entry.key.data.exif_tag.tag == kExifColorSpaceTag) {
             explicit_semantic = MetadataQuerySemanticKind::ColorProfile;
@@ -2233,7 +2323,12 @@ namespace {
         }
         MetadataQuerySemanticKind explicit_semantic
             = MetadataQuerySemanticKind::Unknown;
-        if (kind == MetadataQueryKind::Color) {
+        if (kind == MetadataQueryKind::Descriptive) {
+            explicit_semantic = xmp_descriptive_exact_semantic(ns, path);
+            if (explicit_semantic != MetadataQuerySemanticKind::Unknown) {
+                note_exact_match(&provenance);
+            }
+        } else if (kind == MetadataQueryKind::Color) {
             const uint32_t profile_terms = xmp_color_profile_terms(path,
                                                                    &provenance);
             if (profile_terms != 0U) {
@@ -2265,14 +2360,19 @@ namespace {
         const uint16_t record  = entry.key.data.iptc_dataset.record;
         const uint16_t dataset = entry.key.data.iptc_dataset.dataset;
         const uint32_t terms = exact_iptc_terms_for_kind(record, dataset, kind);
-        if (terms == 0U) {
+        const MetadataQuerySemanticKind explicit_semantic
+            = kind == MetadataQueryKind::Descriptive
+                  ? iptc_descriptive_exact_semantic(record, dataset)
+                  : MetadataQuerySemanticKind::Unknown;
+        if (terms == 0U
+            && explicit_semantic == MetadataQuerySemanticKind::Unknown) {
             return;
         }
         MatchProvenanceState provenance;
         note_exact_match(&provenance);
         append_match(result, entry_id, entry, "iptc",
                      iptc_descriptive_dataset_name(record, dataset), kind,
-                     terms, provenance);
+                     terms, provenance, explicit_semantic);
     }
 
     static void append_icc_match_if_relevant(MetadataQueryResult* result,
@@ -3842,6 +3942,10 @@ metadata_query_semantic_kind_name(MetadataQuerySemanticKind kind) noexcept
         return "raw_calibration_curve";
     case MetadataQuerySemanticKind::RawCurveControlPoints:
         return "raw_curve_control_points";
+    case MetadataQuerySemanticKind::Rights: return "rights";
+    case MetadataQuerySemanticKind::License: return "license";
+    case MetadataQuerySemanticKind::Credit: return "credit";
+    case MetadataQuerySemanticKind::Source: return "source";
     }
     return "unknown";
 }

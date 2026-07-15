@@ -21965,6 +21965,39 @@ TEST(MetadataTransferApi, TransferConceptDiagnosticsPreserveDescriptiveScopes)
     EXPECT_TRUE(contains_entry_id(location->source_entries, location_name_id));
 }
 
+TEST(MetadataTransferApi, TransferConceptDiagnosticsPreserveRightsRecordScope)
+{
+    openmeta::MetaStore store;
+    const openmeta::BlockId block = store.add_block(openmeta::BlockInfo {});
+    ASSERT_NE(block, openmeta::kInvalidBlockId);
+
+    openmeta::Entry licensor;
+    licensor.key
+        = openmeta::make_xmp_property_key(store.arena(),
+                                          "http://ns.useplus.org/ldf/xmp/1.0/",
+                                          "Licensor[2]/LicensorName");
+    licensor.value        = openmeta::make_text(store.arena(), "Agency Two",
+                                                openmeta::TextEncoding::Utf8);
+    licensor.origin.block = block;
+    licensor.origin.order_in_block      = 0U;
+    const openmeta::EntryId licensor_id = store.add_entry(licensor);
+    ASSERT_NE(licensor_id, openmeta::kInvalidEntryId);
+    store.finalize();
+
+    const openmeta::TransferConceptDiagnostics diagnostics
+        = openmeta::transfer_concept_diagnostics_from_store(
+            store, openmeta::TransferSafetyMode::RenderedImage);
+    const openmeta::TransferConceptDiagnostic* rights
+        = find_transfer_concept_diagnostic(
+            diagnostics, openmeta::MetadataConceptKind::Descriptive,
+            openmeta::MetadataConceptRole::LicensorName,
+            openmeta::TransferConceptDiagnosticAction::Keep);
+
+    ASSERT_NE(rights, nullptr);
+    EXPECT_EQ(rights->record_scope, "Licensor[2]");
+    EXPECT_TRUE(contains_entry_id(rights->source_entries, licensor_id));
+}
+
 TEST(MetadataTransferApi, TransferConceptDiagnosticsUseRawDataDescriptor)
 {
     openmeta::MetaStore store;

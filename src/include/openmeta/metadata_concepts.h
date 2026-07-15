@@ -106,6 +106,22 @@ enum class MetadataConceptRole : uint8_t {
     CountryCode,
     WorldRegion,
     LocationIdentifier,
+    CopyrightNotice,
+    CopyrightStatus,
+    RightsUsageTerms,
+    RightsWebStatement,
+    RightsCertificate,
+    RightsMarked,
+    RightsHolderName,
+    RightsHolderIdentifier,
+    LicenseIdentifier,
+    LicenseTermsUrl,
+    LicensorName,
+    LicensorIdentifier,
+    CreditLine,
+    CreditLineRequired,
+    Source,
+    DigitalSourceType,
 };
 
 enum class MetadataConceptDateTimePrecision : uint8_t {
@@ -235,6 +251,8 @@ struct MetadataConceptCandidate final {
     uint8_t gps_altitude_reference_code = 0U;
     /// Structured XMP parent path, for example `LocationShown[1]`.
     std::string location_scope;
+    /// Structured metadata parent path, for example `Licensor[1]`.
+    std::string record_scope;
     /// Normalized language tag for localized descriptive values.
     std::string language;
 };

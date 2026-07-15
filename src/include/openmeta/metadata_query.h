@@ -60,6 +60,10 @@ enum class MetadataQuerySemanticKind : uint8_t {
     RawLinearityLimit,
     RawCalibrationCurve,
     RawCurveControlPoints,
+    Rights,
+    License,
+    Credit,
+    Source,
 };
 
 enum class MetadataQueryValueShape : uint8_t {
